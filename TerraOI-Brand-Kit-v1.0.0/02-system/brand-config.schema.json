@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TerraOI brand configuration",
+  "type": "object",
+  "required": [
+    "version",
+    "defaultMode",
+    "modes"
+  ],
+  "properties": {
+    "version": {
+      "type": "string"
+    },
+    "defaultMode": {
+      "enum": [
+        "terraoi",
+        "powered",
+        "customer"
+      ]
+    },
+    "modes": {
+      "type": "object",
+      "required": [
+        "terraoi",
+        "powered",
+        "customer"
+      ],
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "name",
+          "logo",
+          "favicon",
+          "primary",
+          "onPrimary",
+          "showPoweredBy"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "logo": {
+            "type": "string"
+          },
+          "favicon": {
+            "type": "string"
+          },
+          "primary": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "onPrimary": {
+            "type": "string"
+          },
+          "showPoweredBy": {
+            "type": "boolean"
+          }
+        }
+      }
+    }
+  }
+}

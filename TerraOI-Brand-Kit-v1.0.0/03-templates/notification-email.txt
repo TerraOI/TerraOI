@@ -1,0 +1,15 @@
+Subject: Your {{brand_name}} report is ready to review
+
+Hello {{first_name}},
+
+The operational report for {{reporting_period}} is ready in your workspace.
+Review observations, proposed actions, and outstanding approvals before taking action.
+
+Review report: {{report_url}}
+
+Regards,
+{{sender_name}}
+
+Sent to {{recipient_label}} for {{workspace_name}}.
+{{support_text}}
+{{attribution_text}}

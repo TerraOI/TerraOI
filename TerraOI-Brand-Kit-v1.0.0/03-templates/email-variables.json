@@ -1,0 +1,15 @@
+{
+  "brand_name": "Customer Brand",
+  "logo_url": "https://[approved-asset-host]/customer-logo.png",
+  "primary_color": "#183B66",
+  "on_primary_color": "#FFFFFF",
+  "first_name": "[First name]",
+  "reporting_period": "[Reporting period]",
+  "report_url": "https://[approved-workspace-host]/reports/[report-id]",
+  "sender_name": "Customer Brand",
+  "recipient_label": "[Recipient]",
+  "workspace_name": "[Workspace]",
+  "support_text": "Contact your workspace administrator.",
+  "attribution_html": "",
+  "attribution_text": ""
+}
