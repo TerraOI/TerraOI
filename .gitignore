@@ -1,0 +1,39 @@
+# --- OS / editor cruft ---
+.DS_Store
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+*.tmp
+*.swp
+
+# --- Editor / IDE ---
+.vscode/
+.idea/
+*.sublime-workspace
+
+# --- Secrets & local config ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+secrets.*
+
+# --- Logs & caches ---
+*.log
+logs/
+.cache/
+node_modules/
+
+# --- Build output (trim the sections you do not use) ---
+dist/
+build/
+out/
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.user
+bin/
+obj/
