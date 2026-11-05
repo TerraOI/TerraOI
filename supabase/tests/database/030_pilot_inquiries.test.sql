@@ -2,7 +2,7 @@
 -- Run with: pnpm db:test   (CI runs it on every PR)
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(27);
+select plan(37);
 
 -- Structure -----------------------------------------------------------------
 select has_schema('intake', 'intake schema exists');
@@ -32,6 +32,25 @@ select ok(
   'inquiry_writer cannot execute prune_pilot_inquiries'
 );
 
+-- API roles reach nothing in intake (builder review of #26, B4/B5) ------------------
+-- Not being in the exposed-schema list is a dashboard setting CI cannot see, so the ACLs are the
+-- control that has to hold, and these pin them for every API-facing role, service_role included.
+select ok(not has_schema_privilege('anon', 'intake', 'usage'), 'anon has no usage on schema intake');
+select ok(not has_schema_privilege('authenticated', 'intake', 'usage'), 'authenticated has no usage on schema intake');
+select ok(not has_schema_privilege('service_role', 'intake', 'usage'), 'service_role has no usage on schema intake');
+select ok(
+  not has_table_privilege('service_role', 'intake.pilot_inquiries', 'select, insert, update, delete'),
+  'service_role holds no privilege on intake.pilot_inquiries');
+select ok(not has_function_privilege('anon', 'intake.prune_pilot_inquiries()', 'execute'), 'anon cannot execute prune');
+select ok(not has_function_privilege('authenticated', 'intake.prune_pilot_inquiries()', 'execute'), 'authenticated cannot execute prune');
+select ok(not has_function_privilege('service_role', 'intake.prune_pilot_inquiries()', 'execute'), 'service_role cannot execute prune');
+select ok(
+  (select prosecdef from pg_proc where oid = 'intake.submit_pilot_inquiry_v1(text, text, text, text, text[], text, text)'::regprocedure),
+  'submit_pilot_inquiry_v1 is SECURITY DEFINER (so the search_path check above is not vacuous)');
+select ok(
+  (select prosecdef from pg_proc where oid = 'intake.prune_pilot_inquiries()'::regprocedure),
+  'prune_pilot_inquiries is SECURITY DEFINER');
+
 -- anon and authenticated: everything denied ----------------------------------
 set local role anon;
 select throws_ok($$ select * from intake.pilot_inquiries $$, '42501', null, 'anon cannot select');
@@ -42,6 +61,7 @@ select throws_ok(
 select throws_ok(
   $$ select intake.submit_pilot_inquiry_v1('a', 'a@b.co', 'c', null, array['uav'], null, repeat('a', 64)) $$,
   '42501', null, 'anon cannot execute submit_pilot_inquiry_v1');
+select throws_ok($$ select intake.prune_pilot_inquiries() $$, '42501', null, 'anon cannot run the retention prune');
 reset role;
 
 set local role authenticated;
