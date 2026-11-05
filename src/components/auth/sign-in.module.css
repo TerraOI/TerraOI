@@ -1,0 +1,250 @@
+/* T-131 sign-in screens. Brand colors arrive only as --primary, --on-primary, --accent on .page.
+   Neutral tokens mirror the brand kit (graphite, slate, mist, border); nothing imports from brand/. */
+
+.page {
+  --graphite: #17252b;
+  --slate: #52636b;
+  --mist: #f4f6f7;
+  --border: #dce3e6;
+  --radius-control: 6px;
+  --radius-card: 12px;
+
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: auto 1fr; /* mobile: brand panel is a header strip, not half the screen */
+  min-height: 100vh;
+  font-family: var(--font-sans), system-ui, sans-serif;
+  color: var(--graphite);
+  background: var(--mist);
+}
+
+@media (min-width: 768px) {
+  .page {
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    grid-template-rows: none;
+  }
+}
+
+/* Brand panel: a header strip on mobile, the left half from 768px. */
+.brandPanel {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 24px;
+  color: var(--on-primary);
+  background-color: var(--primary);
+  /* Survey contour lines, drawn in the on-primary color at low opacity. */
+  background-image:
+    repeating-radial-gradient(circle at 20% 110%, transparent 0 38px, color-mix(in srgb, var(--on-primary) 12%, transparent) 38px 39px),
+    repeating-radial-gradient(circle at 95% -10%, transparent 0 52px, color-mix(in srgb, var(--on-primary) 8%, transparent) 52px 53px);
+}
+
+@media (min-width: 768px) {
+  .brandPanel {
+    padding: 48px;
+  }
+}
+
+.brandName {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.tagline {
+  margin: 0;
+  max-width: 32ch;
+  opacity: 0.85;
+}
+
+@media (max-width: 767px) {
+  .tagline {
+    display: none;
+  }
+}
+
+.formPanel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  max-width: 400px;
+  padding: 32px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+
+.logo {
+  height: 32px;
+  width: auto;
+  align-self: flex-start;
+}
+
+.heading {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.label {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.input {
+  min-height: 44px;
+  padding: 0 12px;
+  font: inherit;
+  color: inherit;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: #fff;
+}
+
+.primary,
+.microsoft,
+.secondary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 0 16px;
+  font: inherit;
+  font-weight: 500;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.primary {
+  color: var(--on-primary);
+  background: var(--primary);
+  border: 1px solid var(--primary);
+}
+
+/* Microsoft's light-theme button: white fill, #8C8C8C border, #5E5E5E text. */
+.microsoft {
+  color: #5e5e5e;
+  background: #fff;
+  border: 1px solid #8c8c8c;
+}
+
+.secondary {
+  color: var(--primary);
+  background: transparent;
+  border: 1px solid var(--border);
+  list-style: none;
+}
+
+.secondary::-webkit-details-marker {
+  display: none;
+}
+
+.passwordToggle[open] > .secondary {
+  margin-bottom: 8px;
+}
+
+/* Chevron showing the toggle is expandable; points up once open. */
+.secondary::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-2px) rotate(45deg);
+  transition: transform 150ms ease;
+}
+
+.passwordToggle[open] > .secondary::after {
+  transform: translateY(2px) rotate(-135deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .secondary::after {
+    transition: none;
+  }
+}
+
+.msLogo {
+  flex: none;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--slate);
+  font-size: 0.875rem;
+}
+
+.divider::before,
+.divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.support {
+  margin: 0;
+  color: var(--slate);
+  font-size: 0.875rem;
+}
+
+.primary:focus-visible,
+.microsoft:focus-visible,
+.secondary:focus-visible,
+.input:focus-visible {
+  /* Two-tone so it stays visible whatever the tenant accent is: a fixed graphite ring,
+     then an accent halo outside it. */
+  outline: 2px solid var(--graphite);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px #fff, 0 0 0 6px var(--accent);
+}
+
+.status {
+  margin: 0;
+  min-height: 1.25rem;
+  font-size: 0.875rem;
+  color: var(--graphite);
+}
+
+.status:empty {
+  min-height: 0;
+}
+
+.body {
+  margin: 0;
+  color: var(--graphite);
+}
+
+.poweredBy {
+  margin: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  color: var(--slate);
+  font-size: 0.75rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
