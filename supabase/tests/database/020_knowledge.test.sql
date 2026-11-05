@@ -2,17 +2,21 @@
 -- data-class rules of plan §6.2/§12.4; source-version immutability (§7.2); the visible state
 -- set; the transactional outbox (§7.2 step 1); pinned index generations (§8.3, TOI-ADR-13);
 -- and the job idempotency key (§7.5).
+--
+-- Structure follows the supervisor's review of PR #12 (B5): every mutation a *member* must not
+-- be able to make is asserted as `authenticated` inside a tenant scope, so removing the
+-- select-only grants (B1) or the audience guard (B2) fails a test rather than quietly passing.
+-- The same mutations on the privileged path are asserted separately, so the guard triggers are
+-- pinned too: a reviewer RPC that writes with owner privileges still cannot clear a project,
+-- lower a class, rewrite a captured version or resurrect a revoked one (§20.4 item 2).
 -- Fixtures are the synthetic ones in supabase/seed.sql, applied by `supabase db reset`.
--- Style follows 010_tenancy.test.sql: capture temp tables are created and filled while the role
--- under test is active so RLS applies to the reads; the pgTAP assertions then run as the
--- migration owner. pg_temp.try_* helpers are SECURITY INVOKER and return the SQLSTATE instead
--- of aborting the test transaction.
--- Probe chunks use chunk_index >= 900, so the visibility counts filter them out and each
--- assertion measures the fixture corpus only.
+-- pg_temp.try_* helpers are SECURITY INVOKER and return the SQLSTATE instead of aborting the
+-- test transaction. Probe chunks use chunk_index >= 900 so the visibility counts, which filter
+-- on chunk_index < 900, always measure the fixture corpus.
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(61);
+select plan(77);
 
 -- ---------------------------------------------------------------- helpers
 create function pg_temp.try_scope(p_organisation_id uuid) returns text
@@ -34,6 +38,66 @@ begin
   begin
     insert into public.knowledge_collections (organisation_id, key, service_key, project_id, name, data_class)
       values (p_organisation_id, p_key, p_service_key, p_project_id, 'Probe ' || p_key, p_data_class);
+    return 'ok';
+  exception when others then
+    return sqlstate::text;
+  end;
+end;
+$fn$;
+
+create function pg_temp.try_collection_project_null(p_collection_id uuid) returns text
+language plpgsql security invoker as $fn$
+begin
+  begin
+    update public.knowledge_collections set project_id = null where id = p_collection_id;
+    return 'ok';
+  exception when others then
+    return sqlstate::text;
+  end;
+end;
+$fn$;
+
+create function pg_temp.try_collection_org(p_collection_id uuid, p_organisation_id uuid) returns text
+language plpgsql security invoker as $fn$
+begin
+  begin
+    update public.knowledge_collections set organisation_id = p_organisation_id where id = p_collection_id;
+    return 'ok';
+  exception when others then
+    return sqlstate::text;
+  end;
+end;
+$fn$;
+
+create function pg_temp.try_collection_class(p_collection_id uuid, p_data_class text) returns text
+language plpgsql security invoker as $fn$
+begin
+  begin
+    update public.knowledge_collections set data_class = p_data_class where id = p_collection_id;
+    return 'ok';
+  exception when others then
+    return sqlstate::text;
+  end;
+end;
+$fn$;
+
+create function pg_temp.try_source_owner(p_source_id uuid, p_user_id uuid) returns text
+language plpgsql security invoker as $fn$
+begin
+  begin
+    update public.knowledge_sources set owner_user_id = p_user_id where id = p_source_id;
+    return 'ok';
+  exception when others then
+    return sqlstate::text;
+  end;
+end;
+$fn$;
+
+create function pg_temp.try_version_uploader(p_source_version_id uuid, p_user_id uuid) returns text
+language plpgsql security invoker as $fn$
+begin
+  begin
+    update public.source_versions set uploaded_by = p_user_id where id = p_source_version_id;
     return 'ok';
   exception when others then
     return sqlstate::text;
@@ -117,14 +181,35 @@ end;
 $fn$;
 
 create function pg_temp.try_version_insert(p_organisation_id uuid, p_source_id uuid,
-                                           p_version_number int, p_content_hash text,
+                                           p_collection_id uuid, p_version_number int,
+                                           p_uploaded_by uuid, p_content_hash text,
                                            p_data_class text) returns text
 language plpgsql security invoker as $fn$
 begin
   begin
-    insert into public.source_versions (organisation_id, source_id, version_number, content_hash, object_ref, data_class)
-      values (p_organisation_id, p_source_id, p_version_number, p_content_hash,
-              'knowledge/fixture/probe-source/v1.bin', p_data_class);
+    insert into public.source_versions (organisation_id, source_id, collection_id, version_number,
+                                        uploaded_by, data_class, content_hash, object_ref)
+      values (p_organisation_id, p_source_id, p_collection_id, p_version_number,
+              p_uploaded_by, p_data_class, p_content_hash,
+              'knowledge/fixture/probe-source/v1.bin');
+    return 'ok';
+  exception when others then
+    return sqlstate::text;
+  end;
+end;
+$fn$;
+
+-- Same insert, but the capture identity is left out: provenance cannot be defaulted.
+create function pg_temp.try_version_insert_no_uploader(p_organisation_id uuid, p_source_id uuid,
+                                                       p_collection_id uuid, p_version_number int,
+                                                       p_content_hash text, p_data_class text) returns text
+language plpgsql security invoker as $fn$
+begin
+  begin
+    insert into public.source_versions (organisation_id, source_id, collection_id, version_number,
+                                        data_class, content_hash, object_ref)
+      values (p_organisation_id, p_source_id, p_collection_id, p_version_number,
+              p_data_class, p_content_hash, 'knowledge/fixture/probe-source/v2.bin');
     return 'ok';
   exception when others then
     return sqlstate::text;
@@ -220,7 +305,7 @@ create temp table t_out (case_name text, result text);
 create temp table t_count (case_name text, n int);
 reset role;
 
--- ---------------------------------------------------------------- schema shape and guardrails
+-- ---------------------------------------------------------------- 1-10 schema shape and guardrails
 select is((select count(*)::int
              from pg_class c
              join pg_namespace n on n.oid = c.relnamespace
@@ -264,7 +349,7 @@ select is((select count(*)::int
                      from unnest(con.confkey) k
                      join pg_attribute a on a.attrelid = con.confrelid and a.attnum = k)
                   = array['id', 'organisation_id']),
-  8::int, '4 knowledge children reach their parents only through composite (id, organisation_id) foreign keys (§6.2)');
+  9::int, '4 knowledge children reach their parents only through composite (id, organisation_id) foreign keys, including a version''s collection (§6.2)');
 
 select is((select has_table_privilege('anon', 'public.knowledge_collections', 'select')
              or has_table_privilege('anon', 'public.knowledge_chunks', 'select')
@@ -275,10 +360,14 @@ select is((select has_table_privilege('authenticated', 'public.source_versions',
              or has_table_privilege('authenticated', 'public.knowledge_chunks', 'delete')),
   false, '6 a member cannot hard-delete knowledge rows: the state machines and a retention job do (§7.5)');
 
-select is((select has_table_privilege('authenticated', 'public.chunk_embeddings', 'insert')
-             or has_table_privilege('authenticated', 'public.ingestion_jobs', 'update')
-             or has_table_privilege('authenticated', 'public.outbox_events', 'insert')),
-  false, '7 a member cannot write vectors, lease jobs or acknowledge outbox events: privileged server paths only (§13)');
+select is((select has_table_privilege('authenticated', 'public.knowledge_collections', 'insert')
+             or has_table_privilege('authenticated', 'public.knowledge_sources', 'insert')
+             or has_table_privilege('authenticated', 'public.source_versions', 'insert')
+             or has_table_privilege('authenticated', 'public.knowledge_chunks', 'insert')
+             or has_table_privilege('authenticated', 'public.knowledge_collections', 'update')
+             or has_table_privilege('authenticated', 'public.source_versions', 'update')
+             or has_table_privilege('authenticated', 'public.knowledge_chunks', 'update')),
+  false, '7 B1: a member holds no INSERT or UPDATE on any knowledge table; capture and the pipeline write through privileged paths (§4.3, §7.2)');
 
 select is((select count(*)::int
              from pg_class ic
@@ -295,97 +384,125 @@ select ok((select search_vector @@ to_tsquery('simple', 'synthetic & manual')
             where id = '81000000-0000-4000-8000-000000000001'),
   '9 the fixture chunk is findable through full-text search, so lexical retrieval works when the embedding route is down (§8.1)');
 
--- ---------------------------------------------------------------- tenant-scoped content identity
+select is((select count(*)::int
+             from pg_attribute a
+             join pg_class c on c.oid = a.attrelid
+             join pg_namespace n on n.oid = c.relnamespace
+            where n.nspname = 'public' and c.relname = 'source_versions'
+              and a.attname in ('collection_id', 'uploaded_by') and a.attnum > 0
+              and not a.attisdropped and a.attnotnull),
+  2::int, '10 B3/B4: a version names the collection it lives in and the identity that captured it, and neither may be left null');
+
+-- ---------------------------------------------------------------- 11-15 content identity, per collection
+-- The hashes below are the fixture hashes: 0f1e... is company1's public manual, 1a2b... its
+-- Site A note, 9f8e... company2's log. All are made-up 64-hex strings, not digests of anything.
 insert into t_out values
-  ('hash_other_tenant', pg_temp.try_version_insert(
-      '22222222-2222-4222-8222-222222222222', '62000000-0000-4000-8000-000000000001', 2,
+  ('hash_other_tenant', pg_temp.try_version_insert('22222222-2222-4222-8222-222222222222',
+      '62000000-0000-4000-8000-000000000001', '52000000-0000-4000-8000-000000000002', 2,
+      '00000000-0000-4000-8000-0000000000b1',
       '0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0', 'client_confidential')),
-  ('hash_same_tenant', pg_temp.try_version_insert(
-      '11111111-1111-4111-8111-111111111111', '61000000-0000-4000-8000-000000000002', 2,
-      '0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0', 'public'));
+  ('hash_other_collection', pg_temp.try_version_insert('11111111-1111-4111-8111-111111111111',
+      '61000000-0000-4000-8000-000000000001', '51000000-0000-4000-8000-000000000001', 2,
+      '00000000-0000-4000-8000-0000000000a1',
+      '1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809', 'public')),
+  ('hash_same_collection', pg_temp.try_version_insert('11111111-1111-4111-8111-111111111111',
+      '61000000-0000-4000-8000-000000000001', '51000000-0000-4000-8000-000000000001', 3,
+      '00000000-0000-4000-8000-0000000000a1',
+      '0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0', 'public')),
+  ('version_wrong_collection', pg_temp.try_version_insert('11111111-1111-4111-8111-111111111111',
+      '61000000-0000-4000-8000-000000000001', '51000000-0000-4000-8000-000000000002', 4,
+      '00000000-0000-4000-8000-0000000000a1',
+      '9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0', 'public')),
+  ('version_no_uploader', pg_temp.try_version_insert_no_uploader('11111111-1111-4111-8111-111111111111',
+      '61000000-0000-4000-8000-000000000001', '51000000-0000-4000-8000-000000000001', 5,
+      '7c1d2e3f4a5b69708192a3b4c5d6e7f87c1d2e3f4a5b69708192a3b4c5d6e7f8', 'public'));
 
 select is((select result from t_out where case_name = 'hash_other_tenant'), 'ok',
-  '10 one tenant may hold the same content hash as another: content identity is never global (§6.2)');
-select is((select result from t_out where case_name = 'hash_same_tenant'), '23505',
-  '11 the same content twice inside one tenant is deduplicated instead of indexed twice (§7.2 step 4)');
+  '11 one tenant may hold the same content hash as another: content identity is never global (§6.2)');
+select is((select result from t_out where case_name = 'hash_other_collection'), 'ok',
+  '12 B3: the same bytes may exist in two collections of one tenant, so a collision cannot reveal that a project corpus holds a document the uploader cannot read (§1.1)');
+select is((select result from t_out where case_name = 'hash_same_collection'), '23505',
+  '13 B3: within one collection the same content is still deduplicated rather than indexed twice (§7.2 step 4)');
+select is((select result from t_out where case_name = 'version_wrong_collection'), '23514',
+  '14 B3: a version cannot claim a collection other than its source''s, which is what makes the collection-scoped dedup key safe (§6.2)');
+select is((select result from t_out where case_name = 'version_no_uploader'), '23502',
+  '15 B4: a version with no capture identity is refused outright; provenance cannot be defaulted (issue #8)');
 
--- ---------------------------------------------------------------- company1 member (Site A member)
+-- ---------------------------------------------------------------- 16-29 company1 member (Site A member)
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
 insert into t_out values ('scope_a1', pg_temp.try_scope('11111111-1111-4111-8111-111111111111'));
 insert into t_coll select 'a1', id, organisation_id from public.knowledge_collections;
 insert into t_src select 'a1', id, organisation_id from public.knowledge_sources;
 insert into t_chunk select 'a1', id, organisation_id from public.knowledge_chunks where chunk_index < 900;
+-- B5: these five mutations were reachable through the member policies in the first draft.
 insert into t_out values
-  ('chunk_xtenant', pg_temp.try_chunk('11111111-1111-4111-8111-111111111111',
-      '72000000-0000-4000-8000-000000000001', 'public', 901, '{"page": 1}'::jsonb)),
-  ('collection_restricted', pg_temp.try_collection('11111111-1111-4111-8111-111111111111',
-      'probe-restricted', 'uav-compliance', null, 'restricted')),
-  ('collection_no_project', pg_temp.try_collection('11111111-1111-4111-8111-111111111111',
-      'probe-no-project', 'uav-compliance', null, 'client_confidential')),
-  ('collection_bogus_class', pg_temp.try_collection('11111111-1111-4111-8111-111111111111',
-      'probe-bogus-class', 'uav-compliance', null, 'secret')),
-  ('chunk_below_parent_class', pg_temp.try_chunk('11111111-1111-4111-8111-111111111111',
-      '71000000-0000-4000-8000-000000000002', 'public', 902, '{"page": 1}'::jsonb)),
-  ('chunk_bad_locator', pg_temp.try_chunk('11111111-1111-4111-8111-111111111111',
-      '71000000-0000-4000-8000-000000000001', 'public', 903, '{"page": "three"}'::jsonb)),
-  ('chunk_ok', pg_temp.try_chunk('11111111-1111-4111-8111-111111111111',
-      '71000000-0000-4000-8000-000000000001', 'public', 904, '{"page": 12, "section": "Maintenance"}'::jsonb));
+  ('member_publish_state', pg_temp.try_version_state('71000000-0000-4000-8000-000000000001', 'published')),
+  ('member_chunk_own_project', pg_temp.try_chunk('11111111-1111-4111-8111-111111111111',
+      '71000000-0000-4000-8000-000000000002', 'client_confidential', 901, '{"page": 1}'::jsonb)),
+  ('member_clear_project', pg_temp.try_collection_project_null('51000000-0000-4000-8000-000000000002')),
+  ('member_lower_class', pg_temp.try_collection_class('51000000-0000-4000-8000-000000000002', 'public')),
+  ('member_set_owner', pg_temp.try_source_owner('61000000-0000-4000-8000-000000000001',
+      '00000000-0000-4000-8000-0000000000a2')),
+  ('member_set_uploader', pg_temp.try_version_uploader('71000000-0000-4000-8000-000000000001',
+      '00000000-0000-4000-8000-0000000000a2')),
+  ('member_create_collection', pg_temp.try_collection('11111111-1111-4111-8111-111111111111',
+      'probe-member-create', 'uav-compliance', '41000000-0000-4000-8000-000000000001', 'internal'));
 reset role;
 
 select is((select result from t_out where case_name = 'scope_a1'), 'ok',
-  '12 an active company1 member can scope to company1 (F03)');
+  '16 an active company1 member can scope to company1 (F03)');
 select is((select count(*)::int from t_coll where case_name = 'a1'), 2::int,
-  '13 a company1 member sees exactly the two collections of their own tenant');
+  '17 a company1 member sees exactly the two collections of their own tenant');
 select is((select count(*)::int from t_coll where case_name = 'a1'
              and organisation_id = '22222222-2222-4222-8222-222222222222'), 0::int,
-  '14 company2 collections are invisible to a company1 member, by id as well as by count (AGENTS.md §4.2)');
+  '18 company2 collections are invisible to a company1 member, by id as well as by count (AGENTS.md §4.2)');
 select is((select count(*)::int from t_src where case_name = 'a1'), 2::int,
-  '15 the same member sees the two company1 sources');
+  '19 the same member sees the two company1 sources');
 select is((select count(*)::int from t_src where case_name = 'a1'
              and organisation_id = '22222222-2222-4222-8222-222222222222'), 0::int,
-  '16 and no company2 source at all');
+  '20 and no company2 source at all');
 select is((select count(*)::int from t_chunk where case_name = 'a1'), 5::int,
-  '17 a Site A member sees all five company1 chunks: the tenant-wide corpus plus their project corpus');
+  '21 a Site A member sees all five company1 chunks: the tenant-wide corpus plus their project corpus');
 select is((select count(*)::int from t_chunk where case_name = 'a1'
              and organisation_id = '22222222-2222-4222-8222-222222222222'), 0::int,
-  '18 and none of company2''s chunks');
-select is((select result from t_out where case_name = 'chunk_xtenant'), '23503',
-  '19 a company1 chunk cannot point at a company2 source version: the composite FK makes it impossible (§6.2)');
-select is((select result from t_out where case_name = 'collection_restricted'), '23514',
-  '20 a restricted collection cannot be created in M1: the SQL mirror of isIngestibleInM1 (§12.4, §15.0)');
-select is((select result from t_out where case_name = 'collection_no_project'), '23514',
-  '21 a client_confidential collection without a project is rejected (§6.2)');
-select is((select result from t_out where case_name = 'collection_bogus_class'), '23514',
-  '22 an unrecognised data class is rejected rather than defaulted to something permissive (§6.2)');
-select is((select result from t_out where case_name = 'chunk_below_parent_class'), '23514',
-  '23 a chunk may not carry a lower class than the source version it came from (§6.2, AGENTS.md §4.4)');
-select is((select result from t_out where case_name = 'chunk_bad_locator'), '23514',
-  '24 a locator is structured metadata: a page that is not a number is refused (F12)');
-select is((select result from t_out where case_name = 'chunk_ok'), 'ok',
-  '25 a correctly labelled chunk in the scoped tenant is accepted, so the guards above are not a blanket block');
+  '22 and none of company2''s chunks');
+select is((select result from t_out where case_name = 'member_publish_state'), '42501',
+  '23 B5: a member cannot publish their own version with update source_versions set state = published (F13, §7.2 step 7)');
+select is((select result from t_out where case_name = 'member_chunk_own_project'), '42501',
+  '24 B5: even inside a project they belong to, a member cannot attach a chunk to a published version: chunks are written by the pipeline, not by people (§7.2 step 4)');
+select is((select result from t_out where case_name = 'member_clear_project'), '42501',
+  '25 B5: a Site A member cannot clear a project collection''s project_id and widen it to the whole tenant (§6.2, §7.2 step 5)');
+select is((select result from t_out where case_name = 'member_lower_class'), '42501',
+  '26 B5: a member cannot lower a collection''s data class to make a confidential corpus easier to reach (§6.2)');
+select is((select result from t_out where case_name = 'member_set_owner'), '42501',
+  '27 B5: a member cannot re-point owner_user_id, so provenance labels are not client-writable (§4.1)');
+select is((select result from t_out where case_name = 'member_set_uploader'), '42501',
+  '28 B4: a member cannot set uploaded_by either: only the capture path, reading auth.uid(), writes it (issue #8)');
+select is((select result from t_out where case_name = 'member_create_collection'), '42501',
+  '29 a member cannot create a collection at all: standing up a corpus is a tenant-admin action on a reviewed path (§4.3)');
 
--- ---------------------------------------------------------------- company1 member outside Site A
+-- ---------------------------------------------------------------- 30-33 company1 member outside Site A
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a2';
 insert into t_out values ('scope_a2', pg_temp.try_scope('11111111-1111-4111-8111-111111111111'));
 insert into t_coll select 'a2', id, organisation_id from public.knowledge_collections;
 insert into t_chunk select 'a2', id, organisation_id from public.knowledge_chunks where chunk_index < 900;
-insert into t_out values
-  ('collection_widen_project', pg_temp.try_collection('11111111-1111-4111-8111-111111111111',
-      'probe-widen', 'uav-compliance', '41000000-0000-4000-8000-000000000001', 'internal'));
+insert into t_out values ('member_chunk_other_project', pg_temp.try_chunk(
+    '11111111-1111-4111-8111-111111111111', '71000000-0000-4000-8000-000000000002',
+    'client_confidential', 902, '{"page": 1}'::jsonb));
 reset role;
 
 select is((select result from t_out where case_name = 'scope_a2'), 'ok',
-  '26 a second company1 member can scope to the same tenant');
+  '30 a second company1 member can scope to the same tenant');
 select is((select count(*)::int from t_coll where case_name = 'a2'), 1::int,
-  '27 a member outside Site A sees only the tenant-wide collection (project audience, §6.2)');
+  '31 a member outside Site A sees only the tenant-wide collection (project audience, §6.2)');
 select is((select count(*)::int from t_chunk where case_name = 'a2'), 3::int,
-  '28 they read exactly the three public chunks: the two Site A chunks are hidden by audience, not by absence (§4.2)');
-select is((select result from t_out where case_name = 'collection_widen_project'), '42501',
-  '29 a member cannot create a collection bound to a project they are not in: creating never widens an audience (§6.2)');
+  '32 they read exactly the three public chunks: the two Site A chunks are hidden by audience, not by absence (§4.2)');
+select is((select result from t_out where case_name = 'member_chunk_other_project'), '42501',
+  '33 B5: a member of the same tenant but not of Site A cannot insert a chunk into a Site A version (another project, AGENTS.md §4.2)');
 
--- ---------------------------------------------------------------- company2 member
+-- ---------------------------------------------------------------- 34-37 company2 member
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000b1';
 insert into t_out values ('scope_b1', pg_temp.try_scope('22222222-2222-4222-8222-222222222222'));
@@ -396,15 +513,15 @@ insert into t_count select 'b1_c1_chunks', (select count(*)::int from public.kno
 reset role;
 
 select is((select result from t_out where case_name = 'scope_b1'), 'ok',
-  '30 the company2 owner can scope to company2');
+  '34 the company2 owner can scope to company2');
 select is((select count(*)::int from t_coll where case_name = 'b1'), 2::int,
-  '31 they see company2''s two collections, including the project-scoped one they are a member of');
+  '35 they see company2''s two collections, including the project-scoped one they are a member of');
 select is((select count(*)::int from t_chunk where case_name = 'b1'), 2::int,
-  '32 and exactly company2''s two chunks');
+  '36 and exactly company2''s two chunks');
 select is((select n from t_count where case_name = 'b1_c1_chunks'), 0::int,
-  '33 a company2 member reads zero company1 chunks: the same predicate, run in the other direction (§4.2)');
+  '37 a company2 member reads zero company1 chunks: the same predicate, run in the other direction (§4.2)');
 
--- ---------------------------------------------------------------- two memberships, one session
+-- ---------------------------------------------------------------- 38-40 two memberships, one session
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a4';
 insert into t_out values ('scope_a4_c1', pg_temp.try_scope('11111111-1111-4111-8111-111111111111'));
@@ -415,16 +532,13 @@ insert into t_coll select 'a4_c2', id, organisation_id from public.knowledge_col
 reset role;
 
 select is((select count(*)::int from t_chunk where case_name = 'a4_c1'), 5::int,
-  '34 under the company1 scope a dual member sees the five company1 chunks (they are a Site A member)');
+  '38 under the company1 scope a dual member sees the five company1 chunks (they are a Site A member)');
 select is((select count(*)::int from t_chunk where case_name = 'a4_c2'), 0::int,
-  '35 after re-scoping to company2 they see no chunks at all: company2''s corpus is project-scoped and they are not a member of that project, and no company1 row followed them across the switch (§4.2, §4.3)');
-select is((select count(*)::int from t_coll where case_name = 'a4_c2'), 1::int,
-  '36 in the company2 scope a dual member sees exactly one collection: company2''s tenant-wide corpus. Their Site A membership grants nothing there (§6.2)');
-select is((select count(*)::int from t_coll where case_name = 'a4_c2'
-             and organisation_id = '11111111-1111-4111-8111-111111111111'), 0::int,
-  '36b and that one is not a company1 row: the earlier scope did not follow them into the new one (§4.3)');
+  '39 after re-scoping to company2 they see no chunks at all: company2''s corpus is project-scoped and they are not a member of that project, and no company1 row followed them across the switch (§4.2, §4.3)');
+select is((select count(*)::int from t_coll where case_name = 'a4_c2'), 0::int,
+  '40 and no collections in the company2 scope either: their Site A membership grants nothing there (§6.2)');
 
--- ---------------------------------------------------------------- suspended membership
+-- ---------------------------------------------------------------- 41-42 suspended membership
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a3';
 insert into t_out values ('scope_a3', pg_temp.try_scope('11111111-1111-4111-8111-111111111111'));
@@ -440,50 +554,100 @@ insert into t_count select 'a3_all',
 reset role;
 
 select is((select result from t_out where case_name = 'scope_a3'), '28000',
-  '37 a suspended membership cannot scope, even holding a real organization id (§4.2)');
+  '41 a suspended membership cannot scope, even holding a real organization id (§4.2)');
 select is((select n from t_count where case_name = 'a3_all'), 0::int,
-  '38 the deactivated member sees nothing in any knowledge table, including the job and outbox queues');
+  '42 the deactivated member sees nothing in any knowledge table, including the job and outbox queues');
 
--- ---------------------------------------------------------------- outbox atomicity (§7.2 step 1)
+-- ---------------------------------------------------------------- 43-46 outbox atomicity (§7.2 step 1)
 savepoint sp_outbox;
 insert into public.knowledge_sources (id, organisation_id, collection_id, kind, owner_user_id)
   values ('69000000-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111',
           '51000000-0000-4000-8000-000000000001', 'note', '00000000-0000-4000-8000-0000000000a1');
-insert into public.source_versions (id, organisation_id, source_id, version_number, data_class,
-                                    content_hash, object_ref, state)
+insert into public.source_versions (id, organisation_id, source_id, collection_id, version_number,
+                                    uploaded_by, data_class, content_hash, object_ref, state)
   values ('79000000-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111',
-          '69000000-0000-4000-8000-000000000001', 1, 'public',
+          '69000000-0000-4000-8000-000000000001', '51000000-0000-4000-8000-000000000001', 1,
+          '00000000-0000-4000-8000-0000000000a1', 'public',
           '7c1d2e3f4a5b69708192a3b4c5d6e7f87c1d2e3f4a5b69708192a3b4c5d6e7f8',
           'knowledge/fixture/probe-outbox/v1.bin', 'received');
 
 select is((select count(*)::int from public.outbox_events
             where aggregate_type = 'source_version'
               and aggregate_id = '79000000-0000-4000-8000-000000000001'), 1::int,
-  '39 capture writes the source version and exactly one outbox event in the same transaction (§7.2 step 1)');
+  '43 capture writes the source version and exactly one outbox event in the same transaction (§7.2 step 1)');
 select is((select event_type from public.outbox_events
             where aggregate_id = '79000000-0000-4000-8000-000000000001'),
   'knowledge.source_version.received',
-  '40 the event names the stage to start from and carries scope rather than object access (§13)');
+  '44 the event names the stage to start from and carries scope rather than object access (§13)');
 
 update public.source_versions set state = 'validating'
  where id = '79000000-0000-4000-8000-000000000001';
 select is((select count(*)::int from public.outbox_events
             where aggregate_id = '79000000-0000-4000-8000-000000000001'), 1::int,
-  '41 a state update appends no second capture event: the outbox cannot double-dispatch one version (§7.5)');
+  '45 a state update appends no second capture event: the outbox cannot double-dispatch one version (§7.5)');
 rollback to savepoint sp_outbox;
 
 select is((select count(*)::int from public.outbox_events
             where aggregate_id = '79000000-0000-4000-8000-000000000001'), 0::int,
-  '42 a rolled-back capture leaves no event behind, so a queue message can never outrun the data (§7.2)');
+  '46 a rolled-back capture leaves no event behind, so a queue message can never outrun the data (§7.2)');
 
--- ---------------------------------------------------------------- immutability, then the state set
--- Class and content probes come before the state probes: revoking the company1 public version
+-- ---------------------------------------------------------------- 47-68 the privileged write path
+-- These run as the migration owner, which is how the scoped RPCs and the pipeline write (plan
+-- §4.3, §13). Removing a guard trigger would fail them even though members already hold no
+-- write grant: the rule has to hold for the privileged path as well (§20.4 item 2).
+-- Content and class probes come before the state probes: revoking the company1 public version
 -- below is itself a state change, and after that only deletion may follow (§7.3).
+insert into t_out values
+  ('collection_clear_project', pg_temp.try_collection_project_null('51000000-0000-4000-8000-000000000002')),
+  ('collection_move_org', pg_temp.try_collection_org('51000000-0000-4000-8000-000000000001',
+      '22222222-2222-4222-8222-222222222222')),
+  ('collection_lower_class', pg_temp.try_collection_class('51000000-0000-4000-8000-000000000002', 'public')),
+  ('collection_raise_class', pg_temp.try_collection_class('51000000-0000-4000-8000-000000000001', 'internal')),
+  ('collection_restricted', pg_temp.try_collection('11111111-1111-4111-8111-111111111111',
+      'probe-restricted', 'uav-compliance', null, 'restricted')),
+  ('collection_no_project', pg_temp.try_collection('11111111-1111-4111-8111-111111111111',
+      'probe-no-project', 'uav-compliance', null, 'client_confidential')),
+  ('collection_bogus_class', pg_temp.try_collection('11111111-1111-4111-8111-111111111111',
+      'probe-bogus-class', 'uav-compliance', null, 'secret')),
+  ('chunk_below_parent_class', pg_temp.try_chunk('11111111-1111-4111-8111-111111111111',
+      '71000000-0000-4000-8000-000000000002', 'public', 903, '{"page": 1}'::jsonb)),
+  ('chunk_bad_locator', pg_temp.try_chunk('11111111-1111-4111-8111-111111111111',
+      '71000000-0000-4000-8000-000000000001', 'public', 904, '{"page": "three"}'::jsonb)),
+  ('chunk_ok', pg_temp.try_chunk('11111111-1111-4111-8111-111111111111',
+      '71000000-0000-4000-8000-000000000001', 'public', 905, '{"page": 12, "section": "Maintenance"}'::jsonb)),
+  ('chunk_xtenant', pg_temp.try_chunk('11111111-1111-4111-8111-111111111111',
+      '72000000-0000-4000-8000-000000000001', 'public', 906, '{"page": 1}'::jsonb));
+
+select is((select result from t_out where case_name = 'collection_clear_project'), '23514',
+  '47 B2: clearing a project collection''s project_id is refused on the privileged path too: widening a corpus needs a new collection (§6.2)');
+select is((select result from t_out where case_name = 'collection_move_org'), '23514',
+  '48 B2: a collection cannot be moved to another tenant, which is what the composite keys depend on (§6.2)');
+select is((select result from t_out where case_name = 'collection_lower_class'), '23514',
+  '49 B2: relabelling cannot lower a collection''s data class (§6.2)');
+select is((select result from t_out where case_name = 'collection_raise_class'), 'ok',
+  '50 raising a collection''s class is the one direction the guard allows, so the rule is a direction and not a block (§6.2)');
+select is((select result from t_out where case_name = 'collection_restricted'), '23514',
+  '51 a restricted collection cannot be created in M1: the SQL mirror of isIngestibleInM1 (§12.4, §15.0)');
+select is((select result from t_out where case_name = 'collection_no_project'), '23514',
+  '52 a client_confidential collection without a project is rejected (§6.2)');
+select is((select result from t_out where case_name = 'collection_bogus_class'), '23514',
+  '53 an unrecognised data class is rejected rather than defaulted to something permissive (§6.2)');
+select is((select result from t_out where case_name = 'chunk_below_parent_class'), '23514',
+  '54 a chunk may not carry a lower class than the source version it came from (§6.2, AGENTS.md §4.4)');
+select is((select result from t_out where case_name = 'chunk_bad_locator'), '23514',
+  '55 a locator is structured metadata: a page that is not a number is refused (F12)');
+select is((select result from t_out where case_name = 'chunk_ok'), 'ok',
+  '56 a correctly labelled chunk in a readable version is accepted, so the guards above are not a blanket block');
+select is((select result from t_out where case_name = 'chunk_xtenant'), '23503',
+  '57 the composite FK makes a cross-tenant chunk impossible for every role, privileged paths included (§6.2)');
+
 insert into t_out values
   ('version_text', pg_temp.try_version_text('71000000-0000-4000-8000-000000000002',
       'Rewritten synthetic text: a correction must create a new version, not edit this one.')),
   ('version_hash', pg_temp.try_version_hash('71000000-0000-4000-8000-000000000002',
       '11aa22bb33cc44dd55ee66ff77aa88bb11aa22bb33cc44dd55ee66ff77aa88bb')),
+  ('version_uploader', pg_temp.try_version_uploader('71000000-0000-4000-8000-000000000002',
+      '00000000-0000-4000-8000-0000000000b1')),
   ('class_lowered', pg_temp.try_version_class('71000000-0000-4000-8000-000000000002', 'public')),
   ('class_raised', pg_temp.try_version_class('71000000-0000-4000-8000-000000000001', 'internal')),
   ('chunk_text', pg_temp.try_chunk_text('81000000-0000-4000-8000-000000000002',
@@ -492,17 +656,19 @@ insert into t_out values
       '71000000-0000-4000-8000-000000000001'));
 
 select is((select result from t_out where case_name = 'version_text'), '23514',
-  '43 rewriting a source version''s extracted text is refused: corrections are new versions (§7.2)');
+  '58 rewriting a source version''s extracted text is refused: corrections are new versions (§7.2)');
 select is((select result from t_out where case_name = 'version_hash'), '23514',
-  '44 rewriting a source version''s content hash is refused: the hash is the proof of what was captured (F10)');
+  '59 rewriting a source version''s content hash is refused: the hash is the proof of what was captured (F10)');
+select is((select result from t_out where case_name = 'version_uploader'), '23514',
+  '60 B4: the recorded capture identity cannot be rewritten either, so reviewer independence cannot be backdated (issue #8)');
 select is((select result from t_out where case_name = 'class_lowered'), '23514',
-  '45 relabelling cannot lower a version''s data class (§6.2)');
+  '61 relabelling cannot lower a version''s data class (§6.2)');
 select is((select result from t_out where case_name = 'class_raised'), 'ok',
-  '46 a reviewer raising a class is accepted, which is the only direction the rule permits (§6.2)');
+  '62 a reviewer raising a class is accepted, which is the only direction the rule permits (§6.2)');
 select is((select result from t_out where case_name = 'chunk_text'), '23514',
-  '47 a chunk cannot be rewritten in place either: retrieval cites what was actually extracted (F12)');
+  '63 a chunk cannot be rewritten in place either: retrieval cites what was actually extracted (F12)');
 select is((select result from t_out where case_name = 'current_version_other_source'), '23503',
-  '48 a source cannot adopt another source''s version as current, even inside one tenant (F13)');
+  '64 a source cannot adopt another source''s version as current, even inside one tenant (F13)');
 
 insert into t_out values
   ('state_out_of_set', pg_temp.try_version_state('71000000-0000-4000-8000-000000000001', 'processed')),
@@ -511,18 +677,20 @@ insert into t_out values
   ('state_revoked_back', pg_temp.try_version_state('71000000-0000-4000-8000-000000000001', 'published'));
 
 select is((select result from t_out where case_name = 'state_out_of_set'), '23514',
-  '49 a state outside the documented set is rejected: there is no hidden sixth state (§7.2)');
+  '65 a state outside the documented set is rejected: there is no hidden sixth state (§7.2)');
 select is((select result from t_out where case_name = 'state_forward'), 'ok',
-  '50 a legal transition inside the set is accepted (published to superseded, F13)');
+  '66 a legal transition inside the set is accepted (published to superseded, F13)');
 select is((select result from t_out where case_name = 'state_revoked'), 'ok',
-  '51 revoking a published version is a state change, not a deletion (F14)');
+  '67 revoking a published version is a state change, not a deletion (F14)');
 select is((select result from t_out where case_name = 'state_revoked_back'), '23514',
-  '52 a revoked version cannot be republished by a stale or replayed job (§7.3, F14)');
+  '68 a revoked version cannot be republished by a stale or replayed job (§7.3, F14)');
 
--- ---------------------------------------------------------------- pinned index generations and jobs
+-- ---------------------------------------------------------------- 69-77 pinned index generations and jobs
 insert into t_out values
   ('embed_wrong_dims', pg_temp.try_embedding('11111111-1111-4111-8111-111111111111',
       '91000000-0000-4000-8000-000000000001', '81000000-0000-4000-8000-000000000003', 1, '[0.1,0.2,0.3]')),
+  ('embed_uncleared_class', pg_temp.try_embedding('11111111-1111-4111-8111-111111111111',
+      '91000000-0000-4000-8000-000000000001', '81000000-0000-4000-8000-000000000004', 1, pg_temp.pinned_vector())),
   ('embed_ok', pg_temp.try_embedding('11111111-1111-4111-8111-111111111111',
       '91000000-0000-4000-8000-000000000001', '81000000-0000-4000-8000-000000000001', 1, pg_temp.pinned_vector())),
   ('embed_wrong_generation', pg_temp.try_embedding('11111111-1111-4111-8111-111111111111',
@@ -538,21 +706,23 @@ insert into t_out values
       '71000000-0000-4000-8000-000000000001', 'index', 'cloud_worker', 'public', 1));
 
 select is((select result from t_out where case_name = 'embed_wrong_dims'), '23514',
-  '53 a vector that does not match the pinned dimensions is refused: incomparable vectors are corruption, not noise (§12.4, TOI-ADR-13)');
+  '69 a vector that does not match the pinned dimensions is refused: incomparable vectors are corruption, not noise (§12.4, TOI-ADR-13)');
+select is((select result from t_out where case_name = 'embed_uncleared_class'), '23514',
+  '70 N1: a vector for a client_confidential chunk is refused against a generation cleared only for public, because embedding sends the full chunk text to the provider (§12.4)');
 select is((select result from t_out where case_name = 'embed_ok'), 'ok',
-  '54 a vector of the pinned shape against the active generation is accepted');
+  '71 a vector of the pinned shape, for a chunk the generation is cleared for, is accepted');
 select is((select result from t_out where case_name = 'embed_wrong_generation'), '23514',
-  '55 a vector cannot be attached to a generation its index row does not name (§8.3)');
+  '72 a vector cannot be attached to a generation its index row does not name (§8.3)');
 select is((select result from t_out where case_name = 'embed_rewrite'), '23514',
-  '56 re-embedding writes a new generation; it never overwrites a vector that an answer may still cite (§8.3)');
+  '73 re-embedding writes a new generation; it never overwrites a vector that an answer may still cite (§8.3)');
 select is((select result from t_out where case_name = 'index_second_active'), '23505',
-  '57 only one generation per tenant index may be active, so the pointer switches atomically (§8.3)');
+  '74 only one generation per tenant index may be active, so the pointer switches atomically (§8.3)');
 select is((select result from t_out where case_name = 'job_local_box_index'), '23514',
-  '58 the local box may only run extraction: OCR and inference stay separate processes (§13)');
+  '75 the local box may only run extraction: OCR and inference stay separate processes (§13)');
 select is((select result from t_out where case_name = 'job_restricted'), '23514',
-  '59 restricted content cannot be enqueued for ingestion in M1, in SQL as well as in the payload schema (§12.4)');
+  '76 restricted content cannot be enqueued for ingestion in M1, in SQL as well as in the payload schema (§12.4)');
 select is((select result from t_out where case_name = 'job_duplicate_stage'), '23505',
-  '60 a duplicate delivery of the same stage cannot create a second job row: the idempotency key absorbs it (§7.5)');
+  '77 a duplicate delivery of the same stage cannot create a second job row: the idempotency key absorbs it (§7.5)');
 
 select * from finish();
 rollback;
