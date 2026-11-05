@@ -88,7 +88,8 @@ jobs:
           SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
         run: |
           pnpm exec supabase link --project-ref "$SUPABASE_PROJECT_REF"
-          pnpm exec supabase db push --yes
+          # Supabase CLI 3 targets the local stack unless --remote is given; never seed staging.
+          pnpm exec supabase db push --remote --password "$SUPABASE_DB_PASSWORD" --yes
       - name: Build Workers bundle
         if: steps.gate.outputs.ready == 'true'
         run: pnpm cf:build
