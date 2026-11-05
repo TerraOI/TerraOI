@@ -9,8 +9,10 @@
 --   * every knowledge row carries a non-null organisation_id and is reachable only through a
 --     composite (id, organisation_id) key, so a chunk, job or embedding can never point at
 --     another tenant's source version (plan §6.2);
---   * content identity is tenant-scoped: unique (organisation_id, content_hash) — deduplication
---     inside a tenant, and no cross-tenant deduplication side channel (§6.2);
+--   * content identity is scoped to the collection that holds it: unique
+--     (collection_id, content_hash). A global key would leak across tenants and a tenant-wide key
+--     would leak across projects, because a unique violation is an existence oracle for a
+--     collection the uploader cannot read (§1.1, §6.2);
 --   * every collection, source version, chunk and job carries a data class, `restricted` is
 --     refused in M1 (the SQL mirror of isIngestibleInM1, §12.4/§15.0) and a
 --     client_confidential collection is always project-scoped (§6.2);
@@ -143,6 +145,9 @@ create table public.source_versions (
   id uuid primary key default gen_random_uuid(),
   organisation_id uuid not null,
   source_id uuid not null,
+  -- Denormalized from the source so content identity can be scoped to the collection that holds
+  -- it (B3). Kept equal to the source's collection by source_versions_collection_guard below.
+  collection_id uuid not null,
   version_number integer not null check (version_number > 0),
   data_class text not null,
   -- Lowercase hex sha-256 of the accepted object, verified at capture (F10).
@@ -177,6 +182,11 @@ create table public.source_versions (
   constraint source_versions_source_fk
     foreign key (source_id, organisation_id)
     references public.knowledge_sources (id, organisation_id) on delete cascade,
+  -- Composite FK: a version's collection is in its own tenant, and the dedup key below can never
+  -- be pointed at another tenant's collection (§6.2).
+  constraint source_versions_collection_fk
+    foreign key (collection_id, organisation_id)
+    references public.knowledge_collections (id, organisation_id) on delete restrict,
   constraint source_versions_data_class_is_valid
     check (public.data_class_is_valid(data_class)),
   constraint source_versions_data_class_ingestible_in_m1
@@ -185,9 +195,11 @@ create table public.source_versions (
     check (published_at is null or state in ('published', 'superseded', 'revoked', 'deleting', 'deleted')),
   unique (id, organisation_id),
   unique (organisation_id, source_id, version_number),
-  -- Within-tenant content deduplication (§7.2 step 4). No global hash uniqueness: that would
-  -- be a cross-tenant side channel (§6.2).
-  unique (organisation_id, content_hash)
+  -- Content deduplication is scoped to the collection, not the tenant (B3). A tenant-wide key
+  -- turns the unique violation into an existence oracle: an uploader who cannot read a project
+  -- corpus would learn that a document with that hash already sits in it. T-112 may only reveal
+  -- an existing copy to someone who can read the collection it lives in (§1.1, §6.2).
+  unique (collection_id, content_hash)
 );
 comment on table public.source_versions is
   'Immutable captured version: hash, object ref, state machine, parser generation and extracted text. A correction is a new row (§7.2).';
@@ -494,6 +506,35 @@ create trigger knowledge_collections_guard before update on public.knowledge_col
   for each row execute function public.knowledge_collections_guard();
 
 /**
+ * `source_versions.collection_id` is denormalized, so it has to be kept honest: a version cannot
+ * claim a collection other than its source's. Without this, the collection-scoped dedup key (B3)
+ * could be pointed at whichever collection made the insert convenient, and a version's visibility
+ * would stop matching its source's audience. SECURITY DEFINER so the parent lookup does not
+ * depend on the caller's scope; when the source row does not exist the composite FK reports 23503
+ * and this trigger stays out of the way.
+ */
+create or replace function public.source_versions_collection_guard()
+returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_source_collection uuid;
+  v_source_found boolean;
+begin
+  select collection_id into v_source_collection
+    from public.knowledge_sources
+   where id = new.source_id and organisation_id = new.organisation_id;
+  v_source_found := found;
+  if v_source_found and v_source_collection is distinct from new.collection_id then
+    raise exception 'source version of source % cannot sit in collection %: the source belongs to collection % (§6.2)',
+      new.source_id, new.collection_id, v_source_collection using errcode = '23514';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger source_versions_collection_guard before insert or update on public.source_versions
+  for each row execute function public.source_versions_collection_guard();
+
+/**
  * A source version is immutable (plan §7.2: "corrections are new versions"). The columns that
  * give the version its identity and content may never change; state, review/revocation
  * markers, failure notes and a *raised* data class may.
@@ -506,6 +547,7 @@ begin
   if new.id is distinct from old.id
      or new.organisation_id is distinct from old.organisation_id
      or new.source_id is distinct from old.source_id
+     or new.collection_id is distinct from old.collection_id
      or new.version_number is distinct from old.version_number
      or new.content_hash is distinct from old.content_hash
      or new.object_ref is distinct from old.object_ref

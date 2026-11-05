@@ -137,25 +137,27 @@ insert into public.knowledge_sources (id, organisation_id, collection_id, kind, 
 on conflict (id) do nothing;
 
 -- Published versions. object_ref is a synthetic storage key, never a URL or a signed grant.
+-- collection_id is denormalized from the source (it must match, or the guard trigger refuses the
+-- write) because content-hash deduplication is scoped to the collection, not the tenant (§6.2).
 insert into public.source_versions (
-  id, organisation_id, source_id, version_number, data_class, content_hash, object_ref,
+  id, organisation_id, source_id, collection_id, version_number, data_class, content_hash, object_ref,
   state, parser_generation, body_text, published_at
 ) values
-  ('71000000-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111', '61000000-0000-4000-8000-000000000001', 1,
+  ('71000000-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111', '61000000-0000-4000-8000-000000000001', '51000000-0000-4000-8000-000000000001', 1,
    'public',
    '0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0',
    'knowledge/11111111-1111-4111-8111-111111111111/61000000-0000-4000-8000-000000000001/v1.pdf',
    'published', 'v1',
    'Synthetic sample manual for fixtures. Section one: before any training flight, confirm the compass calibration is current, record the battery pack serial numbers, and check that the notices covering the site are still in date. Section two: a pre-flight note is a record of the check, not an authorisation to fly; the pilot in command remains responsible for the decision. Section three: if a sensor reports a fault, ground the aircraft and raise a maintenance entry rather than continuing the sortie.',
    now()),
-  ('71000000-0000-4000-8000-000000000002', '11111111-1111-4111-8111-111111111111', '61000000-0000-4000-8000-000000000002', 1,
+  ('71000000-0000-4000-8000-000000000002', '11111111-1111-4111-8111-111111111111', '61000000-0000-4000-8000-000000000002', '51000000-0000-4000-8000-000000000002', 1,
    'client_confidential',
    '1a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f809',
    'knowledge/11111111-1111-4111-8111-111111111111/61000000-0000-4000-8000-000000000002/v1.json',
    'published', 'v1',
    'Synthetic site note for fixtures. Grid four of the sample site was surveyed twice because the first pass was flown with a low battery margin. The repeatability check in the synthetic procedure asks for a second pass whenever the margin falls below the reserve threshold recorded for the aircraft type.',
    now()),
-  ('72000000-0000-4000-8000-000000000001', '22222222-2222-4222-8222-222222222222', '62000000-0000-4000-8000-000000000001', 1,
+  ('72000000-0000-4000-8000-000000000001', '22222222-2222-4222-8222-222222222222', '62000000-0000-4000-8000-000000000001', '52000000-0000-4000-8000-000000000002', 1,
    'client_confidential',
    '9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0',
    'knowledge/22222222-2222-4222-8222-222222222222/62000000-0000-4000-8000-000000000001/v1.pdf',
