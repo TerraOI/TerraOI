@@ -12,7 +12,7 @@ A greenfield Next.js + OpenNext (Cloudflare) + Supabase repository where `pnpm v
 ## Acceptance
 - [x] `pnpm verify` passes locally (lint, typecheck, unit tests, docs links, Next build)
 - [x] `pnpm cf:build` produces a Workers bundle
-- [ ] CI `database` job runs Supabase locally and the guardrail tests pass (verified on first CI run)
+- [x] CI `database` job runs Supabase locally and the guardrail tests pass ([first run](https://github.com/TerraOI/TerraOI/actions/runs/41970435838): 2 tests, PASS)
 - [x] Lane rule unit-tested (`scripts/lanes.test.mjs`)
 - [x] Staging deploy workflow skips cleanly until T-004 secrets exist
 
