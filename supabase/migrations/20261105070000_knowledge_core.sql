@@ -14,6 +14,9 @@
 --   * every collection, source version, chunk and job carries a data class, `restricted` is
 --     refused in M1 (the SQL mirror of isIngestibleInM1, §12.4/§15.0) and a
 --     client_confidential collection is always project-scoped (§6.2);
+--   * a collection's audience is fixed once set: `organisation_id` and `project_id` are
+--     immutable and the class may only be raised, so no write path — privileged included —
+--     widens a corpus by clearing a project (§6.2, §7.2 step 5);
 --   * a captured source version is immutable: corrections create a new version (§7.2). Only
 --     lifecycle state, review/revocation markers and a *raised* data class may change;
 --   * derived rows never carry a lower class than what they came from (§6.2, AGENTS.md §4.4);
@@ -101,7 +104,7 @@ create table public.knowledge_collections (
 comment on table public.knowledge_collections is
   'A corpus with one data class and one audience (tenant-wide or project). Sources inherit the class; it can be raised by a reviewer, never lowered (§6.2).';
 comment on column public.knowledge_collections.project_id is
-  'Audience boundary. A non-null project narrows visibility to that project''s members; client_confidential requires it (§6.2).';
+  'Audience boundary. A non-null project narrows visibility to that project''s members; client_confidential requires it. Immutable once set: clearing it would widen the corpus to the whole tenant (§6.2, knowledge_collections_guard).';
 
 create table public.knowledge_sources (
   id uuid primary key default gen_random_uuid(),
@@ -451,6 +454,45 @@ returns boolean language sql stable security definer set search_path = public, p
 $$;
 
 -- ---------------------------------------------------------------- write-path guards
+/**
+ * A collection's audience may only move in the safe direction, and its class may only go up
+ * (plan §6.2, §7.2 step 5). This is a trigger, not a policy WITH CHECK, because the widening
+ * case is invisible to a predicate: clearing `project_id` produces a null project, and
+ * `project_id is null or is_project_member(project_id)` is satisfied by exactly that null — so a
+ * member of one project could have turned a project corpus into a tenant-wide one. There is no
+ * member write grant at all now (B1), and this guard is what the privileged reviewer path
+ * still has to pass.
+ *
+ * `organisation_id` and `project_id` are immutable: a corpus cannot move between tenants, and it
+ * cannot be widened from a project to the whole tenant. Narrowing an audience means a new
+ * collection. `data_class` may be raised by a reviewer and never lowered; note that existing
+ * descendants keep their own labels until the reviewer re-labels them, which is a §7.2 step-5
+ * action for the RPC layer (flagged for the supervisor, not decided here).
+ */
+create or replace function public.knowledge_collections_guard()
+returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
+begin
+  if new.id is distinct from old.id
+     or new.organisation_id is distinct from old.organisation_id
+     or new.project_id is distinct from old.project_id
+     or new.created_at is distinct from old.created_at
+  then
+    raise exception 'knowledge collection % keeps its tenant and its project: audience changes are a new collection (§6.2)', old.id
+      using errcode = '23514';
+  end if;
+  if public.data_class_rank(new.data_class) is null
+     or public.data_class_rank(new.data_class) < public.data_class_rank(old.data_class)
+  then
+    raise exception 'knowledge collection % data class may be raised by a reviewer but never lowered (§6.2)', old.id
+      using errcode = '23514';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger knowledge_collections_guard before update on public.knowledge_collections
+  for each row execute function public.knowledge_collections_guard();
+
 /**
  * A source version is immutable (plan §7.2: "corrections are new versions"). The columns that
  * give the version its identity and content may never change; state, review/revocation
