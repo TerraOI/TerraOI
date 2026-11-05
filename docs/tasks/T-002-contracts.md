@@ -1,6 +1,6 @@
 # T-002 Core runtime contracts
 
-Lane: shared · Week: 0 · Protected: yes · Depends on: T-000 · Status: in progress (wyuinline)
+Lane: shared · Week: 0 · Protected: yes · Depends on: T-000 · Status: done — merged as [PR #3](https://github.com/TerraOI/TerraOI/pull/3); the #3 review's N1–N6 follow-ups merged as [PR #19](https://github.com/TerraOI/TerraOI/pull/19)
 Plan refs: §4.1, §5.2, §6.2, §9.2, §9.3, §12.1, §12.4, §7.6; F01, F07, F20–F23, F31, F33
 
 ## Goal

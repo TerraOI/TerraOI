@@ -1,6 +1,6 @@
 # T-005 Write task packets for weeks 1–2
 
-Lane: shared · Week: 0 · Protected: no · Depends on: T-002 · Status: in progress (wyuinline)
+Lane: shared · Week: 0 · Protected: no · Depends on: T-002 · Status: done — merged as [PR #5](https://github.com/TerraOI/TerraOI/pull/5)
 Plan refs: §20.3, §20.7
 
 ## Goal
