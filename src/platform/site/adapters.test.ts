@@ -74,11 +74,11 @@ describe("buildInquiryDeps", () => {
     await expect(buildInquiryDeps({}).allowRequest("h")).rejects.toThrow();
   });
 
-  it("only terraoi.app and www.terraoi.app are platform hosts until T-101's resolver lands", () => {
+  it("platform hosts follow the tenancy host rules", () => {
     const deps = buildInquiryDeps({});
     expect(deps.isPlatformHost("terraoi.app")).toBe(true);
     expect(deps.isPlatformHost("www.terraoi.app")).toBe(true);
-    for (const h of ["company1.terraoi.app", "admin.terraoi.app", "terraoi.app.evil.example", null]) {
+    for (const h of ["company1.terraoi.app", "admin.terraoi.app", "terraoi.app.evil.example", "x.workers.dev", null]) {
       expect(deps.isPlatformHost(h)).toBe(false);
     }
   });
@@ -86,5 +86,11 @@ describe("buildInquiryDeps", () => {
   it("requestHost comes from the request URL, never X-Forwarded-Host", () => {
     const req = new Request("https://terraoi.app/api/pilot-inquiry", { headers: { "x-forwarded-host": "evil.example" } });
     expect(buildInquiryDeps({}).requestHost(req)).toBe("terraoi.app");
+  });
+
+  // Builder review of #26, B3: the private copy dropped the port, so terraoi.app:8443 passed as
+  // terraoi.app. The tenancy requestHost refuses an explicit port.
+  it("requestHost refuses an explicit port", () => {
+    expect(buildInquiryDeps({}).requestHost(new Request("https://terraoi.app:8443/api/pilot-inquiry"))).toBeNull();
   });
 });
