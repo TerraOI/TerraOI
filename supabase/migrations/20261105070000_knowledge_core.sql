@@ -20,9 +20,12 @@
 --   * capture commits the source version and its outbox event in one transaction (§7.2 step 1);
 --   * an embedding index generation pins provider/model/dimensions/metric/generation with no
 --     fallback, and only one generation per tenant index is active at a time (§8.3, TOI-ADR-13);
---   * RLS is enabled (not forced) on every table, every policy requires active membership and,
---     on the scoped read path, the transaction's tenant, plus project audience where the
---     collection is project-scoped; every SECURITY DEFINER function pins search_path.
+--   * RLS is enabled (not forced) on every table and every policy is a SELECT policy for
+--     `authenticated`, requiring active membership, the transaction's tenant, and project
+--     audience where the collection is project-scoped. Members hold no INSERT/UPDATE/DELETE on
+--     any knowledge table (B1): writes are scoped RPCs and privileged pipeline paths, guarded by
+--     the trigger set below rather than by a WITH CHECK that a member could satisfy;
+--   * every SECURITY DEFINER function pins search_path.
 
 create extension if not exists vector with schema extensions;
 
@@ -743,93 +746,14 @@ create policy outbox_events_scoped_read on public.outbox_events
     and organisation_id = public.current_organisation_id()
   );
 
--- Writes for the walking skeleton. Every one of them requires active membership *and* the
--- transaction's tenant, so a forged organisation_id in the row grants nothing (§4.1).
--- T-112/T-211 may move these into SECURITY DEFINER RPCs; that only narrows this surface.
-create policy knowledge_collections_scoped_write on public.knowledge_collections
-  for insert to authenticated
-  with check (
-    public.is_active_member(organisation_id)
-    and organisation_id = public.current_organisation_id()
-    -- A member may only bind a collection to a project they belong to: creating a
-    -- collection cannot widen anyone's audience (§6.2).
-    and (project_id is null or public.is_project_member(project_id))
-  );
-
-create policy knowledge_collections_scoped_update on public.knowledge_collections
-  for update to authenticated
-  using (
-    public.is_active_member(organisation_id)
-    and organisation_id = public.current_organisation_id()
-    and (project_id is null or public.is_project_member(project_id))
-  )
-  with check (
-    public.is_active_member(organisation_id)
-    and organisation_id = public.current_organisation_id()
-    and (project_id is null or public.is_project_member(project_id))
-  );
-
-create policy knowledge_sources_scoped_write on public.knowledge_sources
-  for insert to authenticated
-  with check (
-    public.is_active_member(organisation_id)
-    and organisation_id = public.current_organisation_id()
-    and public.collection_is_readable(collection_id)
-  );
-
-create policy knowledge_sources_scoped_update on public.knowledge_sources
-  for update to authenticated
-  using (public.source_is_readable(id))
-  with check (
-    public.is_active_member(organisation_id)
-    and organisation_id = public.current_organisation_id()
-    and public.collection_is_readable(collection_id)
-  );
-
-create policy source_versions_scoped_write on public.source_versions
-  for insert to authenticated
-  with check (
-    public.is_active_member(organisation_id)
-    and organisation_id = public.current_organisation_id()
-    and public.source_is_readable(source_id)
-  );
-
--- Publish, revoke, quarantine and failure markers are updates of state only; the immutability
--- trigger above is what keeps the content fixed.
-create policy source_versions_scoped_update on public.source_versions
-  for update to authenticated
-  using (public.source_version_is_readable(id))
-  with check (
-    public.is_active_member(organisation_id)
-    and organisation_id = public.current_organisation_id()
-    and public.source_is_readable(source_id)
-  );
-
--- The parent link is enforced by the composite FK, not by this policy: that is what makes a
--- cross-tenant chunk a 23503 foreign-key failure rather than a policy rejection (§6.2).
-create policy knowledge_chunks_scoped_write on public.knowledge_chunks
-  for insert to authenticated
-  with check (
-    public.is_active_member(organisation_id)
-    and organisation_id = public.current_organisation_id()
-  );
-
-create policy knowledge_chunks_scoped_update on public.knowledge_chunks
-  for update to authenticated
-  using (
-    public.is_active_member(organisation_id)
-    and public.chunk_is_readable(id)
-  )
-  with check (
-    public.is_active_member(organisation_id)
-    and organisation_id = public.current_organisation_id()
-  );
-
--- No member write path for vectors, jobs or outbox rows: an employee must not be able to
--- poison an index, lease a job or acknowledge an event. Those move through privileged
--- server interfaces (plan §13, T-113, T-211): authenticated holds select on the three tables
--- above and no insert or update, and no table here grants delete to any request role — hard
--- deletion is a retention job, and the state machines carry the user-visible meaning.
+-- No member write policies at all (B1, review of PR #12). A member's tenant membership says
+-- what they may *read*; it never says they may publish a version, move a corpus between
+-- projects or label a chunk. Those are pipeline and reviewer actions with a stage and a
+-- reviewer behind them (plan §7.2 steps 5-8, §4.3, AGENTS.md §4.2), so they arrive through
+-- scoped RPCs (T-112 register_source_version_v1) or the privileged pipeline, which run as the
+-- migration owner and are checked by the guard triggers below rather than by a policy here.
+-- Rationale kept explicit because it is the kind of thing a later packet would "convenience"
+-- back into a WITH CHECK: `authenticated` holds SELECT on these eight tables and nothing else.
 
 -- ---------------------------------------------------------------- grants
 -- Supabase grants default privileges on new public tables to anon/authenticated
@@ -848,10 +772,12 @@ grant select on
   public.ingestion_jobs, public.outbox_events
   to authenticated;
 
-grant insert, update on
-  public.knowledge_collections, public.knowledge_sources,
-  public.source_versions, public.knowledge_chunks
-  to authenticated;
+-- SELECT only, on purpose (B1): an employee must not be able to publish a version, move a
+-- corpus between projects, relabel a chunk, poison an index, lease a job or acknowledge an
+-- outbox event. Capture and the pipeline write through scoped RPCs and privileged server
+-- interfaces (plan §4.3, §13; T-112, T-113, T-211), where the guard triggers below apply.
+-- No request role gets DELETE: hard deletion is a retention job, and the state machines carry
+-- the user-visible meaning (§7.5).
 
 grant execute on function
   public.data_class_is_valid(text),
