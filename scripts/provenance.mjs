@@ -25,6 +25,23 @@ export function isReviewed(pr, reviews, supervisors = []) {
 }
 
 /**
+ * GitHub's /commits/{sha}/pulls lists the PR that first carried a commit. A commit from a stacked
+ * PR (merged into a feature branch, then brought to main by a later PR) therefore shows no PR
+ * merged into main. Credit such an orphan to a main-merged PR from the same range whose own
+ * commit list (`prCommits`: { [number]: sha[] }) contains it. A direct push has no such PR and
+ * stays a violation; the carrier PR still has to pass isReviewed.
+ */
+export function attributeStacked(commits, prCommits, base = "main") {
+  const carriers = new Map();
+  for (const { pulls } of commits) for (const p of mergedInto(pulls, base)) carriers.set(p.number, p);
+  return commits.map((c) => {
+    if (mergedInto(c.pulls, base).length > 0) return c;
+    const extra = [...carriers.values()].filter((p) => (prCommits?.[p.number] ?? []).includes(c.sha));
+    return extra.length > 0 ? { ...c, pulls: [...(c.pulls ?? []), ...extra] } : c;
+  });
+}
+
+/**
  * Evaluates a set of commits. Inputs:
  *  - forced: push was a force-push
  *  - rangeProblem: string when the commit range could not be fully determined (fail closed)
