@@ -123,7 +123,7 @@ describe("handlePilotInquiry request path", () => {
   });
 
   it("returns 201 and submits once with the hash, never the raw IP", async () => {
-    const submit = vi.fn(async (_inquiry: unknown, _hash: string) => {});
+    const submit = vi.fn<InquiryDeps["submit"]>(async () => {});
     const d = deps({ submit });
     const res = await handlePilotInquiry(req(), d);
     expect(res.status).toBe(201);

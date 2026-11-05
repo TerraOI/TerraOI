@@ -31,7 +31,8 @@ describe("parsePilotInquiry", () => {
   });
 
   it("treats empty optional fields as null and allows website to be absent", () => {
-    const { website: _w, ...rest } = valid;
+    const rest: Record<string, unknown> = { ...valid };
+    delete rest.website;
     const r = parsePilotInquiry({ ...rest, role: " ", message: "" });
     expect(r.ok && r.inquiry.role).toBe(null);
     expect(r.ok && r.inquiry.message).toBe(null);
