@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 
 vi.mock("next/font/google", () => ({
-  Inter: () => ({ className: "font" }),
-  IBM_Plex_Mono: () => ({ className: "font" }),
+  Inter: () => ({ className: "inter-cls", variable: "inter-var" }),
+  IBM_Plex_Mono: () => ({ className: "mono-cls", variable: "mono-var" }),
 }));
 
 import { SignInPage } from "./sign-in-page";
@@ -55,6 +55,13 @@ describe("SignInPage methods", () => {
     render(<SignInPage {...props({ enabledMethods: ["magic_link", "password"], passwordAction: undefined })} />);
     expect(screen.queryByText("Use a password instead")).toBeNull();
     expect(screen.queryByLabelText("Password")).toBeNull();
+  });
+
+  it("defines the font variables the stylesheet reads on the page root", () => {
+    const { container } = render(<SignInPage {...props()} />);
+    const root = container.firstElementChild as HTMLElement;
+    expect(root.classList.contains("inter-var")).toBe(true);
+    expect(root.classList.contains("mono-var")).toBe(true);
   });
 
   it("applies brand colors as CSS variables only", () => {

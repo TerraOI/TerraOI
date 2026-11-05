@@ -7,29 +7,27 @@ export function PasswordForm({ action }: { action: FormAction }) {
     <details className={styles.passwordToggle}>
       <summary className={styles.secondary}>Use a password instead</summary>
       <form className={styles.form} action={action}>
-        <label className={styles.label} htmlFor="signin-password-email">
-          Email
+        <label className={styles.field}>
+          <span className={styles.label}>Email</span>
+          <input
+            className={styles.input}
+            name="email"
+            type="email"
+            autoComplete="username"
+            inputMode="email"
+            required
+          />
         </label>
-        <input
-          className={styles.input}
-          id="signin-password-email"
-          name="email"
-          type="email"
-          autoComplete="username"
-          inputMode="email"
-          required
-        />
-        <label className={styles.label} htmlFor="signin-password">
-          Password
+        <label className={styles.field}>
+          <span className={styles.label}>Password</span>
+          <input
+            className={styles.input}
+            name="password"
+            type="password"
+            autoComplete="current-password"
+            required
+          />
         </label>
-        <input
-          className={styles.input}
-          id="signin-password"
-          name="password"
-          type="password"
-          autoComplete="current-password"
-          required
-        />
         <button className={styles.primary} type="submit">
           Sign in
         </button>

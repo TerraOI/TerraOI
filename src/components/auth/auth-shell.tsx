@@ -16,7 +16,7 @@ export function brandVariables(brand: SignInBrand): CSSProperties {
 /** Split layout shared by every sign-in screen: brand panel + form card. */
 export function AuthShell({ brand, children }: { brand: SignInBrand; children: ReactNode }) {
   return (
-    <div className={`${styles.page} ${inter.className} ${plexMono.className}`} style={brandVariables(brand)}>
+    <div className={`${styles.page} ${inter.variable} ${plexMono.variable}`} style={brandVariables(brand)}>
       <aside className={styles.brandPanel}>
         <p className={styles.brandName}>{brand.name}</p>
         <p className={styles.tagline}>{brand.tagline}</p>

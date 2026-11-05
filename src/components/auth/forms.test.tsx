@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 vi.mock("next/font/google", () => ({
-  Inter: () => ({ className: "font" }),
-  IBM_Plex_Mono: () => ({ className: "font" }),
+  Inter: () => ({ className: "inter-cls", variable: "inter-var" }),
+  IBM_Plex_Mono: () => ({ className: "mono-cls", variable: "mono-var" }),
 }));
 
 import { STATUS_COPY } from "./copy";

@@ -11,6 +11,7 @@
 
   display: grid;
   grid-template-columns: 1fr;
+  grid-template-rows: auto 1fr; /* mobile: brand panel is a header strip, not half the screen */
   min-height: 100vh;
   font-family: var(--font-sans), system-ui, sans-serif;
   color: var(--graphite);
@@ -20,6 +21,7 @@
 @media (min-width: 768px) {
   .page {
     grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    grid-template-rows: none;
   }
 }
 
@@ -215,4 +217,10 @@
   border-top: 1px solid var(--border);
   color: var(--slate);
   font-size: 0.75rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
