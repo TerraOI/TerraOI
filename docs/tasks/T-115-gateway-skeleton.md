@@ -1,7 +1,7 @@
 # T-115 Gateway skeleton: route selection, clearance filter, compose, verifier pass 1
 
-Lane: 2 · Week: 1 · Protected: yes (`src/platform/gateway/`) · Depends on: T-002, T-111 · Status: ready
-Plan refs: §12.1 (pass 1), §12.3, §12.4 (chain walking), §10.1; F20 (=F31+F38), F31, F38, F19 (reserve only)
+Lane: 2 Â· Week: 1 Â· Protected: yes (`src/platform/gateway/`) Â· Depends on: T-002, T-111 Â· Status: in progress (wyuinline)
+Plan refs: Â§12.1 (pass 1), Â§12.3, Â§12.4 (chain walking), Â§10.1; F20 (=F31+F38), F31, F38, F19 (reserve only)
 
 ## Goal
 The only place a provider SDK is called. Given a task class and a payload's data class, it picks
@@ -25,17 +25,17 @@ relaxing clearance. Compose and the deterministic first-pass verifier run on top
 [`Answer`, `Claim`, `EvidenceRef`](../../src/contracts/answer.ts).
 Behavior rules: [docs/contracts/model-chain.md](../../docs/contracts/model-chain.md).
 
-**M1 verifier order (#9):** the `verify` chain starts at **Claude** — the expert *drops* `local_box`
+**M1 verifier order (#9):** the `verify` chain starts at **Claude** â€” the expert *drops* `local_box`
 from that chain (the box is not a verifier until an F35 evaluation proves a different, adequate model
 on it) but never reorders what remains: each task class has its own order in
 `DEFAULT_TASK_CHAIN_ORDER` (`src/contracts/provider-route.ts`). Configuration, not a code branch, and
 clearance is never relaxed to find a verifier.
 
 ## Acceptance tests (write first)
-- [ ] positive: `public` compose walks local box → Workers AI and reports which tier answered
+- [ ] positive: `public` compose walks local box â†’ Workers AI and reports which tier answered
 - [ ] negative: a `client_confidential` payload never reaches DeepSeek or OpenRouter, and never
       reaches Workers AI unless the tenant explicitly added it (which `narrowClearance` cannot do)
-- [ ] negative: a `restricted` payload with the local box offline returns `unavailable` — it does
+- [ ] negative: a `restricted` payload with the local box offline returns `unavailable` â€” it does
       not fall through to any cloud provider
 - [ ] negative: for `verify` the first eligible provider is **Claude**, and no local-box verifier is
       selected before an F35-passing second model is configured on the box (#9)
@@ -48,12 +48,12 @@ clearance is never relaxed to find a verifier.
       before the call and a reconciliation after (ambiguous timeout counts as potentially billed)
 - [ ] failure: no secrets in logs; provider names are absent from employee-visible output
 - [ ] pass 1: a claim citing a chunk id that was not retrieved in this run, a span that does not
-      exist in that chunk version, or a quoted text that is not verbatim → rejected
+      exist in that chunk version, or a quoted text that is not verbatim â†’ rejected
 
 ## Done evidence
 `pnpm verify`; staging: kill the local box (or point the tunnel at nothing) and show the chain
 advancing with the fallback recorded; `client_confidential` probe with a mock that records which
-provider received the payload — DeepSeek/OpenRouter must show zero calls.
+provider received the payload â€” DeepSeek/OpenRouter must show zero calls.
 
 ## Out of scope
 DeepSeek/OpenRouter adapters and passive health checks (T-314), budgets and rate limits as a
