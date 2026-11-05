@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm check:docs
+      - run: pnpm build
+      - name: Workers build (OpenNext)
+        run: pnpm cf:build
+
+  database:
+    name: database
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Start local Supabase (Postgres, Auth, REST, meta)
+        run: pnpm exec supabase start -x realtime,storage-api,imgproxy,mailpit,studio,edge-runtime,logflare,vector,supavisor
+      - name: Apply all migrations from empty
+        run: pnpm exec supabase db reset
+      - name: Lint SQL
+        run: pnpm exec supabase db lint --level error
+      - name: pgTAP tests (RLS guardrails and tenancy)
+        run: pnpm exec supabase test db
+      - name: Generated types are up to date
+        run: |
+          if git ls-files --error-unmatch src/contracts/database.types.ts >/dev/null 2>&1; then
+            pnpm db:types
+            git diff --exit-code -- src/contracts/database.types.ts \
+              || { echo "::error::database.types.ts is stale. Run 'pnpm db:types' and commit it."; exit 1; }
+          else
+            echo "::notice::No generated types committed yet (first committed in T-003)."
+          fi
+      - if: always()
+        run: pnpm exec supabase stop --no-backup
