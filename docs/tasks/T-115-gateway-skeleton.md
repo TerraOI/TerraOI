@@ -25,10 +25,11 @@ relaxing clearance. Compose and the deterministic first-pass verifier run on top
 [`Answer`, `Claim`, `EvidenceRef`](../../src/contracts/answer.ts).
 Behavior rules: [docs/contracts/model-chain.md](../../docs/contracts/model-chain.md).
 
-**M1 verifier order (#9):** the `verify` chain starts at **Claude**. The local box is not eligible
-for `verify` until an F35 evaluation proves it serves a different, adequate model; until then route
-and compose may use the box while verification does not. This is configuration in `model_providers`
-and `provider_routes`, not a code special case, and it never relaxes clearance.
+**M1 verifier order (#9):** the `verify` chain starts at **Claude** — the expert *drops* `local_box`
+from that chain (the box is not a verifier until an F35 evaluation proves a different, adequate model
+on it) but never reorders what remains: each task class has its own order in
+`DEFAULT_TASK_CHAIN_ORDER` (`src/contracts/provider-route.ts`). Configuration, not a code branch, and
+clearance is never relaxed to find a verifier.
 
 ## Acceptance tests (write first)
 - [ ] positive: `public` compose walks local box → Workers AI and reports which tier answered
