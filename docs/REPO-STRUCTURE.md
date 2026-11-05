@@ -36,7 +36,7 @@ src/
 
 `src/app/` is Lane 1, except `src/app/api/jobs/` (local-box job API) and `src/app/api/knowledge/` (review, publish, revoke), which are Lane 2 and protected ([FAQ-0005](FAQ.md)). `scripts/lanes.mjs` resolves ownership by the **longest matching prefix**, so a narrower folder can belong to the other lane. Adding another such folder needs a supervisor PR that changes `lanes.mjs`, its tests, CODEOWNERS and this paragraph together.
 
-Allowed platform modules (plan §3.3): `tenancy`, `identity`, `policy`, `branding`, `services`, `chat`, `forms`, `notifications`, `approvals`, `knowledge`, `retrieval`, `agents`, `gateway`, `evals`, `budgets`, `audit`, `connectors`. A new module needs supervisor approval and an entry in `scripts/structure.mjs`.
+Allowed platform modules (plan §3.3): `tenancy`, `identity`, `policy`, `branding`, `services`, `chat`, `forms`, `notifications`, `approvals`, `knowledge`, `retrieval`, `agents`, `gateway`, `evals`, `budgets`, `audit`, `connectors`, `site` (public terraoi.app site and pilot intake, T-130). A new module needs supervisor approval and an entry in `scripts/structure.mjs`.
 
 ## Naming conventions
 

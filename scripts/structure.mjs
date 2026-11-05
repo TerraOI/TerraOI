@@ -15,7 +15,7 @@ export const TOP_LEVEL = new Set([
 
 export const PLATFORM_MODULES = new Set([
   "tenancy", "identity", "policy", "branding", "services", "chat", "forms", "notifications", "approvals",
-  "knowledge", "retrieval", "agents", "gateway", "evals", "budgets", "audit", "connectors",
+  "knowledge", "retrieval", "agents", "gateway", "evals", "budgets", "audit", "connectors", "site",
 ]);
 
 export const REQUIRED_FILES = [

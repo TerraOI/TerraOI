@@ -1,0 +1,342 @@
+/* terraoi.app. Tokens mirror the brand kit (FAQ-0001: nothing imports from brand/). */
+
+.site {
+  --teal: #007f78;
+  --brass: #a48748;
+  --graphite: #17252b;
+  --slate: #52636b;
+  --mist: #f4f6f7;
+  --border: #dce3e6;
+  --radius-control: 6px;
+  --radius-card: 12px;
+
+  font-family: var(--font-sans), system-ui, sans-serif;
+  color: var(--graphite);
+  background: #fff;
+  min-height: 100vh;
+}
+
+.site a {
+  color: inherit;
+}
+
+.site a:focus-visible,
+.site button:focus-visible,
+.site input:focus-visible,
+.site select:focus-visible,
+.site textarea:focus-visible {
+  outline: 2px solid var(--graphite);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px #fff, 0 0 0 6px var(--teal);
+}
+
+/* Nav */
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.brand {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+}
+
+.navLinks {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  font-size: 0.875rem;
+  color: var(--slate);
+}
+
+.navLinks a {
+  text-decoration: none;
+}
+
+@media (max-width: 639px) {
+  .navLinks a:not(.buttonOutline) {
+    display: none;
+  }
+}
+
+/* Buttons */
+.buttonPrimary,
+.buttonOutline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 16px;
+  font: inherit;
+  font-weight: 500;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.buttonPrimary {
+  color: #fff;
+  background: var(--teal);
+  border: 1px solid var(--teal);
+}
+
+.buttonPrimary:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.site .buttonOutline {
+  color: var(--teal);
+  background: #fff;
+  border: 1px solid var(--teal);
+}
+
+/* Hero */
+.hero {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 32px;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 48px 24px;
+  align-items: center;
+}
+
+@media (min-width: 900px) {
+  .hero {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    padding: 64px 24px;
+  }
+}
+
+.eyebrow {
+  margin: 0 0 12px;
+  font-size: 0.8125rem;
+  letter-spacing: 0.04em;
+  color: var(--slate);
+}
+
+.heroTitle {
+  margin: 0 0 16px;
+  font-size: clamp(1.75rem, 4vw, 2.75rem);
+  line-height: 1.15;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.heroCopy {
+  margin: 0 0 32px;
+  max-width: 52ch;
+  font-size: 1.0625rem;
+  line-height: 1.6;
+  color: var(--slate);
+}
+
+/* Grid children default to min-width:auto, so an input's intrinsic width would widen the page. */
+.hero > * {
+  min-width: 0;
+}
+
+.heroArt {
+  max-width: 520px;
+  width: 100%;
+  justify-self: center;
+}
+
+.pilotLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  margin-top: 8px;
+  font-weight: 500;
+  color: var(--teal) !important;
+  text-decoration: none;
+}
+
+/* Workspace finder */
+.finder {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 460px;
+}
+
+.finderLabel {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.finderRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 479px) {
+  .finderRow > .buttonPrimary {
+    flex: 1 1 100%;
+  }
+}
+
+.finderField {
+  display: flex;
+  flex: 1 1 240px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+
+.finderField:focus-within {
+  border-color: var(--graphite);
+}
+
+.finderInput {
+  flex: 1 1 0;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 12px;
+  font: inherit;
+  color: inherit;
+  border: 0;
+  outline: none;
+}
+
+.site .finderInput:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.finderInput[aria-invalid="true"] {
+  background: #fff7f6;
+}
+
+.finderSuffix {
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  color: var(--slate);
+  background: var(--mist);
+  border-left: 1px solid var(--border);
+}
+
+.finderHint {
+  margin: 0;
+  font-size: 0.875rem;
+  color: #a3301f;
+}
+
+/* Observe / Plan / Act */
+.steps {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 0 24px 48px;
+}
+
+@media (min-width: 768px) {
+  .steps {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.card {
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+
+.stepTeal,
+.stepBrass {
+  margin: 0 0 8px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.stepTeal {
+  color: var(--teal);
+}
+
+/* Brass text only at label weight; the kit forbids small brass body text on white. */
+.stepBrass {
+  color: #7d6630;
+}
+
+.cardTitle {
+  margin: 0 0 8px;
+  font-size: 1.0625rem;
+  font-weight: 600;
+}
+
+.cardBody {
+  margin: 0;
+  line-height: 1.55;
+  color: var(--slate);
+}
+
+/* Trust strip */
+.trust {
+  background: var(--mist);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.trustList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 32px;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 20px 24px;
+  list-style: none;
+  font-size: 0.9375rem;
+}
+
+.trustList li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.trustDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--teal);
+}
+
+/* Footer */
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 24px;
+  font-size: 0.8125rem;
+  color: var(--slate);
+}
+
+.footer nav {
+  display: flex;
+  gap: 16px;
+}
+
+.footer a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+}
