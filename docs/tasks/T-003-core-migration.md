@@ -12,6 +12,7 @@ Tables `organisations`, `tenant_domains`, `profiles`, `organisation_memberships`
 ## Acceptance tests (write first, pgTAP)
 - [x] guardrails (000) still pass: RLS on every table, pinned search_path
 - [x] member of company1 reads company1 rows only; company2 rows invisible, even with a forged org id argument
+- [x] a member of **two** tenants, scoped to one, reads no domains, roles, permissions or role assignments of the other; with no scope those four tables read empty (#17 B1)
 - [x] deactivated membership sees nothing; project rows visible only to project members
 - [x] tenant scope set in one RPC call does not leak to the next call (no session-level state)
 - [x] `tenant_domains.host` unique and normalized (lowercase, no port)
