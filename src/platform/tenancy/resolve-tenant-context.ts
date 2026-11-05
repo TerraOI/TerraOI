@@ -86,19 +86,27 @@ export interface ResolveTenantContextInput {
   store: TenancyStore;
 }
 
-/** Order matters: host first, then tenant state, then membership. Nothing here trusts input. */
+/**
+ * Order is the plan's, not a preference: §4.1 runs the registry lookup (step 2), then the generic
+ * failure for reserved/unknown/suspended hosts (step 3), and only then session and membership
+ * (step 4). A signed-out visitor on an unregistered address must get the generic unknown-address
+ * page, never a sign-in prompt — that prompt would also confirm nothing about the tenant, but the
+ * sign-in page needs a host record for branding, so an unknown host has to be caught before it.
+ */
 export async function resolveTenantContext(
   input: ResolveTenantContextInput,
 ): Promise<TenantResolution> {
   const parsed = parseHost(requestHost(input.request, input.hostOptions));
   if (!parsed.ok) return { ok: false, reason: parsed.reason };
   if (parsed.class !== "tenant") return { ok: false, reason: "reserved_host" };
-  if (input.userId === null) return { ok: false, reason: "no_session" };
 
   try {
     const hostRecord = await input.store.findHost(parsed.host);
     if (hostRecord === null) return { ok: false, reason: "unknown_host" };
     if (hostRecord.organisationStatus !== "active") return { ok: false, reason: "tenant_not_live" };
+
+    // Tenant state first, session second: `no_session` is only ever shown for a live tenant.
+    if (input.userId === null) return { ok: false, reason: "no_session" };
 
     const membership = await input.store.findMembership(hostRecord.organisationId, input.userId);
     if (membership === null) return { ok: false, reason: "not_a_member" };

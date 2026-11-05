@@ -1,6 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SAFE_FAILURE_MESSAGE, resolveTenantContext, type TenancyStore } from "./resolve-tenant-context";
+
+// Restores NODE_ENV after the development-host case.
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 const C1 = "11111111-1111-4111-8111-111111111111";
 const C2 = "22222222-2222-4222-8222-222222222222";
@@ -99,6 +104,46 @@ describe("resolveTenantContext (plan §4.1 step 4, F01+F02)", () => {
     expect(result).toEqual({ ok: false, reason: "no_session" });
   });
 
+  // #18 B1: plan §4.1 orders the checks as registry lookup (step 2) → generic failure for
+  // unknown/suspended hosts (step 3) → session and membership (step 4). A signed-out visitor must
+  // never be invited to sign in on an address that belongs to no live workspace: that page also
+  // needs the host record for branding, so the host check has to come first.
+  it("an unknown host with no session is an unknown host, not a sign-in prompt (§4.1 steps 2–4)", async () => {
+    const signedOut = await resolveTenantContext({ request: requestFor("nosuch.terraoi.app"), userId: null, store: fakeStore() });
+    expect(signedOut).toEqual({ ok: false, reason: "unknown_host" });
+    // Identical to what a signed-in visitor gets: the answer never hints that signing in would help,
+    // and the message stays the generic one (§4.1 step 3).
+    const signedIn = await resolveTenantContext({ request: requestFor("nosuch.terraoi.app"), userId: USER, store: fakeStore() });
+    expect(signedIn).toEqual(signedOut);
+    expect(SAFE_FAILURE_MESSAGE.unknown_host).toBe("This address is not recognized.");
+  });
+
+  it("a suspended tenant with no session is tenant_not_live, not a sign-in prompt", async () => {
+    const result = await resolveTenantContext({ request: requestFor("dead.terraoi.app"), userId: null, store: fakeStore() });
+    expect(result).toEqual({ ok: false, reason: "tenant_not_live" });
+  });
+
+  it("nothing looks a user up before the host is known to name a live tenant", async () => {
+    let membershipLookups = 0;
+    let hostLookups = 0;
+    const store = fakeStore({
+      findHost: async (host) => {
+        hostLookups += 1;
+        return host === "dead.terraoi.app" ? { organisationId: C2, organisationStatus: "suspended" } : null;
+      },
+      findMembership: async () => {
+        membershipLookups += 1;
+        return null;
+      },
+    });
+    for (const host of ["dead.terraoi.app", "nosuch.terraoi.app"]) {
+      const result = await resolveTenantContext({ request: requestFor(host), userId: null, store });
+      expect(result.ok).toBe(false);
+    }
+    expect(hostLookups).toBe(2);
+    expect(membershipLookups).toBe(0);
+  });
+
   it("a spoofed tenant header or query value never reaches the context (AGENTS.md §4.1)", async () => {
     const headers = new Headers({
       host: "company1.terraoi.app",
@@ -156,12 +201,13 @@ describe("resolveTenantContext (plan §4.1 step 4, F01+F02)", () => {
     expect(result.context.host).toBe("company2.terraoi.app");
   });
 
-  it("the development host is honored only when the adapter names it (plan §4.1 step 1)", async () => {
+  it("the development host is honored only in a development runtime, when the adapter names it (plan §4.1 step 1)", async () => {
     const local = { url: "http://localhost:3000/chat" };
     const withoutOverride = await resolveTenantContext({ request: local, userId: USER, store: fakeStore() });
     // An explicit port is refused by the adapter, so `next dev` has to name the tenant it simulates.
     expect(withoutOverride).toEqual({ ok: false, reason: "missing_host" });
 
+    vi.stubEnv("NODE_ENV", "development");
     const withOverride = await resolveTenantContext({
       request: local,
       hostOptions: { developmentHost: "company1.terraoi.app" },
@@ -171,6 +217,44 @@ describe("resolveTenantContext (plan §4.1 step 4, F01+F02)", () => {
     expect(withOverride.ok).toBe(true);
     if (!withOverride.ok) return;
     expect(withOverride.context.organisationId).toBe(C1);
+  });
+
+  // #18 N1: environment-bound. A `developmentHost` that reaches a non-development runtime is
+  // ignored, so copied wiring cannot turn any request into a caller-chosen tenant.
+  it("ignores a development host outside a development runtime, whatever the adapter passes", async () => {
+    for (const env of ["production", "test"]) {
+      vi.stubEnv("NODE_ENV", env);
+      const result = await resolveTenantContext({
+        request: { url: "http://localhost:3000/chat" },
+        hostOptions: { developmentHost: "company1.terraoi.app" },
+        userId: USER,
+        store: fakeStore(),
+      });
+      expect(result).toEqual({ ok: false, reason: "missing_host" });
+
+      // A real routed request is unaffected by the stray override.
+      const routed = await resolveTenantContext({
+        request: requestFor("company2.terraoi.app"),
+        hostOptions: { developmentHost: "company1.terraoi.app" },
+        userId: USER,
+        store: fakeStore({
+          findHost: async (host) =>
+            host === "company2.terraoi.app" ? { organisationId: C2, organisationStatus: "active" } : null,
+          findMembership: async (organisationId, userId) =>
+            organisationId === C2 && userId === USER
+              ? {
+                  membershipId: MEMBERSHIP,
+                  status: "active",
+                  roles: ["member"],
+                  permittedServiceKeys: [],
+                  permittedProjectIds: [],
+                }
+              : null,
+        }),
+      });
+      expect(routed.ok).toBe(true);
+      if (routed.ok) expect(routed.context.organisationId).toBe(C2);
+    }
   });
 
   it("concurrent requests for different tenants resolve independently (no process-global scope)", async () => {
