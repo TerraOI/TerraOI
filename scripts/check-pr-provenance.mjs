@@ -6,7 +6,7 @@
 //      CHECK_OPEN_VIOLATIONS ("true": also fail while policy-violation issues are open).
 // Writes `violations` (markdown list) to $GITHUB_OUTPUT; exits 1 on any violation.
 import { appendFileSync } from "node:fs";
-import { evaluate } from "./provenance.mjs";
+import { attributeStacked, evaluate, mergedInto } from "./provenance.mjs";
 
 const env = process.env;
 const base = env.BASE_BRANCH || "main";
@@ -43,7 +43,9 @@ async function pullsFor(sha) {
   let pulls = [];
   for (let attempt = 0; attempt < 4; attempt++) {
     pulls = await api(`/commits/${sha}/pulls`);
-    if (pulls.some((p) => p.merged_at && p.base?.ref === base)) return pulls;
+    if (mergedInto(pulls, base).length > 0) return pulls;
+    // Already tied to a PR merged elsewhere (a stacked PR): waiting won't change that.
+    if (pulls.some((p) => p.merged_at)) return pulls;
     await sleep(5000);
   }
   return pulls;
@@ -61,12 +63,25 @@ try {
       if (p.merged_at && !(p.number in reviewsByPr)) reviewsByPr[p.number] = await api(`/pulls/${p.number}/reviews?per_page=100`);
     }
   }
+  // Stacked PRs: credit orphans to a main-merged PR in this range that lists them. Only the
+  // first 100 commits of a PR are read; an orphan beyond that stays a violation (fails closed).
+  const prCommits = {};
+  if (commits.some((c) => mergedInto(c.pulls, base).length === 0)) {
+    for (const { pulls } of commits) {
+      for (const p of mergedInto(pulls, base)) {
+        if (p.number in prCommits) continue;
+        const list = await api(`/pulls/${p.number}/commits?per_page=100`);
+        prCommits[p.number] = list.map((c) => c.sha);
+      }
+    }
+  }
+  const attributed = attributeStacked(commits, prCommits, base);
   let openViolations = [];
   if (env.CHECK_OPEN_VIOLATIONS === "true") {
     const issues = await api(`/issues?labels=policy-violation&state=open&per_page=100`);
     openViolations = issues.filter((i) => !i.pull_request).map((i) => i.number);
   }
-  result = evaluate({ forced: env.FORCED === "true", rangeProblem, openViolations, commits, reviewsByPr, supervisors, base });
+  result = evaluate({ forced: env.FORCED === "true", rangeProblem, openViolations, commits: attributed, reviewsByPr, supervisors, base });
 } catch (e) {
   result = { ok: false, violations: [{ sha: "(check)", reason: `provenance check failed closed: ${e.message}` }] };
 }
