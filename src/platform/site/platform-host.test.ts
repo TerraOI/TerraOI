@@ -7,6 +7,7 @@ describe("isPlatformHost", () => {
   it("accepts only the TerraOI site hosts, using the tenancy host rules", () => {
     expect(isPlatformHost("terraoi.app")).toBe(true);
     expect(isPlatformHost("www.terraoi.app")).toBe(true);
+    expect(isPlatformHost("staging.terraoi.app")).toBe(true); // staging landing (T-004)
     for (const h of [
       "company1.terraoi.app", // a tenant
       "admin.terraoi.app", // the control plane

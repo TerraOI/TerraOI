@@ -20,8 +20,13 @@ export type HostParse =
   | { ok: true; host: string; class: HostClass }
   | { ok: false; reason: HostRejectReason };
 
-/** TerraOI's own surfaces: never a fallback tenant (plan §3.2). */
-const PLATFORM_HOSTS = new Set(["terraoi.app", "www.terraoi.app"]);
+/**
+ * TerraOI's own surfaces: never a fallback tenant (plan §3.2). `staging.terraoi.app` is the
+ * staging Worker's landing page (T-004). It is listed in every build, not only staging: the host
+ * shows nothing tenant-specific, and keeping it platform-class means no tenant can ever be
+ * registered as `staging`, which staging's `<slug>-staging` hosts would make confusing.
+ */
+const PLATFORM_HOSTS = new Set(["terraoi.app", "www.terraoi.app", "staging.terraoi.app"]);
 const ADMIN_HOSTS = new Set(["admin.terraoi.app"]);
 
 /** Deployment aliases must not become a way around the host check (plan §4.1). */

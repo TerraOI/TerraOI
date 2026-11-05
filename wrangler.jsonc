@@ -22,8 +22,16 @@
       "preview_urls": false,
       "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "terraoi-web-staging" }],
       "ratelimits": [{ "name": "INQUIRY_RATE_LIMITER", "namespace_id": "1002", "simple": { "limit": 3, "period": 60 } }],
-      "vars": { "TURNSTILE_SITE_KEY": "" }
-      // Staging routes, vars and secrets: T-004. Never reference production resources here.
+      "vars": { "TURNSTILE_SITE_KEY": "" },
+      // T-004: exact staging hosts only, each with a proxied DNS record (AAAA 100::) in the
+      // terraoi.app zone. No wildcard: a later production `*.terraoi.app/*` route must not be
+      // shadowed, and Cloudflare prefers these more specific patterns over it. Add a staging
+      // tenant here and in DNS together. Never reference production resources in env.staging.
+      "routes": [
+        { "pattern": "staging.terraoi.app/*", "zone_name": "terraoi.app" },
+        { "pattern": "company1-staging.terraoi.app/*", "zone_name": "terraoi.app" },
+        { "pattern": "company2-staging.terraoi.app/*", "zone_name": "terraoi.app" }
+      ]
     }
   }
 }
