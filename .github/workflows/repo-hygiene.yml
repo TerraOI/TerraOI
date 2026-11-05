@@ -52,8 +52,8 @@ jobs:
             --jq ".[] | select(.updatedAt < \"$five_days_ago\") | \"- #\(.number) \(.title) (updated \(.updatedAt[:10]))\"")
           if [ -n "$idle" ]; then echo "$idle" >> "$report"; found=1; else echo "None." >> "$report"; fi
 
-          section "Waiting on someone (blocked / needs-supervisor / needs-contract)"
-          for l in blocked needs-supervisor needs-contract; do
+          section "Waiting on someone (question / blocked / needs-supervisor / needs-contract)"
+          for l in question blocked needs-supervisor needs-contract; do
             gh issue list --state open --label "$l" --json number,title --jq ".[] | \"- #\(.number) [$l] \(.title)\"" >> "$report.wait"
             gh pr list --state open --label "$l" --json number,title --jq ".[] | \"- PR #\(.number) [$l] \(.title)\"" >> "$report.wait"
           done

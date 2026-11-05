@@ -28,5 +28,20 @@
     "name": "housekeeping",
     "color": "C5DEF5",
     "description": "Repository organization findings (weekly repo-hygiene + /terraoi-housekeeping)"
+  },
+  {
+    "name": "question",
+    "color": "D876E3",
+    "description": "Clarification for the supervisor; asker continues on a stated assumption (COORDINATION.md \u00a76)"
+  },
+  {
+    "name": "answered",
+    "color": "0E8A16",
+    "description": "Supervisor answered; asker picks it up at session start (COORDINATION.md \u00a76)"
+  },
+  {
+    "name": "provisional",
+    "color": "FEF2C0",
+    "description": "PR built on an assumption from an open question; cannot merge until answered"
   }
 ]

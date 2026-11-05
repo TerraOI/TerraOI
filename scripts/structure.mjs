@@ -20,7 +20,7 @@ export const PLATFORM_MODULES = new Set([
 
 export const REQUIRED_FILES = [
   "README.md", "AGENTS.md", "CLAUDE.md",
-  "docs/README.md", "docs/COORDINATION.md", "docs/REPO-STRUCTURE.md",
+  "docs/README.md", "docs/COORDINATION.md", "docs/REPO-STRUCTURE.md", "docs/FAQ.md",
   "brand/README.md", "scripts/README.md",
   ".github/CODEOWNERS", ".github/pull_request_template.md",
 ];

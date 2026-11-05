@@ -59,7 +59,7 @@ Breaking any of these is a blocking review finding, whatever the tests say.
 
 **Coordination with the other lane and the supervisor follows [docs/COORDINATION.md](docs/COORDINATION.md)**: how to claim a task, ask the other lane for a contract change, handle shared files and migrations, use labels and respond to supervisor reviews.
 
-0. Claim the task first (COORDINATION.md §1): check open PRs, confirm dependencies are merged, open a draft PR.
+0. **Start of every session:** pick up answers to your questions (COORDINATION.md §6, step 4). Then claim the task (§1): check open PRs, confirm dependencies are merged, open a draft PR.
 1. Read your packet in `docs/tasks/T-xxx.md` and the plan sections it cites.
 2. **Write the acceptance tests first** and confirm they fail for the right reason.
 3. Implement the smallest change that makes them pass. Stay inside the packet's "Owns" list.
@@ -82,7 +82,12 @@ Breaking any of these is a blocking review finding, whatever the tests say.
 
 ## 7. When blocked or unsure
 
-Stop. Write the question into the PR description (or a draft PR), add the `blocked` or `needs-supervisor` label (COORDINATION.md §4, §6). **Never guess** a security, tenancy, data-policy or contract decision; those belong to the supervisor. It is always acceptable to deliver less with a clear note rather than more with a hidden assumption.
+Search [docs/FAQ.md](docs/FAQ.md) first. Then **ask without stopping** ([COORDINATION.md §6](docs/COORDINATION.md)):
+
+- **Clarification:** open a *Question* issue stating what you will assume. If that is cheap to reverse, continue in a PR labeled `provisional` with `Provisional on: #<issue>`; CI blocks the merge until it is answered.
+- **Decision** (tenancy, RLS, clearance, verification, contracts, scope, weakening a test): open a *Needs supervisor decision* issue and **do not pre-empt it**. Work on independent parts or another ready packet.
+
+Never guess a security, tenancy, data-policy or contract decision. Delivering less with a clear note beats delivering more on a hidden assumption.
 
 ## 8. Definition of done
 

@@ -2,10 +2,11 @@ name: PR policy
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+    types: [opened, synchronize, reopened, labeled, unlabeled, edited]
 
 permissions:
   contents: read
+  issues: read
 
 jobs:
   lanes:
@@ -34,6 +35,19 @@ jobs:
         env:
           BASE_REF: origin/${{ github.base_ref }}
         run: node scripts/check-migrations.mjs
+
+  provisional:
+    name: provisional
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Questions this PR builds on are answered (COORDINATION.md §6)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
+        run: node scripts/check-provisional.mjs
 
   secrets:
     name: secrets

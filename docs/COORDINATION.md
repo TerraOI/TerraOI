@@ -6,7 +6,7 @@ Agents working on TerraOI share no memory and cannot message each other. **GitHu
 
 | Role | Who | Acts through |
 |---|---|---|
-| **Supervisor** | Repository owner, reviewing with Claude Code (`/terraoi-review`) | PR reviews prefixed `[Supervisor]`, ADR approvals, closing `needs-supervisor` / `policy-violation` issues |
+| **Supervisor** | Repository owner, reviewing with Claude Code (`/terraoi-review`, `/terraoi-inbox`) | PR reviews prefixed `[Supervisor]`, `[Supervisor] Answer` comments on questions, ADR approvals, closing `needs-supervisor` / `policy-violation` issues |
 | **Repository steward** | Claude Code working with the supervisor (`/terraoi-housekeeping`) | Keeps the project organized and understandable: enforces [REPO-STRUCTURE.md](REPO-STRUCTURE.md), reviews the weekly `housekeeping` issue, proposes fixes as `chore/housekeeping-YYYY-Www` PRs. Proposes; the supervisor decides |
 | **Lane 1 builder + agent** | Builder A | PRs and issues for `src/app/`, tenancy, identity, branding, chat, forms |
 | **Lane 2 builder + agent** | Builder B | PRs and issues for knowledge, retrieval, agents, gateway, evals, workers |
@@ -49,6 +49,9 @@ Never edit the other lane's files to unblock yourself, even "just one line".
 | `needs-supervisor` | A decision is needed: security, tenancy, data policy, scope, or plan conflict | Supervisor |
 | `cross-lane` | PR intentionally touches both lanes; the reason is in the body | Supervisor review required |
 | `policy-violation` | Unreviewed change reached `main` (opened by `main-guard`) | Supervisor; staging deploys are blocked until closed |
+| `question` | Clarification asked; asker continues on a stated assumption (§6) | Supervisor via `/terraoi-inbox` |
+| `answered` | Supervisor answered and closed it | Asker, at the start of their next session |
+| `provisional` | PR built on an assumption from an open question; CI blocks merge | Asker, once the question is answered |
 
 ## 5. Supervisor findings
 
@@ -59,19 +62,40 @@ The supervisor posts **one review per round**, starting with `[Supervisor]`, wit
 
 Builders' agents address Blocking items first, push, then **reply to each item by its number** ("B1: fixed in <sha>" or "B2: disagree because…"). Do not mark conversations resolved; the supervisor resolves them. After a push, request a re-review. Approvals of an earlier commit do not count (`main-guard`).
 
-## 6. Escalation
+## 6. Questions: ask, continue, pick up
 
-Stop and apply `needs-supervisor` when any of these is true:
+The supervisor answers asynchronously, usually within a working day, not within minutes. A question must therefore **never leave you idle**.
 
+**1. Search first:** [FAQ.md](FAQ.md), closed `question` issues (`gh issue list --state closed --label question --search "<words>"`), then the plan sections your packet cites.
+
+**2. Ask with the right form** (both auto-assign the supervisor):
+
+| Kind | Use when | Form / label |
+|---|---|---|
+| **Clarification** | What a doc, packet or contract means; where something goes; which existing pattern to follow | *Question (clarification)* → `question` |
+| **Decision** | Any trigger below | *Needs supervisor decision* → `needs-supervisor` |
+
+Decision triggers (never decide these yourself):
 - The task needs a change to tenancy, RLS, the gateway clearance or verification.
 - Two sources of truth disagree (packet vs plan, contract vs test).
 - A fix would require weakening a test, a lint rule or a non-negotiable.
 - The packet's acceptance tests cannot be written as stated.
+- A contract change is needed (use `needs-contract`, §2) or the packet's scope looks wrong.
 
-Write the question, the options you see and your recommendation. Do not proceed on a guess.
+Every question states **what you will assume until answered** and whether that is cheap to reverse.
+
+**3. Keep working:**
+- **Clarification, reversible assumption:** continue on it. Add the `provisional` label to your PR and the line `Provisional on: #<issue>` to its description. CI (`provisional`) keeps the PR unmergeable until the question is closed with `answered`.
+- **Clarification, not reversible, or any decision:** do not pre-empt it. Work on the parts of the packet that don't depend on it, or claim another ready packet (§1).
+
+**4. Pick up answers at the start of every session:**
+`gh issue list --author @me --label answered --state closed --search "updated:>=<last session date>"`. Read each `[Supervisor] Answer`. If it says *adjust*, change the provisional work. Then update the PR: remove `provisional` and change the line to `Provisional on: none` (or keep the answered issue number; the check accepts answered ones). The edit re-runs CI.
+
+**5. Answers become knowledge.** Reusable answers go into [FAQ.md](FAQ.md) (or an ADR for decisions) through the supervisor's `/terraoi-inbox`, so the next agent finds them instead of asking again.
 
 ## 7. Daily and weekly rhythm
 
 - **Daily (builders, 15 min):** open PRs, claims, `blocked` and `needs-contract` items, next migration timestamps. Record anything decided in the relevant PR or issue, not only in chat.
+- **Each working day (supervisor):** `/terraoi-inbox`; target is decisions within one working day and clarifications within two.
 - **Weekly (supervisor):** batch review of merged non-protected PRs, gate progress, `docs/status/YYYY-Www.md` update, packets for the next week.
 - **Weekly (steward, Mondays):** the `repo-hygiene` workflow posts findings to the `housekeeping` issue; the supervisor runs `/terraoi-housekeeping` and picks which fixes to make. Builders fix items assigned to their lane before claiming new work.

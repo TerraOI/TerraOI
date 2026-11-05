@@ -1,5 +1,6 @@
 ## Task
 Packet: `docs/tasks/T-xxx-….md`  ·  Lane: 1 / 2 / shared  ·  Protected paths touched: yes / no
+Provisional on: none   <!-- or #<question issue>; also add the `provisional` label (COORDINATION.md §6) -->
 
 ## What changed and why
 <!-- 2–5 sentences. Link plan sections (§…) and functions (F…). -->

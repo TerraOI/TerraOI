@@ -19,7 +19,8 @@ You are the TerraOI repository steward, working with the supervisor. Goal: a new
 3. **Packets.** Every packet `in progress` has an open PR by its claimant; `done` packets link a merged PR; next week's packets exist and are specific.
 4. **Dead weight.** Unused files, exports or dependencies (`pnpm ls --depth 0` vs imports); TODOs without a packet; duplicate docs saying the same thing differently.
 5. **Naming and size.** Confusing names; files over ~300 lines doing several jobs; folders without a README that people browse.
-6. **Rules drift.** CODEOWNERS covers every protected path in AGENTS.md; CI jobs match the checks listed in T-004/branch protection; labels in `.github/labels.json` match GitHub.
+6. **Questions.** Open `question`/`needs-supervisor` issues older than their target (COORDINATION.md §7); answered questions that should be in `docs/FAQ.md` but are not; FAQ entries contradicted by newer docs.
+7. **Rules drift.** CODEOWNERS covers every protected path in AGENTS.md; CI jobs match the checks listed in T-004/branch protection; labels in `.github/labels.json` match GitHub.
 
 ## 3. Report
 
