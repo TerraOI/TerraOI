@@ -4,7 +4,7 @@ import { parseHost, requestHost } from "@/platform/tenancy/host";
 // The host rules are T-101's (`@/platform/tenancy/host`), so a later host fix reaches this module
 // too; nothing here keeps its own host list or parser (builder review of #26, B3).
 
-/** True only for terraoi.app and www.terraoi.app, as classified by `parseHost`. */
+/** True only for TerraOI's platform hosts (terraoi.app, www, staging), as classified by `parseHost`. */
 export function isPlatformHost(host: string | null): boolean {
   const parsed = parseHost(host);
   return parsed.ok && parsed.class === "platform";
