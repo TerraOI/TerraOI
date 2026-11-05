@@ -28,6 +28,8 @@
 --   * capture commits the source version and its outbox event in one transaction (§7.2 step 1);
 --   * an embedding index generation pins provider/model/dimensions/metric/generation with no
 --     fallback, and only one generation per tenant index is active at a time (§8.3, TOI-ADR-13);
+--     a vector for a chunk whose data class is not in that generation's `cleared_for` is refused
+--     at insert time, because embedding sends the full chunk text to the provider (§12.4);
 --   * RLS is enabled (not forced) on every table and every policy is a SELECT policy for
 --     `authenticated`, requiring active membership, the transaction's tenant, and project
 --     audience where the collection is project-scoped. Members hold no INSERT/UPDATE/DELETE on
@@ -289,9 +291,11 @@ create table public.embedding_indexes (
   metric text not null check (metric in ('cosine', 'l2', 'ip')),
   generation integer not null check (generation > 0),
   status text not null default 'building' check (status in ('building', 'active', 'retired')),
-  -- Every class whose text may be embedded into this generation (§12.4). An index that is not
-  -- cleared for a class simply holds no chunks of that class; the build job re-checks this
-  -- against the chunks it writes (T-113).
+  -- Every class whose text may be embedded into this generation (§12.4). Enforced per write by
+  -- chunk_embeddings_guard (N1, issue #13 item 4): a vector for a chunk whose class is missing
+  -- here is refused, because the embedding call ships the full chunk text to the provider. The
+  -- build job still chooses *which* chunks to embed; the schema refuses the ones it is not
+  -- cleared for.
   cleared_for text[] not null default '{}'::text[]
     check (cleared_for <@ array['public', 'internal', 'client_confidential', 'restricted']::text[]),
   created_at timestamptz not null default now(),
@@ -697,13 +701,18 @@ create trigger knowledge_chunks_guard before insert or update on public.knowledg
 /**
  * A vector must match the generation and the dimensions of the index row it is written
  * against: vectors from different models are incomparable, so a mismatched write is data
- * corruption, not a warning (TOI-ADR-13, §8.3). Embeddings are append-only: re-embedding
- * writes a new generation, it never rewrites a vector.
+ * corruption, not a warning (TOI-ADR-13, §8.3). And the chunk it embeds must be covered by that
+ * generation's `cleared_for` (N1, issue #13 item 4): embedding sends the **full chunk text** to
+ * the provider, so writing a client_confidential chunk into an index cleared only for `public`
+ * is a clearance breach at the moment of the write, not something a query can undo later
+ * (§12.4, AGENTS.md §4.3). Embeddings are append-only: re-embedding writes a new generation, it
+ * never rewrites a vector.
  */
 create or replace function public.chunk_embeddings_guard()
 returns trigger language plpgsql security definer set search_path = public, pg_temp as $$
 declare
   v_index public.embedding_indexes;
+  v_chunk_class text;
 begin
   if TG_OP = 'UPDATE' then
     raise exception 'chunk_embeddings rows are append-only: re-embedding builds a new generation (§8.3)'
@@ -721,6 +730,17 @@ begin
   if new.index_generation <> v_index.generation then
     raise exception 'index_generation % does not match embedding index % generation %',
       new.index_generation, v_index.index_key, v_index.generation using errcode = '23514';
+  end if;
+  select data_class into v_chunk_class
+    from public.knowledge_chunks
+   where id = new.chunk_id and organisation_id = new.organisation_id;
+  if v_chunk_class is null then
+    return new;  -- the composite FK reports 23503
+  end if;
+  if not (v_index.cleared_for @> array[v_chunk_class]) then
+    raise exception 'embedding index % generation % is cleared for % but chunk % is class %: embedding sends the full chunk text to the provider (§12.4)',
+      v_index.index_key, v_index.generation, v_index.cleared_for, new.chunk_id, v_chunk_class
+      using errcode = '23514';
   end if;
   if extensions.vector_dims(new.embedding) <> v_index.dimensions then
     raise exception 'embedding has % dimensions, index % pins % (§12.4)',
