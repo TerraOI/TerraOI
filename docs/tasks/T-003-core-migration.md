@@ -1,6 +1,6 @@
 # T-003 Migration 0001: tenancy core with RLS
 
-Lane: 2 (shared path) · Week: 0 · Protected: yes · Depends on: T-000, T-002 · Status: ready
+Lane: 2 (shared path) · Week: 0 · Protected: yes · Depends on: T-000, T-002 · Status: in progress (wyuinline)
 Plan refs: §4.3, §6.1 (tenant lifecycle, identity/access), §6.2; F03
 
 ## Goal
