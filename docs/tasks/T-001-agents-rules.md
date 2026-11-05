@@ -1,6 +1,6 @@
 # T-001 Team and agent rules
 
-Lane: shared · Week: 0 · Protected: yes · Depends on: none · Status: in review (this PR)
+Lane: shared · Week: 0 · Protected: yes · Depends on: none · Status: done — merged as [PR #1](https://github.com/TerraOI/TerraOI/pull/1); the coordination protocol and question workflow landed in [PR #2](https://github.com/TerraOI/TerraOI/pull/2)
 Plan refs: §20.1, §20.4, §20.6, §20.7
 
 ## Goal

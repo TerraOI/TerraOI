@@ -1,6 +1,6 @@
 # T-000 Repository scaffold, CI and staging pipeline
 
-Lane: shared · Week: 0 · Protected: yes · Depends on: none · Status: in review (this PR)
+Lane: shared · Week: 0 · Protected: yes · Depends on: none · Status: done — merged as [PR #1](https://github.com/TerraOI/TerraOI/pull/1)
 Plan refs: §3.1, §3.3, §15.1 TOI-00, §16 (CI paragraph), §20.1
 
 ## Goal

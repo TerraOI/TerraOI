@@ -1,6 +1,6 @@
 # T-003 Migration 0001: tenancy core with RLS
 
-Lane: 2 (shared path) · Week: 0 · Protected: yes · Depends on: T-000, T-002 · Status: in progress (wyuinline)
+Lane: 2 (shared path) · Week: 0 · Protected: yes · Depends on: T-000, T-002 · Status: done — merged as [PR #17](https://github.com/TerraOI/TerraOI/pull/17); [#4](https://github.com/TerraOI/TerraOI/pull/4) closed unmerged
 Plan refs: §4.3, §6.1 (tenant lifecycle, identity/access), §6.2; F03
 
 ## Goal

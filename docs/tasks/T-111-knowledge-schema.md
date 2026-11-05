@@ -1,6 +1,6 @@
 # T-111 Knowledge schema: collections, sources, versions, chunks, indexes, jobs
 
-Lane: 2 (shared path) · Week: 1 · Protected: yes (`supabase/migrations/`) · Depends on: T-002, T-003 · Status: in progress (wyuinline)
+Lane: 2 (shared path) · Week: 1 · Protected: yes (`supabase/migrations/`) · Depends on: T-002, T-003 · Status: done — merged as [PR #12](https://github.com/TerraOI/TerraOI/pull/12)
 Plan refs: §6.1 (knowledge, retrieval, ingestion groups), §6.2, §7.2; F08, F10, F12
 
 ## Goal
