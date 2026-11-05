@@ -35,9 +35,11 @@ issues a short-lived signed URL when the worker asks for the job (F32). Every wo
 re-reads the job row and re-checks lease, tenant, source version and expected stage, so a
 replayed or stale message cannot process another tenant's object or resurrect a revoked source.
 
-- `attempt` + `parserGeneration` + `indexGeneration` complete the stage idempotency key
-  `(org, source, version, stage, parser/index generation)` (§7.5). Cloudflare Queues is
-  at-least-once, so duplicate delivery must be a no-op.
+- The stage idempotency key is `(org, source, version, stage, parser/index generation)` (§7.5),
+  and `attempt` is **not** part of it (issue #16 N3): a fresh key per retry would re-enqueue a
+  stage that already ran and defeat the deduplication that at-least-once Cloudflare Queues needs.
+  `attempt` is consumer bookkeeping — lease, backoff, observability — and the T-111
+  `ingestion_stage_runs` constraint leaves it out of the key for exactly that reason.
 - `executor: local_box` is valid **only** for `extract`: inference and OCR are separate
   processes on the box, and OCR load must not starve chat (§13).
 - `dataClass: restricted` cannot be enqueued in M1 (§12.4). Lifting that needs an ADR.

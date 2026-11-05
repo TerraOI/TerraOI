@@ -1,6 +1,6 @@
 # ADR-0001 Core runtime contracts (T-002)
 
-Status: proposed (awaiting supervisor approval) · Date: 2026-11-04 · Deciders: Lane 1, Lane 2 (proposed); supervisor approves (protected path)
+Status: accepted (supervisor approval on [PR #3](https://github.com/TerraOI/TerraOI/pull/3); the #3 review's non-blocking findings N1–N5 are applied in the follow-up to [issue #16](https://github.com/TerraOI/TerraOI/issues/16), recorded in items 4, 6, 7, 9 below and in [model-chain.md](../contracts/model-chain.md)) · Date: 2026-11-04 · Deciders: Lane 1, Lane 2; supervisor approved (protected path)
 Plan refs: §4.1–§4.3, §5.2, §6.2, §7.2, §7.6, §9.2–§9.4, §10.1, §12.1, §12.3–§12.4, §20.2; F01–F05, F07, F17, F20–F23, F29–F31, F33
 
 ## Context
@@ -25,23 +25,30 @@ both accepts a documented example and rejects unknown keys:
    **throws on an empty dependency list**: treating "unknown" as `public` is the failure mode
    behind "client data reaches an uncleared provider" (§18.2).
 4. **`ExpertDefinition`** — plan §5.2 including the v1.3 fields. Prompt bodies are referenced by
-   id + version, never inlined; chains reject duplicates; `minVerifierTier` is mandatory, and an
-   `operational`/`commercial` expert cannot set `small`.
+   id + version, never inlined; chains reject duplicates and are validated **against the order of
+   their own task class** (`DEFAULT_TASK_CHAIN_ORDER`, §12.4 "Per-task chains") rather than one
+   flat cost list; `minVerifierTier` is mandatory, and an `operational`/`commercial` expert
+   cannot set `small`.
 5. **`ChatRequest`** — the logical §9.2 contract, no tenant/user field, bounded opaque ids, and
    a single user message object so a forged assistant/system turn cannot be posted as history.
 6. **`ProgressEvent`** — discriminated union over the five §9.3 event types, no textual payload
    that could carry answer content, SQL, record ids or provider names; `tier_changed` carries
-   chain positions plus a bounded note.
+   chain positions plus a **closed `TierChangeReason` enum**, not free text — a free-text note is
+   exactly how a provider name or an internal error would leak (issue #16 N5).
 7. **`Answer` / `Claim` / `EvidenceRef`** — non-inference claims require evidence; an unevidenced
-   `inference` requires a stated limitation; `answered` requires ≥1 claim; `unknowns` and
-   `dataClass` are mandatory. Evidence rows are typed and contain no URL, so durable signed
-   access is unrepresentable (F24 re-mints it).
+   `inference` requires a stated limitation; `answered` requires **at least one non-inference
+   claim that carries evidence**, so an answer made only of inferences cannot be `answered`
+   (issue #16 N2); `unknowns` and `dataClass` are mandatory. Evidence rows are typed and contain
+   no URL, so durable signed access is unrepresentable (F24 re-mints it).
 8. **`PlatformProvider`, `TaskClass`, `CapabilityTier`, `ClearanceMatrix`,
    `PLATFORM_DEFAULT_CLEARANCE`, `narrowClearance()`** — §12.4 defaults plus **intersection-only**
    tenant narrowing. There is no widening parameter at all: widening is a recorded tenant
-   decision, i.e. a supervisor decision.
+   decision, i.e. a supervisor decision. The `platform` argument is **reviewed configuration**
+   assembled by the gateway from recorded rows; building it from a request, a model output or an
+   application default is forbidden, and the matrix revision used is audited (issue #16 N4).
 9. **`chainFollowsPlatformOrder()`** — §5.2 "shorten, never reorder" as a pure helper the gateway
-   (F31) and expert release (F36) call against the configured platform chain.
+   (F31) and expert release (F36) call with `DEFAULT_TASK_CHAIN_ORDER[task]`; `ExpertDefinition`
+   calls it per task class, so the rule cannot be skipped by forgetting to call it (issue #16 N1).
 10. **`EmbeddingIndex`** — one pinned model/dimension/metric/generation per index, **no fallback
     field**, because incomparable vectors would silently corrupt retrieval (TOI-ADR-13).
 11. **`IngestionJobPayload`** — strict, no object URLs or credentials; `executor: local_box` is
@@ -52,6 +59,12 @@ both accepts a documented example and rejects unknown keys:
 Chains, provider names, spend ceilings and embedding models stay **data** (`model_providers`,
 `tenant_provider_policy`, `embedding_indexes`), per plan §6.1 and §12.4; the only values fixed
 in code are the five platform provider keys and the §12.4 default matrix.
+
+**Naming across the two languages** (asked for in the packets review): SQL identifiers are
+snake_case (`cleared_for`, `data_class`, `uploaded_by`); contract and TypeScript fields are
+camelCase (`clearedFor`, `dataClass`, `uploadedBy`). The mapping happens once, in the scoped RPC
+that returns the row (FAQ-0004) — a packet, view or adapter never introduces a third name for the
+same fact.
 
 ## Consequences
 
