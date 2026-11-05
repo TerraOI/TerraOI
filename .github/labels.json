@@ -1,0 +1,7 @@
+[
+  { "name": "blocked", "color": "D93F0B", "description": "Cannot proceed; see body for the blocker (COORDINATION.md §4)" },
+  { "name": "needs-contract", "color": "5319E7", "description": "Shared contract change requested from the other lane (COORDINATION.md §2)" },
+  { "name": "needs-supervisor", "color": "FBCA04", "description": "Supervisor decision required (COORDINATION.md §6)" },
+  { "name": "cross-lane", "color": "0E8A16", "description": "PR intentionally touches both lanes; reason in body (AGENTS.md §3)" },
+  { "name": "policy-violation", "color": "B60205", "description": "Unreviewed change reached main; staging deploys blocked (main-guard)" }
+]

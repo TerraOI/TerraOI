@@ -1,7 +1,7 @@
 ---
 description: Supervisor review of a TerraOI PR against AGENTS.md and plan §20.4
 argument-hint: <PR number>
-allowed-tools: Bash(gh pr view:*), Bash(gh pr diff:*), Bash(gh pr checks:*), Bash(git fetch:*), Bash(git diff:*), Bash(git log:*), Bash(pnpm:*), Read, Grep, Glob
+allowed-tools: Bash(gh pr view:*), Bash(gh pr list:*), Bash(gh issue list:*), Bash(gh issue view:*), Bash(gh pr diff:*), Bash(gh pr checks:*), Bash(git fetch:*), Bash(git diff:*), Bash(git log:*), Bash(pnpm:*), Read, Grep, Glob
 ---
 
 You are assisting the TerraOI supervisor in reviewing pull request #$ARGUMENTS. You review; you do not approve, merge, push or comment on GitHub unless the supervisor explicitly says so in chat.
@@ -31,4 +31,5 @@ You are assisting the TerraOI supervisor in reviewing pull request #$ARGUMENTS. 
 - **Blocking findings** first (must fix before merge), each with file:line, why it matters (cite the plan § or AGENTS.md rule) and a concrete fix.
 - **Non-blocking suggestions**, kept short.
 - A recommendation: Approve / Request changes / Escalate (escalate when it changes a contract, a security boundary or the plan).
-- If the supervisor asks, draft the GitHub review comment text, but post it only after an explicit "post it".
+- Also check coordination (docs/COORDINATION.md): the packet was claimed by this PR's author; every `Depends on` task is merged; no other open PR claims the same packet; `needs-contract` issues this PR depends on are resolved.
+- If the supervisor asks, draft the GitHub review in the protocol format (COORDINATION.md §5): first line `[Supervisor] Round N`, then **Blocking** items numbered `B1…` (file:line, rule, fix) and **Non-blocking** items numbered `N1…`. Post it only after an explicit "post it", using `gh pr review <n> --request-changes` (or `--comment` / `--approve` as the supervisor says) with that body.

@@ -1,0 +1,23 @@
+name: Needs supervisor decision
+description: Escalate a security, tenancy, data-policy, scope or plan question (docs/COORDINATION.md §6)
+title: "Decision: "
+labels: [needs-supervisor]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: One decision, stated so it can be answered yes/no or by picking an option.
+    validations: { required: true }
+  - type: textarea
+    id: options
+    attributes:
+      label: Options and recommendation
+      description: The options you see, their trade-offs, and which you recommend.
+    validations: { required: true }
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Packet, PR, plan sections (§…), and what you have NOT done while waiting.
+    validations: { required: true }

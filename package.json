@@ -22,6 +22,7 @@
     "cf:build": "opennextjs-cloudflare build",
     "cf:preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "check:lanes": "node scripts/check-lanes.mjs",
+    "check:migrations": "node scripts/check-migrations.mjs",
     "check:docs": "node scripts/check-docs.mjs",
     "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm check:docs && pnpm build"
   },

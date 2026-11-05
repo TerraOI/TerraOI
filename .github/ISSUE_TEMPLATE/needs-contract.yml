@@ -1,0 +1,35 @@
+name: Needs contract change
+description: Ask the other lane for a change to a shared contract (docs/COORDINATION.md §2)
+title: "Contract: "
+labels: [needs-contract]
+body:
+  - type: input
+    id: contract
+    attributes:
+      label: Contract
+      description: File and type/RPC, e.g. src/contracts/tenant.ts → TenantContext
+    validations: { required: true }
+  - type: textarea
+    id: change
+    attributes:
+      label: Change needed
+      description: The exact field/signature/behavior you need, with an example.
+    validations: { required: true }
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: Which plan section or acceptance test requires it.
+    validations: { required: true }
+  - type: input
+    id: blocks
+    attributes:
+      label: Blocks
+      description: Packet and PR, e.g. T-212 / #34
+    validations: { required: true }
+  - type: dropdown
+    id: lane
+    attributes:
+      label: Requesting lane
+      options: ["Lane 1: Platform & experience", "Lane 2: Knowledge & intelligence"]
+    validations: { required: true }
