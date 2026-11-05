@@ -72,14 +72,47 @@ describe("Answer (plan §12.1)", () => {
 
   it("allows an inference only when its limitation is stated", () => {
     const withLimitation = validAnswer();
+    withLimitation.status = "partial";
     withLimitation.claims = [
       claimWith({ type: "inference", evidence: [], limitations: ["Inferred from the survey plan, not measured."] }),
     ];
     expect(() => Answer.parse(withLimitation)).not.toThrow();
 
     const withoutLimitation = validAnswer();
+    withoutLimitation.status = "partial";
     withoutLimitation.claims = [claimWith({ type: "inference", evidence: [], limitations: [] })];
     expect(() => Answer.parse(withoutLimitation)).toThrow();
+  });
+
+  // Issue #16 N2: the message said "evidenced" but only counted claims, so an `answered` result
+  // built entirely from inferences parsed. Inferences are the part of an answer the platform
+  // cannot prove, so they cannot be what makes a result `answered` (§12.1, AGENTS.md §4.5).
+  it("will not call an answer 'answered' on inferences alone", () => {
+    const oneInference = validAnswer();
+    oneInference.claims = [
+      claimWith({ type: "inference", evidence: [], limitations: ["Not stated in any authorized document."] }),
+    ];
+    expect(() => Answer.parse(oneInference)).toThrow(/non-inference claim with evidence/);
+
+    const twoInferences = validAnswer();
+    twoInferences.claims = [
+      claimWith({ id: "c1", type: "inference", evidence: [], limitations: ["Inferred."] }),
+      claimWith({ id: "c2", type: "inference", evidence: [], limitations: ["Also inferred."] }),
+    ];
+    expect(() => Answer.parse(twoInferences)).toThrow();
+
+    // An evidenced claim alongside inferences is fine — that is a normal grounded answer.
+    const groundedPlusInference = validAnswer();
+    groundedPlusInference.claims = [
+      claimWith({ id: "c1", type: "source_fact" }),
+      claimWith({ id: "c2", type: "inference", evidence: [], limitations: ["Inferred from c1."] }),
+    ];
+    expect(() => Answer.parse(groundedPlusInference)).not.toThrow();
+
+    // A non-inference claim with an empty evidence list is refused by the claim rule itself.
+    const emptyEvidence = validAnswer();
+    emptyEvidence.claims = [claimWith({ id: "c1", type: "source_fact", evidence: [] })];
+    expect(() => Answer.parse(emptyEvidence)).toThrow();
   });
 
   it("refused and unavailable answers may carry no claims; an answered one may not", () => {

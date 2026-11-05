@@ -116,11 +116,16 @@ export const Answer = z
     draftId: OpaqueId.optional(),
   })
   .superRefine((answer, ctx) => {
-    if (answer.status === "answered" && answer.claims.length === 0) {
+    // Issue #16 N2: an `answered` result has to be grounded in something the platform can prove.
+    // `claims.length > 0` was not enough — an answer made only of unevidenced inferences parsed.
+    // The claim must also not be an `inference`, because an inference is by definition the part of
+    // the answer that carries no evidence (§12.1, and AGENTS.md §4.5 "no unverified factual text").
+    const grounded = answer.claims.some((claim) => claim.type !== "inference" && claim.evidence.length > 0);
+    if (answer.status === "answered" && !grounded) {
       ctx.addIssue({
         code: "custom",
         path: ["claims"],
-        message: "status 'answered' requires at least one evidenced claim (§12.1)",
+        message: "status 'answered' requires at least one non-inference claim with evidence (§12.1)",
       });
     }
   });

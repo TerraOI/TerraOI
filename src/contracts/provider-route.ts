@@ -11,7 +11,11 @@ import { ProviderKey } from "./keys";
  * F37, F38) is implemented in `src/platform/gateway/` (T-115, T-314).
  */
 
-/** Cost order, cheapest first (TOI-ADR-12). A tenant may narrow it, never reorder it. */
+/**
+ * The full cost order of TOI-ADR-12 (cheapest first), which is also the default **`compose`**
+ * chain. Not every task may use every provider: see `DEFAULT_TASK_CHAIN_ORDER`, because a
+ * single flat order would reject the plan's own `verify` chain (§12.4).
+ */
 export const DEFAULT_PLATFORM_CHAIN: readonly ProviderKey[] = [
   "local_box",
   "workers_ai",
@@ -23,6 +27,27 @@ export const DEFAULT_PLATFORM_CHAIN: readonly ProviderKey[] = [
 /** Task classes of the bounded M1 pipeline (plan §10.1). Embeddings are pinned, not chained. */
 export const TaskClass = z.enum(["route", "condense", "compose", "verify"]);
 export type TaskClass = z.infer<typeof TaskClass>;
+
+/**
+ * Default chain order **per task class**, from plan §12.4 "Per-task chains":
+ * `route`/`condense` skip Claude (cheap work, cheap providers first), `compose` uses the full
+ * order, and `verify` puts Claude ahead of Workers AI because the strongest default verifier is
+ * what §12.1 needs. An expert may shorten a chain but not reorder it (§5.2), so each chain is
+ * checked against its own task's order — not against one global list.
+ *
+ * Providers that the plan marks "(public only)" for a task are still listed: the data class is
+ * enforced by the clearance matrix at call time, not by hiding the provider from the order.
+ * The `verify` local-box entry additionally requires a different, adequate model, and "not the
+ * model that composed the answer" is chain-walking rule (e) — the gateway's job (T-115), not a
+ * contract-level rejection.
+ */
+export const DEFAULT_TASK_CHAIN_ORDER: Readonly<Record<TaskClass, readonly ProviderKey[]>> = {
+  route: ["local_box", "workers_ai", "deepseek", "openrouter"],
+  condense: ["local_box", "workers_ai", "deepseek", "openrouter"],
+  compose: DEFAULT_PLATFORM_CHAIN,
+  verify: ["local_box", "claude", "workers_ai", "deepseek", "openrouter"],
+};
+export type TaskChainOrders = typeof DEFAULT_TASK_CHAIN_ORDER;
 
 export const CapabilityTier = z.enum(["small", "medium", "large"]);
 export type CapabilityTier = z.infer<typeof CapabilityTier>;
@@ -71,6 +96,17 @@ const CLEARANCE_KEYS: (keyof ClearanceMatrix)[] = [
  * class keeps the platform default (plan §12.4: "tenant admins may narrow it; widening needs a
  * recorded tenant decision and provider-terms review"). Widening is a supervisor decision, so
  * this function has no widening parameter at all.
+ *
+ * **Provenance of `platform` (issue #16 N4).** The platform matrix is reviewed configuration:
+ * it is assembled in `src/platform/gateway/` from `model_providers` / clearance rows that a
+ * human recorded, and the supervisor's review of that configuration is what makes it
+ * authoritative. The parameter exists so the gateway can pass the tenant's *own* reviewed
+ * platform baseline (staging differs from production); it is not a hook for a caller to widen
+ * clearance. Nothing in this repository may build that argument from a request, a model output,
+ * a tenant-editable setting or a default in application code. Any widening — for example E1,
+ * approving Workers AI for `client_confidential` embeddings (issue #6) — is recorded as an ADR
+ * or a tenant decision before it reaches this argument, and the gateway logs the matrix revision
+ * it used with every route (plan §12.4, F40).
  */
 export function narrowClearance(
   tenantPolicy: Partial<ClearanceMatrix> | undefined,
@@ -96,6 +132,9 @@ export function narrowClearance(
 /**
  * True when `chain` is a subsequence of `platformOrder` (plan §5.2: "Experts may shorten their
  * chains but not reorder them past their data policy"). Unknown providers fail.
+ *
+ * `platformOrder` must be the order for **that task** (`DEFAULT_TASK_CHAIN_ORDER[task]`); the
+ * default argument is the full cost order, which is only correct for `compose`.
  */
 export function chainFollowsPlatformOrder(
   chain: readonly string[],

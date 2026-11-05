@@ -11,6 +11,12 @@ request:
 1. `resolveTenantHost` (F01) normalizes the externally routed hostname and looks it up
    exactly in `tenant_domains`. Unknown, suspended, reserved or malformed hosts get a generic
    failure — never a fallback tenant.
+   The hostname comes from **the URL the edge delivered the request to** (`new URL(request.url)`
+   on Workers) and from no header at all: TerraOI has no origin behind Cloudflare, so
+   `X-Forwarded-Host` and `Host` are client-supplied, and `CF-Connecting-IP` is on every Worker
+   request and proves nothing about them. This is what F02's cross-host replay has to fail
+   (plan §4.1 steps 1 and 5, [PR #18](https://github.com/TerraOI/TerraOI/pull/18)). A development
+   host for `next dev` is an explicit adapter parameter, never a header or a fallback.
 2. `authenticateTenantUser` (F02) requires a verified session **and** an active
    `organisation_memberships` row for that organization. Identity alone grants nothing.
 3. Roles, permitted services and permitted projects are computed server-side from current

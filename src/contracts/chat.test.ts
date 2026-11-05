@@ -86,9 +86,9 @@ describe("ProgressEvent (plan §9.3: progress only, never unverified factual tex
         type: "tier_changed",
         fromTier: 1,
         toTier: 2,
-        note: "Using a backup model; this may take longer.",
+        reason: "provider_unavailable",
       }),
-    ).toMatchObject({ type: "tier_changed" });
+    ).toMatchObject({ type: "tier_changed", reason: "provider_unavailable" });
   });
 
   it("rejects an unknown event type and any factual text field", () => {
@@ -108,24 +108,64 @@ describe("ProgressEvent (plan §9.3: progress only, never unverified factual tex
         type: "tier_changed",
         fromTier: 1,
         toTier: 3,
-        note: "switched",
+        reason: "provider_unavailable",
         providerName: "claude",
       }),
     ).toThrow();
   });
 
-  it("keeps routing confidence in 0..1 and requires a bounded note", () => {
-    expect(() =>
-      ProgressEvent.parse({ ...base, type: "routing", expertKey: "gpr-expert", confidence: 1.7 }),
-    ).toThrow();
+  // Issue #16 N5: `note` used to be free text, which is how a provider name, a model id or an
+  // internal error would reach an employee-visible stream.
+  it("accepts only a reason from the closed set for tier_changed", () => {
+    for (const reason of [
+      "provider_unavailable",
+      "quota_exhausted",
+      "clearance",
+      "capability_tier",
+      "composing_model",
+      "output_rejected",
+      "deadline",
+    ] as const) {
+      expect(() =>
+        ProgressEvent.parse({ ...base, type: "tier_changed", fromTier: 1, toTier: 2, reason }),
+      ).not.toThrow();
+    }
+
+    for (const bad of [
+      "switched to claude",
+      "claude",
+      "Workers AI is out of allowance",
+      "ERR_503_from_tunnel",
+      "",
+    ] as const) {
+      expect(() =>
+        ProgressEvent.parse({ ...base, type: "tier_changed", fromTier: 1, toTier: 2, reason: bad }),
+      ).toThrow();
+    }
+
+    // The old free-text field is gone: a strict object means it cannot be smuggled back alongside
+    // a valid reason.
     expect(() =>
       ProgressEvent.parse({
         ...base,
         type: "tier_changed",
         fromTier: 1,
         toTier: 2,
-        note: "x".repeat(301),
+        reason: "provider_unavailable",
+        note: "using claude instead",
       }),
     ).toThrow();
+    expect(() =>
+      ProgressEvent.parse({ ...base, type: "tier_changed", fromTier: 1, toTier: 2 }),
+    ).toThrow();
+  });
+
+  it("keeps routing confidence in 0..1", () => {
+    expect(() =>
+      ProgressEvent.parse({ ...base, type: "routing", expertKey: "gpr-expert", confidence: 1.7 }),
+    ).toThrow();
+    expect(() =>
+      ProgressEvent.parse({ ...base, type: "routing", expertKey: "gpr-expert", confidence: 0.9 }),
+    ).not.toThrow();
   });
 });

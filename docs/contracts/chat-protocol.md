@@ -10,6 +10,13 @@ into it, then validates. It has no organization, user, role, host or data-class 
 from the verified session and host only. `idempotencyKey` identifies the logical run, so a retry
 or a reconnect reuses it and a deliberate new question gets a fresh one (plan §9.2).
 
+`projectId` is a **filter, not a grant** (issue #16 N5). The route must reject a value that is not
+in `TenantContext.permittedProjectIds` before any retrieval runs — as `out_of_scope` or the
+generic no-access response, never by disclosing that the project exists (§8.2). A missing
+`projectId` means "the projects this employee may see in this service", which the server computes
+from the same context; the client never sends a list. Checking it is not optional: the retrieval
+lane trusts the context, not the request.
+
 Client-forged assistant/system/tool turns are rejected because `message` is a strict single-user
 object; history is reloaded from authorized server state (F17), never from the transcript.
 
@@ -24,7 +31,7 @@ object; history is reloaded from authorized server state (F17), never from the t
 | `searching` | search started, and `retrieval_mode: lexical_only` when the pinned embedding route is down (§8.1) | degraded quality is stated, not hidden |
 | `reading_records` | which tool keys ran | keys only, so hidden records are not disclosed (§8.2) |
 | `verifying` | the answer is being checked (§12.1 pass 1 and 2) | — |
-| `tier_changed` | "using a backup model; this may take longer", with chain positions | provider names are tenant-admin detail (§9.3) |
+| `tier_changed` | "using a backup model; this may take longer", with chain positions | provider names are tenant-admin detail (§9.3); `reason` is the closed `TierChangeReason` enum (`provider_unavailable`, `quota_exhausted`, `clearance`, `capability_tier`, `composing_model`, `output_rejected`, `deadline`), so no free text can leak a provider, model or internal error (issue #16 N5) |
 
 Unverified candidate text never reaches the browser (AGENTS.md §4.5, TOI-ADR-07). The final
 `Answer` is persisted with audit and usage **before** delivery (F22); a client disconnect does not
@@ -37,7 +44,9 @@ dependencies, §6.2). Rules the schema enforces:
 
 - a `source_fact`, `requirement` or `record_fact` claim needs at least one `EvidenceRef`;
 - an `inference` with no evidence must state a `limitations` entry, and is labeled;
-- `status: answered` needs at least one claim; `refused`, `partial` and `unavailable` may have none;
+- `status: answered` needs at least one **non-inference claim that carries evidence**; an answer made
+  only of inferences, however many, is `partial` at best (issue #16 N2). `refused`, `partial` and
+  `unavailable` may have none;
 - evidence rows are typed (`chunk` with source version + chunk + span, `record` with tool call +
   record version + observed-at, `form_field` with submission + field path + template version);
   spans are ordered, and a URL or signed object reference cannot be represented.
