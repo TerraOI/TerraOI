@@ -201,11 +201,10 @@ select is((select count(*)::int from t_profiles where case_name = 'left'), 1::in
 -- ---------------------------------------------------------------- two memberships, one session
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a4';
-insert into t_out values
-  ('multi_c1', pg_temp.try_scope('11111111-1111-4111-8111-111111111111')),
-  ('multi_c2', pg_temp.try_scope('22222222-2222-4222-8222-222222222222'));
+insert into t_out values ('multi_c1', pg_temp.try_scope('11111111-1111-4111-8111-111111111111'));
 insert into t_orgs select 'multi', id from public.organisations;
 insert into t_projects select 'multi_c1', id from public.projects;
+insert into t_out values ('multi_c2', pg_temp.try_scope('22222222-2222-4222-8222-222222222222'));
 insert into t_projects select 'multi_c2', id from public.projects;
 reset role;
 
