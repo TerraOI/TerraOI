@@ -1,7 +1,7 @@
 # T-102 Magic-link sign-in, membership gate and host-only session
 
-Lane: 1 · Week: 1 · Protected: yes (`src/platform/identity/`) · Depends on: T-002, T-003, T-101 · Status: ready
-Plan refs: §4.2, §4.4; F02, F05 (invite part)
+Lane: 1 Â· Week: 1 Â· Protected: yes (`src/platform/identity/`) Â· Depends on: T-002, T-003, T-101 Â· Status: in progress (wyuinline)
+Plan refs: Â§4.2, Â§4.4; F02, F05 (invite part)
 
 ## Goal
 An invited person signs in on their tenant origin with an email magic link; a verified identity
@@ -28,13 +28,13 @@ cookies, and state-changing requests require exact-Origin plus CSRF checks.
       host-only (`Set-Cookie` has no `Domain=`), `Secure`, `HttpOnly`, `SameSite=Lax`, and a
       `__Host-` prefix where the adapter allows it
 - [ ] negative: a valid identity with **no** membership row (or status `suspended`/`invited`) sees
-      the generic no-access page — not tenant branding beyond the public login surface
+      the generic no-access page â€” not tenant branding beyond the public login surface
 - [ ] negative: a session cookie from `company1` is not accepted on `company2`; a callback URL for
       tenant A replayed on tenant B's host fails
 - [ ] negative: a `POST` without a matching `Origin` and valid CSRF token is rejected
 - [ ] negative: an invite bound to `user@example.test` cannot be claimed by `User@Example.test`
       bypassing normalization, and cannot be redeemed on another tenant
-- [ ] failure: expired / already-used magic link → safe error, no session, no tenant data;
+- [ ] failure: expired / already-used magic link â†’ safe error, no session, no tenant data;
       rate-limited request does not leak whether the address is invited
 
 ## Done evidence
