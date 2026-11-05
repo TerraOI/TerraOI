@@ -1,7 +1,10 @@
 import type { CSSProperties } from "react";
 import { inter, plexMono } from "./fonts";
+import { MagicLinkForm } from "./magic-link-form";
 import { MicrosoftButton } from "./method-buttons";
+import { PasswordForm } from "./password-form";
 import styles from "./sign-in.module.css";
+import { StatusMessage } from "./status-message";
 import type { SignInBrand, SignInPageProps } from "./types";
 
 /** Brand colors reach the page only as CSS custom properties on the root (T-131 rules). */
@@ -16,6 +19,7 @@ export function brandVariables(brand: SignInBrand): CSSProperties {
 export function SignInPage({
   brand,
   enabledMethods,
+  status,
   magicLinkAction,
   passwordAction,
   microsoftHref,
@@ -47,36 +51,11 @@ export function SignInPage({
             </div>
           )}
 
-          {showMagicLink && (
-            <form className={styles.form} action={magicLinkAction}>
-              <label className={styles.label} htmlFor="signin-email">
-                Work email
-              </label>
-              <input className={styles.input} id="signin-email" name="email" type="email" required />
-              <button className={styles.primary} type="submit">
-                Email me a sign-in link
-              </button>
-            </form>
-          )}
+          {showMagicLink && magicLinkAction && <MagicLinkForm action={magicLinkAction} />}
 
-          {showPassword && (
-            <details className={styles.passwordToggle}>
-              <summary className={styles.secondary}>Use a password instead</summary>
-              <form className={styles.form} action={passwordAction}>
-                <label className={styles.label} htmlFor="signin-password-email">
-                  Email
-                </label>
-                <input className={styles.input} id="signin-password-email" name="email" type="email" required />
-                <label className={styles.label} htmlFor="signin-password">
-                  Password
-                </label>
-                <input className={styles.input} id="signin-password" name="password" type="password" required />
-                <button className={styles.primary} type="submit">
-                  Sign in
-                </button>
-              </form>
-            </details>
-          )}
+          {showPassword && passwordAction && <PasswordForm action={passwordAction} />}
+
+          <StatusMessage status={status} />
 
           <p className={styles.support}>{brand.supportLabel}</p>
         </div>
