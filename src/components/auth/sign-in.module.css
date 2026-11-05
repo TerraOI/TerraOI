@@ -161,6 +161,27 @@
   margin-bottom: 8px;
 }
 
+/* Chevron showing the toggle is expandable; points up once open. */
+.secondary::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-2px) rotate(45deg);
+  transition: transform 150ms ease;
+}
+
+.passwordToggle[open] > .secondary::after {
+  transform: translateY(2px) rotate(-135deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .secondary::after {
+    transition: none;
+  }
+}
+
 .msLogo {
   flex: none;
 }
@@ -191,8 +212,11 @@
 .microsoft:focus-visible,
 .secondary:focus-visible,
 .input:focus-visible {
-  outline: 2px solid var(--accent);
+  /* Two-tone so it stays visible whatever the tenant accent is: a fixed graphite ring,
+     then an accent halo outside it. */
+  outline: 2px solid var(--graphite);
   outline-offset: 2px;
+  box-shadow: 0 0 0 4px #fff, 0 0 0 6px var(--accent);
 }
 
 .status {

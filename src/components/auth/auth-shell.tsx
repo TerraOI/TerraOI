@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
-import { inter, plexMono } from "./fonts";
+import { inter } from "./fonts";
 import { PoweredBy } from "./powered-by";
 import styles from "./sign-in.module.css";
 import type { SignInBrand } from "./types";
@@ -29,7 +29,7 @@ export function brandVariables(brand: SignInBrand): CSSProperties {
 /** Split layout shared by every sign-in screen: brand panel + form card. */
 export function AuthShell({ brand, children }: { brand: SignInBrand; children: ReactNode }) {
   return (
-    <div className={`${styles.page} ${inter.variable} ${plexMono.variable}`} style={brandVariables(brand)}>
+    <div className={`${styles.page} ${inter.variable}`} style={brandVariables(brand)}>
       <aside className={styles.brandPanel}>
         <p className={styles.brandName}>{brand.name}</p>
         <p className={styles.tagline}>{brand.tagline}</p>

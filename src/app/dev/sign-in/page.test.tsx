@@ -4,7 +4,6 @@ import { cleanup, render, screen } from "@testing-library/react";
 
 vi.mock("next/font/google", () => ({
   Inter: () => ({ className: "inter-cls", variable: "inter-var" }),
-  IBM_Plex_Mono: () => ({ className: "mono-cls", variable: "mono-var" }),
 }));
 vi.mock("next/navigation", () => ({
   notFound: () => {

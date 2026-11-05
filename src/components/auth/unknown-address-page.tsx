@@ -4,7 +4,8 @@ import type { SignInBrand } from "./types";
 
 // For a host that maps to no tenant. It takes no brand prop on purpose: nothing about any
 // tenant may show here, so the page cannot confirm or deny which workspaces exist.
-const NEUTRAL_BRAND: SignInBrand = {
+// TerraOI-branded by supervisor ruling (2026-11-05, PR #20), even on white-label custom domains.
+const TERRAOI_BRAND: SignInBrand = {
   name: "TerraOI",
   tagline: "AI operations for air, surface, and subsurface.",
   logoUrl: "",
@@ -17,7 +18,7 @@ const NEUTRAL_BRAND: SignInBrand = {
 
 export function UnknownAddressPage() {
   return (
-    <AuthShell brand={NEUTRAL_BRAND}>
+    <AuthShell brand={TERRAOI_BRAND}>
       <h1 className={styles.heading}>Workspace not found</h1>
       <p className={styles.body}>This address is not recognized.</p>
     </AuthShell>

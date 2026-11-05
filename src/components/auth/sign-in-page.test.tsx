@@ -4,7 +4,6 @@ import { cleanup, render, screen } from "@testing-library/react";
 
 vi.mock("next/font/google", () => ({
   Inter: () => ({ className: "inter-cls", variable: "inter-var" }),
-  IBM_Plex_Mono: () => ({ className: "mono-cls", variable: "mono-var" }),
 }));
 
 import { SignInPage } from "./sign-in-page";
@@ -57,11 +56,11 @@ describe("SignInPage methods", () => {
     expect(screen.queryByLabelText("Password")).toBeNull();
   });
 
-  it("defines the font variables the stylesheet reads on the page root", () => {
+  it("defines the font variable the stylesheet reads on the page root, and no unused font", () => {
     const { container } = render(<SignInPage {...props()} />);
     const root = container.firstElementChild as HTMLElement;
     expect(root.classList.contains("inter-var")).toBe(true);
-    expect(root.classList.contains("mono-var")).toBe(true);
+    expect(root.classList.contains("mono-var")).toBe(false);
   });
 
   it("applies brand colors as CSS variables only", () => {

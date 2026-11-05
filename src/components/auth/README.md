@@ -11,7 +11,7 @@ Preview all three brand modes with `pnpm dev` at `/dev/sign-in`. The route retur
 | `SignInPage` | `SignInPageProps` (see `types.ts`) | The sign-in screen |
 | `CheckEmailPage` | `{ brand }` | After a magic-link request |
 | `NoAccessPage` | `{ brand }` | Signed in, but not a member of this workspace |
-| `UnknownAddressPage` | none | A host that maps to no tenant. It takes no brand on purpose |
+| `UnknownAddressPage` | none | A host that maps to no tenant. It takes no tenant brand and always shows TerraOI branding (supervisor ruling, PR #20) |
 | `MagicLinkForm`, `PasswordForm`, `MicrosoftButton`, `StatusMessage`, `PoweredBy` | | Building blocks used by the pages |
 
 `SignInBrand` is a component-level shape, not a `src/contracts/` type. T-103 and T-204 map the validated `TenantBrand` onto it.

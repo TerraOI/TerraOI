@@ -5,7 +5,6 @@ import { renderToString } from "react-dom/server";
 
 vi.mock("next/font/google", () => ({
   Inter: () => ({ className: "inter-cls", variable: "inter-var" }),
-  IBM_Plex_Mono: () => ({ className: "mono-cls", variable: "mono-var" }),
 }));
 
 import { company1Powered } from "./fixtures";

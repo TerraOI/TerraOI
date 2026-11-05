@@ -4,7 +4,6 @@ import { cleanup, render, screen } from "@testing-library/react";
 
 vi.mock("next/font/google", () => ({
   Inter: () => ({ className: "inter-cls", variable: "inter-var" }),
-  IBM_Plex_Mono: () => ({ className: "mono-cls", variable: "mono-var" }),
 }));
 
 import { CheckEmailPage } from "./check-email-page";
@@ -73,9 +72,11 @@ describe("secondary pages", () => {
     expect(screen.getByText("If this address can sign in, we've sent a link.")).toBeTruthy();
   });
 
-  it("unknown-address page is TerraOI-neutral and names no tenant", () => {
+  it("unknown-address page is TerraOI-branded and names no tenant", () => {
+    // Supervisor ruling 2026-11-05 (PR #20): this page carries TerraOI branding.
     const { container } = render(<UnknownAddressPage />);
     expect(screen.getByText("This address is not recognized.")).toBeTruthy();
+    expect(screen.getByText("TerraOI")).toBeTruthy();
     expect(container.innerHTML).not.toContain("Company1");
   });
 });
