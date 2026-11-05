@@ -321,8 +321,11 @@ grant select on
   public.membership_roles, public.projects, public.project_memberships
   to authenticated;
 
-grant execute on
-  public.current_organisation_id, public.set_tenant_scope, public.clear_tenant_scope,
-  public.is_active_member, public.is_project_member
+grant execute on function
+  public.current_organisation_id(),
+  public.set_tenant_scope(uuid),
+  public.clear_tenant_scope(),
+  public.is_active_member(uuid),
+  public.is_project_member(uuid)
   to authenticated;
-grant execute on public.resolve_tenant_host(text) to anon, authenticated;
+grant execute on function public.resolve_tenant_host(text) to anon, authenticated;
