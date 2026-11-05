@@ -22,6 +22,9 @@
 --   * a captured source version is immutable: corrections create a new version (§7.2). Only
 --     lifecycle state, review/revocation markers and a *raised* data class may change;
 --   * derived rows never carry a lower class than what they came from (§6.2, AGENTS.md §4.4);
+--   * every version records who captured it (`uploaded_by`, not null, set from auth.uid() by the
+--     capture path) so reviewer independence can be enforced per version, and it is immutable for
+--     the same reason (issue #8, §7.2 step 7);
 --   * capture commits the source version and its outbox event in one transaction (§7.2 step 1);
 --   * an embedding index generation pins provider/model/dimensions/metric/generation with no
 --     fallback, and only one generation per tenant index is active at a time (§8.3, TOI-ADR-13);
@@ -116,6 +119,10 @@ create table public.knowledge_sources (
   -- Connector-side identity. Tenant-scoped unique, so two tenants may share an external id
   -- without learning anything about each other (§6.2).
   external_id text check (external_id is null or char_length(external_id) between 1 and 200),
+  -- Advisory label for the UI ("whose document is this"), always written by a privileged path,
+  -- never by a member (B1/B4). The authoritative per-version provenance is
+  -- source_versions.uploaded_by: this column covers the whole source and cannot answer
+  -- "who uploaded this version" (issue #8).
   owner_user_id uuid references public.profiles (id) on delete set null,
   -- The version retrieval should use. Set only by the publish path (F13); a trigger below
   -- requires it to be a version of this same source. The composite FK is added after
@@ -149,6 +156,15 @@ create table public.source_versions (
   -- it (B3). Kept equal to the source's collection by source_versions_collection_guard below.
   collection_id uuid not null,
   version_number integer not null check (version_number > 0),
+  -- B4 / issue #8: the uploader recorded on the version itself. `knowledge_sources.owner_user_id`
+  -- is not enough — it is one value for the whole source, and the reviewer-independence rule
+  -- ("the uploader is not the publisher of their own version") is per version. Not null, and set
+  -- by the capture path from auth.uid() of the verified request, never from a request body
+  -- (AGENTS.md §4.1): T-112 register_source_version_v1 supplies it, and members hold no INSERT
+  -- grant (B1), so nothing client-side can forge or omit it.
+  -- ON DELETE RESTRICT: provenance outlives the account. An account deletion has to anonymize or
+  -- re-attribute the trail first (retention is per category, §7.5) rather than silently orphan it.
+  uploaded_by uuid not null references public.profiles (id) on delete restrict,
   data_class text not null,
   -- Lowercase hex sha-256 of the accepted object, verified at capture (F10).
   content_hash text not null check (content_hash ~ '^[0-9a-f]{64}$'),
@@ -549,6 +565,7 @@ begin
      or new.source_id is distinct from old.source_id
      or new.collection_id is distinct from old.collection_id
      or new.version_number is distinct from old.version_number
+     or new.uploaded_by is distinct from old.uploaded_by
      or new.content_hash is distinct from old.content_hash
      or new.object_ref is distinct from old.object_ref
      or new.parser_generation is distinct from old.parser_generation
