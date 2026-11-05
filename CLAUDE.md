@@ -2,4 +2,4 @@
 
 All project instructions live in [AGENTS.md](AGENTS.md). Read and follow it before doing anything else.
 
-Supervisor reviews: the repository owner runs `/terraoi-review <PR number>` (see `.claude/commands/terraoi-review.md`).
+Supervisor commands (repository owner only): `/terraoi-review <PR number>` for PR reviews and `/terraoi-housekeeping` for the weekly organization review (see `.claude/commands/`). Builders' agents do not run these.

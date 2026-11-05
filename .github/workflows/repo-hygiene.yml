@@ -1,0 +1,81 @@
+name: Repo hygiene
+
+# Weekly organization check (docs/REPO-STRUCTURE.md): structure and links, stale PRs and
+# claims, unanswered blocked/needs-supervisor items. Findings go to ONE rolling issue
+# labeled `housekeeping`; the supervisor's /terraoi-housekeeping review starts from it.
+on:
+  schedule:
+    - cron: "0 14 * * 1" # Mondays 14:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  hygiene:
+    name: hygiene
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - name: Collect findings
+        id: collect
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          report=$(mktemp)
+          section() { echo -e "\n### $1\n" >> "$report"; }
+          found=0
+
+          section "Structure (docs/REPO-STRUCTURE.md)"
+          if out=$(node scripts/check-structure.mjs 2>&1); then echo "OK: $out" >> "$report"; else echo "$out" >> "$report"; found=1; fi
+
+          section "Documentation links"
+          if out=$(node scripts/check-docs.mjs 2>&1); then echo "OK: $out" >> "$report"; else echo "$out" >> "$report"; found=1; fi
+
+          week_ago=$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)
+          five_days_ago=$(date -u -d '5 days ago' +%Y-%m-%dT%H:%M:%SZ)
+
+          section "Open PRs with no update for 7+ days"
+          stale=$(gh pr list --state open --json number,title,updatedAt,isDraft \
+            --jq ".[] | select(.isDraft == false and .updatedAt < \"$week_ago\") | \"- #\(.number) \(.title) (updated \(.updatedAt[:10]))\"")
+          if [ -n "$stale" ]; then echo "$stale" >> "$report"; found=1; else echo "None." >> "$report"; fi
+
+          section "Draft PRs (task claims) idle for 5+ days"
+          idle=$(gh pr list --state open --draft --json number,title,updatedAt \
+            --jq ".[] | select(.updatedAt < \"$five_days_ago\") | \"- #\(.number) \(.title) (updated \(.updatedAt[:10]))\"")
+          if [ -n "$idle" ]; then echo "$idle" >> "$report"; found=1; else echo "None." >> "$report"; fi
+
+          section "Waiting on someone (blocked / needs-supervisor / needs-contract)"
+          for l in blocked needs-supervisor needs-contract; do
+            gh issue list --state open --label "$l" --json number,title --jq ".[] | \"- #\(.number) [$l] \(.title)\"" >> "$report.wait"
+            gh pr list --state open --label "$l" --json number,title --jq ".[] | \"- PR #\(.number) [$l] \(.title)\"" >> "$report.wait"
+          done
+          if [ -s "$report.wait" ]; then sort -u "$report.wait" >> "$report"; found=1; else echo "None." >> "$report"; fi
+
+          section "Open policy violations"
+          pv=$(gh issue list --state open --label policy-violation --json number,title --jq '.[] | "- #\(.number) \(.title)"')
+          if [ -n "$pv" ]; then echo "$pv" >> "$report"; found=1; else echo "None." >> "$report"; fi
+
+          cat "$report"
+          { echo "found=$found"; echo "report<<EOF"; cat "$report"; echo "EOF"; } >> "$GITHUB_OUTPUT"
+      - name: Post to the rolling housekeeping issue
+        if: steps.collect.outputs.found == '1'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPORT: ${{ steps.collect.outputs.report }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          body=$(printf '## Weekly hygiene findings (%s)\n%s\n\nRun: %s\n\nSupervisor: start `/terraoi-housekeeping` from this list.' "$(date -u +%Y-%m-%d)" "$REPORT" "$RUN_URL")
+          existing=$(gh issue list --state open --label housekeeping --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "Repo housekeeping" --label housekeeping --body "$body"
+          fi

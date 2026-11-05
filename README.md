@@ -6,7 +6,7 @@ Multi-tenant operational intelligence platform: each customer company gets a bra
 
 - **Builders and their AI agents:** read [AGENTS.md](AGENTS.md), then your task packet in [docs/tasks/](docs/tasks/).
 - **Architecture and build plan:** [docs/plan/TerraOI-plan-v1.3.md](docs/plan/TerraOI-plan-v1.3.md) (build plan in §20).
-- **Brand kit:** [TerraOI-Brand-Kit-v1.0.0/](TerraOI-Brand-Kit-v1.0.0/).
+- **Brand kit:** [brand/](brand/) (TerraOI Brand Kit v1.0.0).
 - **Weekly status:** [docs/status/](docs/status/).
 
 ## Quick start
@@ -28,7 +28,8 @@ pnpm db:start && pnpm db:reset && pnpm db:test   # local Supabase + pgTAP tests 
 | `src/platform/` | Platform modules split by lane (see AGENTS.md §3) |
 | `src/contracts/` | Shared runtime schemas; protected |
 | `supabase/` | Migrations, pgTAP tests, local config |
-| `scripts/` | Repository policy checks (lanes, docs links) |
+| `scripts/` | Repository policy checks (lanes, migrations, structure, docs links) |
+| `brand/` | TerraOI Brand Kit (design source; see `brand/README.md`) |
 | `docs/` | Plan, tasks, decisions, status |
 | `.github/` | CI, PR policy, staging deploy, CODEOWNERS |
 

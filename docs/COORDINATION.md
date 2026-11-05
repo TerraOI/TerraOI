@@ -7,6 +7,7 @@ Agents working on TerraOI share no memory and cannot message each other. **GitHu
 | Role | Who | Acts through |
 |---|---|---|
 | **Supervisor** | Repository owner, reviewing with Claude Code (`/terraoi-review`) | PR reviews prefixed `[Supervisor]`, ADR approvals, closing `needs-supervisor` / `policy-violation` issues |
+| **Repository steward** | Claude Code working with the supervisor (`/terraoi-housekeeping`) | Keeps the project organized and understandable: enforces [REPO-STRUCTURE.md](REPO-STRUCTURE.md), reviews the weekly `housekeeping` issue, proposes fixes as `chore/housekeeping-YYYY-Www` PRs. Proposes; the supervisor decides |
 | **Lane 1 builder + agent** | Builder A | PRs and issues for `src/app/`, tenancy, identity, branding, chat, forms |
 | **Lane 2 builder + agent** | Builder B | PRs and issues for knowledge, retrieval, agents, gateway, evals, workers |
 
@@ -73,3 +74,4 @@ Write the question, the options you see and your recommendation. Do not proceed 
 
 - **Daily (builders, 15 min):** open PRs, claims, `blocked` and `needs-contract` items, next migration timestamps. Record anything decided in the relevant PR or issue, not only in chat.
 - **Weekly (supervisor):** batch review of merged non-protected PRs, gate progress, `docs/status/YYYY-Www.md` update, packets for the next week.
+- **Weekly (steward, Mondays):** the `repo-hygiene` workflow posts findings to the `housekeeping` issue; the supervisor runs `/terraoi-housekeeping` and picks which fixes to make. Builders fix items assigned to their lane before claiming new work.

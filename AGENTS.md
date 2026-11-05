@@ -12,6 +12,8 @@ TerraOI is a multi-tenant operational intelligence platform. Each customer compa
 
 ## 2. Stack and commands
 
+**Where things go:** [docs/REPO-STRUCTURE.md](docs/REPO-STRUCTURE.md). Index of all docs: [docs/README.md](docs/README.md).
+
 Next.js (App Router) + React + TypeScript on Cloudflare Workers through OpenNext; Supabase Postgres with RLS and pgvector; Zod at boundaries; Vitest; pnpm.
 
 | Task | Command |
@@ -36,9 +38,9 @@ Two builders work in parallel, one per lane. **Edit only your lane's paths plus 
 |---|---|
 | **Lane 1: Platform & experience** | `src/app/`, `src/components/`, `src/platform/{tenancy,identity,branding,chat,forms,notifications}/` |
 | **Lane 2: Knowledge & intelligence** | `src/platform/{knowledge,retrieval,agents,gateway,evals,budgets,audit}/`, `workers/`, `localbox/`, `evals/` |
-| **Shared** (both; changes coordinated) | `src/contracts/`, `supabase/`, `docs/`, `scripts/`, root config |
+| **Shared** (both; changes coordinated) | `src/contracts/`, `supabase/`, `docs/`, `scripts/`, `brand/` (read [brand/README.md](brand/README.md) first), root config |
 
-**Protected paths** need the supervisor's review (enforced by `.github/CODEOWNERS`): `supabase/migrations/`, `src/contracts/`, `src/platform/{tenancy,identity,policy}/`, `src/platform/gateway/` (chain and clearance), `workers/`, `localbox/`, `.github/`, `AGENTS.md`, `wrangler.jsonc`.
+**Protected paths** need the supervisor's review (enforced by `.github/CODEOWNERS`): `supabase/migrations/`, `src/contracts/`, `src/platform/{tenancy,identity,policy}/`, `src/platform/gateway/` (chain and clearance), `workers/`, `localbox/`, `.github/`, `AGENTS.md`, `wrangler.jsonc`, `brand/`.
 
 ## 4. Non-negotiables (security and data)
 
@@ -76,6 +78,7 @@ Breaking any of these is a blocking review finding, whatever the tests say.
 - Changing anything in `src/contracts/` without an ADR in `docs/decisions/`.
 - Committing `.env*`, `.dev.vars*`, keys, tokens or generated credentials.
 - Weakening tenancy, RLS, clearance or verification "for now", even behind a flag.
+- Creating a new top-level folder, a new `src/platform/` module, or files that break the naming rules in [docs/REPO-STRUCTURE.md](docs/REPO-STRUCTURE.md). `pnpm check:structure` enforces this; ask with `needs-supervisor` instead.
 
 ## 7. When blocked or unsure
 
