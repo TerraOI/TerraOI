@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: deploy-staging
@@ -46,6 +47,12 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
+      - name: Refuse commits that skipped PR review (stopgap for branch protection)
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHAS: ${{ github.sha }}
+        run: node scripts/check-pr-provenance.mjs
       - if: steps.gate.outputs.ready == 'true'
         run: pnpm install --frozen-lockfile
       - name: Apply migrations to staging (compatible changes first, plan §17.2)

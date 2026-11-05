@@ -1,0 +1,50 @@
+name: Main guard
+
+# Stopgap while branch protection is unavailable (private repo on GitHub Free).
+# Detects commits on main that did not arrive through a merged PR, and force-pushes,
+# then fails visibly and opens a policy-violation issue. It cannot block the push;
+# deploy-staging.yml refuses to deploy such commits. Remove once rulesets are enabled.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: write
+
+jobs:
+  provenance:
+    name: provenance
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - name: Every new commit came through a merged PR
+        id: check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+          FORCED: ${{ github.event.forced }}
+        run: node scripts/check-pr-provenance.mjs
+      - name: Open a policy-violation issue
+        if: failure() && steps.check.outputs.violations != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VIOLATIONS: ${{ steps.check.outputs.violations }}
+          PUSHER: ${{ github.event.pusher.name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create policy-violation --color B60205 \
+            --description "Change reached main without the required PR review" --force
+          body=$(printf '%s\n\n%s\n\n%s\n\n%s\n' \
+            "Commits reached \`main\` without a merged, reviewed pull request (AGENTS.md section 6)." \
+            "$VIOLATIONS" \
+            "Pushed by: \`$PUSHER\`. Detected by: $RUN_URL" \
+            "These commits will not be deployed to staging. Revert them or open a PR that reviews them, then close this issue.")
+          gh issue create --title "Policy violation: unreviewed change on main" \
+            --label policy-violation --body "$body"
