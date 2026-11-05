@@ -2,14 +2,17 @@
 
 import Link from "next/link";
 import Script from "next/script";
-import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { useCallback, useId, useRef, useState, type FormEvent } from "react";
 import { INQUIRY_COPY } from "@/platform/site/inquiry-copy";
 import styles from "./site.module.css";
 
 const TURNSTILE_SRC = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
 
 type Turnstile = {
-  render(el: HTMLElement, opts: { sitekey: string; callback(token: string): void; "expired-callback"?(): void }): string;
+  render(
+    el: HTMLElement,
+    opts: { sitekey: string; callback(token: string): void; "expired-callback"?(): void; "error-callback"?(): void },
+  ): string;
   reset(id?: string): void;
 };
 declare global {
@@ -34,6 +37,7 @@ const SERVICES = [
 function messageFor(status: number, body: { error?: unknown }): string {
   if (status === 400 && body.error === INQUIRY_COPY.verificationFailed) return INQUIRY_COPY.verificationFailed;
   if (status === 400) return INQUIRY_COPY.checkForm;
+  if (status === 413) return INQUIRY_COPY.tooLarge;
   if (status === 429) return INQUIRY_COPY.rateLimited;
   return INQUIRY_COPY.unavailable;
 }
@@ -44,29 +48,60 @@ export function PilotForm({ siteKey }: { siteKey: string }) {
   const [alert, setAlert] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [widgetFailed, setWidgetFailed] = useState(false);
-  const [scriptLoaded, setScriptLoaded] = useState(false);
   const token = useRef<string | null>(null);
   const widget = useRef<string | null>(null);
   const widgetEl = useRef<HTMLDivElement>(null);
   // Set synchronously on the first click so a second click in the same tick is ignored.
   const inFlight = useRef(false);
+  const retries = useRef(0);
+  const retrying = useRef(false);
+
+  const failWidget = useCallback(() => {
+    setWidgetFailed(true);
+    setAlert(INQUIRY_COPY.widgetFailed);
+  }, []);
 
   const renderWidget = useCallback(() => {
     if (!window.turnstile || !widgetEl.current || widget.current) return;
-    widget.current = window.turnstile.render(widgetEl.current, {
-      sitekey: siteKey,
-      callback: (t) => {
-        token.current = t;
-      },
-      "expired-callback": () => {
-        token.current = null;
-      },
-    });
-  }, [siteKey]);
+    // A missing site key (unconfigured environment) or a widget that throws must not crash the page.
+    if (!siteKey) return failWidget();
+    try {
+      widget.current = window.turnstile.render(widgetEl.current, {
+        sitekey: siteKey,
+        callback: (t) => {
+          token.current = t;
+        },
+        "expired-callback": () => {
+          token.current = null;
+        },
+        "error-callback": failWidget,
+      });
+    } catch {
+      failWidget();
+    }
+  }, [siteKey, failWidget]);
 
-  useEffect(() => {
-    if (scriptLoaded) renderWidget();
-  }, [scriptLoaded, renderWidget]);
+  // next/script never reloads a src it has seen, so a retry injects a fresh, cache-busted tag.
+  function retryWidget() {
+    if (retrying.current || !siteKey) return;
+    retrying.current = true;
+    retries.current += 1;
+    const el = document.createElement("script");
+    el.src = `${TURNSTILE_SRC}&retry=${retries.current}`;
+    el.async = true;
+    el.onload = () => {
+      retrying.current = false;
+      setWidgetFailed(false);
+      setAlert(null);
+      widget.current = null;
+      renderWidget();
+    };
+    el.onerror = () => {
+      retrying.current = false;
+      el.remove();
+    };
+    document.head.appendChild(el);
+  }
 
   function resetWidget() {
     token.current = null;
@@ -78,6 +113,7 @@ export function PilotForm({ siteKey }: { siteKey: string }) {
     if (inFlight.current) return;
     if (widgetFailed) {
       setAlert(INQUIRY_COPY.widgetFailed);
+      retryWidget();
       return;
     }
     if (!token.current) {
@@ -158,15 +194,9 @@ export function PilotForm({ siteKey }: { siteKey: string }) {
       <Script
         src={TURNSTILE_SRC}
         strategy="afterInteractive"
-        onLoad={() => {
-          setWidgetFailed(false);
-          setScriptLoaded(true);
-          renderWidget();
-        }}
-        onError={() => {
-          setWidgetFailed(true);
-          setAlert(INQUIRY_COPY.widgetFailed);
-        }}
+        // onReady fires after the first load and again on every remount (onLoad fires only once).
+        onReady={renderWidget}
+        onError={failWidget}
       />
 
       <div className={styles.formGrid}>

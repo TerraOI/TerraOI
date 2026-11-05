@@ -56,6 +56,11 @@ select throws_ok(
 reset role;
 
 -- inquiry_writer: execute only -------------------------------------------------
+-- Test-only grants, rolled back with the transaction. On PG16+ a CREATEROLE non-superuser
+-- (Supabase's postgres) gets only ADMIN on roles it creates, not SET; and pgTAP lives in
+-- `extensions`, which inquiry_writer has no usage on. Never move these into a migration.
+grant inquiry_writer to postgres;
+grant usage on schema extensions to inquiry_writer;
 set local role inquiry_writer;
 select lives_ok(
   $$ select intake.submit_pilot_inquiry_v1('Dana Reyes', 'dana@company1.com', 'Company1', 'Survey lead',

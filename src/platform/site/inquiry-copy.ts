@@ -8,4 +8,5 @@ export const INQUIRY_COPY = {
   widgetFailed: "The verification check didn't load. Check your connection or ad blocker, then try again.",
   widgetPending: "Complete the verification check, then send.",
   checkForm: "Check the form and try again.",
+  tooLarge: "Your inquiry is too long. Shorten the message and try again.",
 } as const;

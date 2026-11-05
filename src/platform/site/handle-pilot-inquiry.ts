@@ -78,14 +78,26 @@ export async function handlePilotInquiry(req: Request, deps: InquiryDeps): Promi
 
   // 4-6. Outside services. Any unexpected failure is the same generic 503; details stay server-side.
   const ip = req.headers.get("cf-connecting-ip");
+  let step: "verifyTurnstile" | "hashIp" | "allowRequest" | "submit" = "verifyTurnstile";
   try {
     if (!(await deps.verifyTurnstile(parsed.turnstileToken, ip))) {
       return reply(400, { error: INQUIRY_COPY.verificationFailed });
     }
+    step = "hashIp";
     const ipHash = await deps.hashIp(ip); // the raw IP goes no further than this line
+    step = "allowRequest";
     if (!(await deps.allowRequest(ipHash))) return reply(429, { error: INQUIRY_COPY.rateLimited });
+    step = "submit";
     await deps.submit(parsed.inquiry, ipHash);
-  } catch {
+  } catch (err) {
+    // Operators need to tell a missing binding from a refused row, but messages and Postgres
+    // details can carry the submitted name, email or IP, so only fixed markers are logged.
+    const e = err as { name?: unknown; code?: unknown } | null;
+    console.error("pilot-inquiry failed", {
+      step,
+      name: typeof e?.name === "string" ? e.name : "unknown",
+      code: typeof e?.code === "string" ? e.code : null,
+    });
     return reply(503, { error: INQUIRY_COPY.unavailable });
   }
 

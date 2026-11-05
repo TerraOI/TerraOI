@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { handlePilotInquiry, type InquiryDeps } from "./handle-pilot-inquiry";
 
 const HASH = "a".repeat(64);
@@ -40,6 +40,10 @@ function req(init: { body?: BodyInit; origin?: string | null; type?: string | nu
 async function json(res: Response) {
   return (await res.json()) as Record<string, unknown>;
 }
+
+afterEach(() => vi.restoreAllMocks());
+
+const quietErrors = () => vi.spyOn(console, "error").mockImplementation(() => {});
 
 describe("handlePilotInquiry request path", () => {
   it("returns 404 on a non-platform host", async () => {
@@ -107,6 +111,7 @@ describe("handlePilotInquiry request path", () => {
   });
 
   it("returns a generic 503 when submit throws, without echoing the error", async () => {
+    quietErrors();
     const d = deps({ submit: vi.fn(async () => Promise.reject(new Error("pg: password authentication failed for inquiry_writer"))) });
     const res = await handlePilotInquiry(req(), d);
     expect(res.status).toBe(503);
@@ -116,10 +121,29 @@ describe("handlePilotInquiry request path", () => {
   });
 
   it("returns 503 when any dependency throws", async () => {
+    quietErrors();
     for (const key of ["verifyTurnstile", "allowRequest", "hashIp"] as const) {
       const d = deps({ [key]: vi.fn(async () => Promise.reject(new Error("boom"))) });
       expect((await handlePilotInquiry(req(), d)).status, key).toBe(503);
     }
+  });
+
+  it("logs which step failed with only the error name and Postgres code", async () => {
+    const error = quietErrors();
+    const pgError = Object.assign(new Error(`insert failed for ${IP} dana@company1.com`), {
+      name: "PostgresError",
+      code: "23514",
+      detail: "Failing row contains (Dana Reyes, dana@company1.com)",
+    });
+    await handlePilotInquiry(req(), deps({ submit: vi.fn(async () => Promise.reject(pgError)) }));
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(error.mock.calls[0]).toEqual(["pilot-inquiry failed", { step: "submit", name: "PostgresError", code: "23514" }]);
+    const logged = JSON.stringify(error.mock.calls);
+    for (const secret of [IP, "dana@company1.com", "Dana Reyes", "Failing row"]) expect(logged).not.toContain(secret);
+
+    error.mockClear();
+    await handlePilotInquiry(req(), deps({ hashIp: vi.fn(async () => Promise.reject(new Error("INQUIRY_IP_HMAC_KEY missing"))) }));
+    expect(error.mock.calls[0]).toEqual(["pilot-inquiry failed", { step: "hashIp", name: "Error", code: null }]);
   });
 
   it("returns 201 and submits once with the hash, never the raw IP", async () => {

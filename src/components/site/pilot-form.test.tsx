@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 
-type ScriptProps = { src: string; onLoad?: () => void; onError?: () => void };
+type ScriptProps = { src: string; onReady?: () => void; onError?: () => void };
 let script: ScriptProps | null = null;
 vi.mock("next/script", () => ({
   default: (props: ScriptProps) => {
@@ -28,6 +28,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  document.head.querySelectorAll("script").forEach((el) => el.remove()); // retry tags the form injected
   vi.restoreAllMocks();
   reset.mockClear();
 });
@@ -41,7 +42,7 @@ function fill() {
 }
 
 function loadWidget() {
-  act(() => script?.onLoad?.());
+  act(() => script?.onReady?.());
 }
 
 function respond(status: number, body: unknown) {
@@ -161,6 +162,68 @@ describe("PilotForm", () => {
     await act(async () => fireEvent.click(send()));
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(screen.getByRole("alert").textContent).toBe(text);
+  });
+
+  it("retries loading the widget when Send is pressed after a load failure", async () => {
+    const fetchSpy = respond(201, { status: "received" });
+    render(<PilotForm siteKey="site-key" />);
+    act(() => script?.onError?.());
+    fill();
+    await act(async () => fireEvent.click(send()));
+    const retry = [...document.head.querySelectorAll("script")].find((el) => el.src.includes("turnstile/v0/api.js"));
+    expect(retry?.src).toMatch(/render=explicit&retry=1$/);
+    act(() => {
+      retry!.dispatchEvent(new Event("load"));
+    });
+    expect(screen.getByRole("alert").textContent).toBe("");
+    await act(async () => fireEvent.click(send()));
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats an empty site key as an unavailable widget instead of crashing", () => {
+    const renderSpy = vi.fn();
+    (window as unknown as { turnstile: unknown }).turnstile = { render: renderSpy, reset };
+    render(<PilotForm siteKey="" />);
+    loadWidget();
+    expect(renderSpy).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toBe(
+      "The verification check didn't load. Check your connection or ad blocker, then try again.",
+    );
+  });
+
+  it("shows the unavailable message when the widget throws or reports an error", () => {
+    (window as unknown as { turnstile: unknown }).turnstile = {
+      render: () => {
+        throw new Error("Invalid sitekey");
+      },
+      reset,
+    };
+    render(<PilotForm siteKey="bad" />);
+    expect(() => loadWidget()).not.toThrow();
+    expect(screen.getByRole("alert").textContent).toContain("didn't load");
+    cleanup();
+
+    let onWidgetError: (() => void) | undefined;
+    (window as unknown as { turnstile: unknown }).turnstile = {
+      render: (_el: HTMLElement, opts: { "error-callback"?: () => void }) => {
+        onWidgetError = opts["error-callback"];
+        return "w";
+      },
+      reset,
+    };
+    render(<PilotForm siteKey="site-key" />);
+    loadWidget();
+    act(() => onWidgetError?.());
+    expect(screen.getByRole("alert").textContent).toContain("didn't load");
+  });
+
+  it("tells the user to shorten an inquiry that is too large", async () => {
+    respond(413, {});
+    render(<PilotForm siteKey="site-key" />);
+    loadWidget();
+    fill();
+    await act(async () => fireEvent.click(send()));
+    expect(screen.getByRole("alert").textContent).toBe("Your inquiry is too long. Shorten the message and try again.");
   });
 
   it("honeypot is hidden from people and assistive tech", () => {
