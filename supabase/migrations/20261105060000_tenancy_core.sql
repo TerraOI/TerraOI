@@ -5,8 +5,8 @@
 --   * every tenant-owned row carries a non-null organisation_id;
 --   * unique (id, organisation_id) keys let a child reference its parent by
 --     (parent_id, organisation_id), so a row from another tenant cannot be referenced at all;
---   * RLS is enabled AND forced on every table; membership is required by the policy itself,
---     not only by the scope setter;
+--   * RLS is enabled on every table — enabled, not FORCEd (see the RLS section below for why);
+--     membership is required by the policy itself, not only by the scope setter;
 --   * the tenant scope is transaction-local: set_config(..., true), never a session SET,
 --     never a pooled connection setting, never a process-global variable;
 --   * ordinary tenant reads fail closed when no scope is set;
@@ -264,13 +264,22 @@ alter table public.projects enable row level security;
 alter table public.project_memberships enable row level security;
 
 
+-- Two deliberate groups. (a) Your own tenant list and your own membership rows are readable
+-- without a scope — they are what a client uses to pick a scope, and they grant no other
+-- tenant's data (test 30). (b) Everything describing a tenant's configuration is scoped: a
+-- member of two tenants, working under one scope, must not see the other tenant's hosts,
+-- roles, permissions or role assignments (plan §4.1 step 4, §4.3; AGENTS.md §4.1). Without a
+-- scope those four tables read nothing, which is the fail-closed invariant in the header.
 create policy organisations_member_read on public.organisations
   for select to authenticated
   using (public.is_active_member(id));
 
 create policy tenant_domains_member_read on public.tenant_domains
   for select to authenticated
-  using (public.is_active_member(organisation_id));
+  using (
+    public.is_active_member(organisation_id)
+    and organisation_id = public.current_organisation_id()
+  );
 
 -- A member reads their own identity record; co-worker profiles come with the chat/admin
 -- packets that need them, under an explicit policy.
@@ -284,15 +293,24 @@ create policy memberships_read_own on public.organisation_memberships
 
 create policy organisation_roles_member_read on public.organisation_roles
   for select to authenticated
-  using (public.is_active_member(organisation_id));
+  using (
+    public.is_active_member(organisation_id)
+    and organisation_id = public.current_organisation_id()
+  );
 
 create policy role_permissions_member_read on public.role_permissions
   for select to authenticated
-  using (public.is_active_member(organisation_id));
+  using (
+    public.is_active_member(organisation_id)
+    and organisation_id = public.current_organisation_id()
+  );
 
 create policy membership_roles_member_read on public.membership_roles
   for select to authenticated
-  using (public.is_active_member(organisation_id));
+  using (
+    public.is_active_member(organisation_id)
+    and organisation_id = public.current_organisation_id()
+  );
 
 -- Tenant operations without a scope read nothing (plan §4.3).
 create policy projects_scoped_read on public.projects
@@ -315,6 +333,13 @@ create policy project_memberships_scoped_read on public.project_memberships
 -- Reads only. Writes to tenancy tables happen through reviewed privileged paths and scoped
 -- RPCs, never as a direct member write (plan §4.3, §13).
 revoke all on all tables in schema public from anon, authenticated;
+
+-- Functions in `public` are executable by PUBLIC unless something says otherwise, so every
+-- helper a later packet adds would start open and reachable through the REST API. Close the
+-- schema first, then grant back exactly the functions request roles need. Affects only
+-- functions this role owns; Supabase's own helpers live in other schemas.
+revoke execute on all functions in schema public from public, anon, authenticated;
+
 grant select on
   public.organisations, public.tenant_domains, public.profiles,
   public.organisation_memberships, public.organisation_roles, public.role_permissions,
