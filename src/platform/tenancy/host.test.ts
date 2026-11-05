@@ -1,6 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { parseHost, requestHost } from "./host";
+
+// The development override is environment-bound, so most of these run in the test runtime and the
+// development case stubs NODE_ENV explicitly. Vitest restores it after each test.
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 // Plan §4.1 step 1: the externally routed host is validated, not repaired. Nothing here guesses
 // a tenant from a suffix, and no preview alias gets to bypass the registry.
@@ -77,10 +83,11 @@ describe("requestHost (trusted deployment adapter)", () => {
     expect(requestHost({ url: "" })).toBeNull();
   });
 
-  it("uses the development host only when the adapter passes one explicitly (§4.1 step 1)", () => {
+  it("uses the development host only when a development runtime passes one explicitly (§4.1 step 1)", () => {
     expect(requestHost({ url: "http://localhost/chat" })).toBe("localhost");
     // An explicit port is refused outright, which is why `next dev` needs the override below.
     expect(requestHost({ url: "http://localhost:3000/chat" })).toBeNull();
+    vi.stubEnv("NODE_ENV", "development");
     expect(requestHost({ url: "http://localhost:3000/chat" }, { developmentHost: "company1.terraoi.app" })).toBe(
       "company1.terraoi.app",
     );
@@ -93,5 +100,25 @@ describe("requestHost (trusted deployment adapter)", () => {
         { developmentHost: undefined },
       ),
     ).toBe("company1.terraoi.app");
+  });
+
+  // #18 N1: the parameter alone is not the guard. Outside a development runtime the override is
+  // ignored, so wiring copied into staging or production cannot route by a caller-chosen host.
+  it("ignores a development host in any environment that is not development (plan §4.1 step 1)", () => {
+    for (const env of ["production", "test", undefined] as const) {
+      vi.stubEnv("NODE_ENV", env);
+      expect(requestHost({ url: "http://localhost:3000/chat" }, { developmentHost: "company2.terraoi.app" })).toBeNull();
+      expect(requestHost({ url: "http://localhost/chat" }, { developmentHost: "company2.terraoi.app" })).toBe("localhost");
+      // The routed URL still wins, so an override handed to a real request changes nothing at all.
+      expect(requestHost({ url: "https://company1.terraoi.app/chat" }, { developmentHost: "company2.terraoi.app" })).toBe(
+        "company1.terraoi.app",
+      );
+    }
+    // Positive control for the loop above: the same call in a development runtime does use the
+    // override, so the three refusals are the environment guard and not a broken stub.
+    vi.stubEnv("NODE_ENV", "development");
+    expect(requestHost({ url: "http://localhost:3000/chat" }, { developmentHost: "company2.terraoi.app" })).toBe(
+      "company2.terraoi.app",
+    );
   });
 });

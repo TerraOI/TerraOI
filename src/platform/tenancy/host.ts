@@ -65,12 +65,20 @@ export interface TrustedRequest {
 /**
  * Plan §4.1 step 1, "development exceptions are explicit and environment-bound": `next dev`
  * serves every tenant on `localhost`, which `parseHost` rejects, so a development-only adapter
- * passes the tenant host it is simulating. It is a parameter, never a header, cookie, query value
- * or env lookup inside this module — the caller that knows its environment supplies it, and the
- * Workers adapter must not supply it at all.
+ * passes the tenant host it is simulating. It is a parameter, never a header, cookie or query
+ * value — and the parameter alone is not enough, because the caller that passes it can be wrong.
+ * `requestHost` also ignores it unless this process is a development runtime, so a production
+ * Worker that is handed a `developmentHost` by accident (or by copied wiring) still routes only
+ * by the URL the edge delivered. Workers does not set `NODE_ENV=development`, so the override is
+ * unreachable there by construction.
  */
 export interface HostAdapterOptions {
   developmentHost?: string;
+}
+
+/** Fail closed on any unknown environment: only an explicit development runtime may override. */
+function isDevelopmentRuntime(): boolean {
+  return typeof process !== "undefined" && process.env.NODE_ENV === "development";
 }
 
 /**
@@ -86,7 +94,7 @@ export function requestHost(
   request: TrustedRequest,
   options: HostAdapterOptions = {},
 ): string | null {
-  const developmentHost = options.developmentHost;
+  const developmentHost = isDevelopmentRuntime() ? options.developmentHost : undefined;
   if (developmentHost !== undefined && developmentHost.length > 0) return developmentHost;
 
   let url: URL;
