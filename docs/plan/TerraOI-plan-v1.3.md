@@ -167,6 +167,7 @@ src/
 workers/
   ingestion/ sync/ dispatcher/ scheduled/
 localbox/                      # pull worker (OCR/parsing) + inference setup notes; no secrets
+brand/                         # TerraOI Brand Kit (design source; tokens consumed via platform/branding)
 supabase/migrations/
 evals/                         # approved eval fixtures per expert, versioned
 AGENTS.md                      # single instruction source for every build agent (§20.1)
@@ -257,7 +258,7 @@ Private objects use organization-prefixed keys and composite database references
 
 ### 5.1 Branding across the product
 
-Reuse the supplied [white-label guide](../../TerraOI-Brand-Kit-v1.0.0/05-guides/WHITE-LABEL.md) and [brand configuration](../../TerraOI-Brand-Kit-v1.0.0/02-system/brand-config.json). The kit defines `terraoi`, `powered` and `customer` modes; production mode is tenant configuration, never an arbitrary public `?brand=` or cross-customer selector.
+Reuse the supplied [white-label guide](../../brand/terraoi-brand-kit/05-guides/WHITE-LABEL.md) and [brand configuration](../../brand/terraoi-brand-kit/02-system/brand-config.json). The kit defines `terraoi`, `powered` and `customer` modes; production mode is tenant configuration, never an arbitrary public `?brand=` or cross-customer selector.
 
 | Mode | Product presentation |
 |---|---|
@@ -1068,7 +1069,7 @@ Sources consulted 2026-11-04. Documentation is mutable; implementation must pin 
 | [AI SDK custom streaming data](https://ai-sdk.dev/docs/ai-sdk-ui/streaming-data) | Typed progress/data parts and response stream helpers | Automatic compatibility of custom logical request envelopes |
 | [Cloudflare Queue delivery](https://developers.cloudflare.com/queues/reference/delivery-guarantees/) | At-least-once delivery | Exactly-once external actions |
 | [MDN Set-Cookie](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Set-Cookie) | Host-only/prefixed cookie semantics | A completed or audited auth/CSRF integration |
-| [TerraOI brand kit white-label guide](../../TerraOI-Brand-Kit-v1.0.0/05-guides/WHITE-LABEL.md) | Three brand modes and surface/export rules | A deployed multi-tenant branded product |
+| [TerraOI brand kit white-label guide](../../brand/terraoi-brand-kit/05-guides/WHITE-LABEL.md) | Three brand modes and surface/export rules | A deployed multi-tenant branded product |
 
 **Change log — 2026-11-04, v1.3:** added owner decisions (§0); replaced the v1.1 review with a section-by-section review of v1.2 (§2); declared greenfield (§3.4); added the cost-ordered model chain, clearance matrix, pinned embeddings and local-box provider/worker (§§3.1, 12.4, 13); sign-in methods (§4.2); extended `ExpertDefinition` (§5.2); data classes and new table groups (§6); OCR routing and TerraOI forms (§§7.2, 7.6); query condensation and lexical-only lane (§8.1); M1 routing (§10.1); functions F29–F38 (§11); two-pass verifier (§12.1); evaluation workflow and pilot-entry thresholds (§14.1); M1 cut line and M1-PILOT gate (§15); chain/forms test scenarios (§16); chain observability (§17.1); ADR-11–18, new risks and open choices (§18); and the agent-executed build plan (§20). Predecessors archived. Planning deliverable only; no application, infrastructure or external action was executed.
 

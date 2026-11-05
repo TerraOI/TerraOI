@@ -1,0 +1,32 @@
+name: Needs supervisor decision
+description: Escalate a security, tenancy, data-policy, contract, scope or plan decision (docs/COORDINATION.md §6)
+title: "Decision: "
+labels: [needs-supervisor]
+assignees: [wyu610]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Decision needed
+      description: One decision, stated so it can be answered yes/no or by picking an option.
+    validations: { required: true }
+  - type: textarea
+    id: options
+    attributes:
+      label: Options and recommendation
+      description: The options you see, their trade-offs, and which you recommend.
+    validations: { required: true }
+  - type: textarea
+    id: assumption
+    attributes:
+      label: What I will do until answered
+      description: >-
+        Decisions in the §6 list must NOT be pre-empted: describe the other work you are switching to,
+        or the parts of the packet that do not depend on this decision.
+    validations: { required: true }
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Packet, PR, plan sections (§…), and why this cannot be decided from the docs.
+    validations: { required: true }

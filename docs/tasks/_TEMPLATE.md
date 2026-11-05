@@ -1,6 +1,7 @@
 # T-xxx <title>
 
-Lane: 1 | 2 | shared · Week: n · Protected: yes/no · Depends on: T-… · Status: ready | in progress | blocked | done
+Lane: 1 | 2 | shared · Week: n · Protected: yes/no · Depends on: T-… (must be merged before claiming)
+Status: ready | in progress (<github-login>) | blocked | done   <!-- only the claimant edits; see docs/COORDINATION.md §1 -->
 Plan refs: §…, F…
 
 ## Goal

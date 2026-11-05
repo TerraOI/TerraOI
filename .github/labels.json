@@ -1,0 +1,47 @@
+[
+  {
+    "name": "blocked",
+    "color": "D93F0B",
+    "description": "Cannot proceed; see body for the blocker (COORDINATION.md \u00a74)"
+  },
+  {
+    "name": "needs-contract",
+    "color": "5319E7",
+    "description": "Shared contract change requested from the other lane (COORDINATION.md \u00a72)"
+  },
+  {
+    "name": "needs-supervisor",
+    "color": "FBCA04",
+    "description": "Supervisor decision required (COORDINATION.md \u00a76)"
+  },
+  {
+    "name": "cross-lane",
+    "color": "0E8A16",
+    "description": "PR intentionally touches both lanes; reason in body (AGENTS.md \u00a73)"
+  },
+  {
+    "name": "policy-violation",
+    "color": "B60205",
+    "description": "Unreviewed change reached main; staging deploys blocked (main-guard)"
+  },
+  {
+    "name": "housekeeping",
+    "color": "C5DEF5",
+    "description": "Repository organization findings (weekly repo-hygiene + /terraoi-housekeeping)"
+  },
+  {
+    "name": "question",
+    "color": "D876E3",
+    "description": "Clarification for the supervisor; asker continues on a stated assumption (COORDINATION.md \u00a76)"
+  },
+  {
+    "name": "answered",
+    "color": "0E8A16",
+    "description": "Supervisor answered; asker picks it up at session start (COORDINATION.md \u00a76)"
+  },
+  {
+    "name": "provisional",
+    "color": "FEF2C0",
+    "description": "PR built on an assumption from an open question; cannot merge until answered"
+  }
+]

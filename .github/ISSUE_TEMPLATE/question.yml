@@ -1,0 +1,44 @@
+name: Question (clarification)
+description: Ask what the plan or docs mean; keep working on your stated assumption (docs/COORDINATION.md §6)
+title: "Q: "
+labels: [question]
+assignees: [wyu610]
+body:
+  - type: checkboxes
+    id: searched
+    attributes:
+      label: Searched first
+      options:
+        - label: I checked docs/FAQ.md, closed `question` issues and the plan sections cited by my packet
+          required: true
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: One question, answerable in a sentence or by picking an option.
+    validations: { required: true }
+  - type: textarea
+    id: options
+    attributes:
+      label: Options and recommendation
+      description: What you think the answer could be, and which you recommend with a reason (cite § or file).
+    validations: { required: true }
+  - type: textarea
+    id: assumption
+    attributes:
+      label: What I will assume until answered
+      description: The concrete choice you will build on now. Be specific enough that a reviewer can check it.
+    validations: { required: true }
+  - type: dropdown
+    id: reversible
+    attributes:
+      label: Is that assumption cheap to reverse?
+      description: "Yes → keep going with a `provisional` PR. No → switch to other work until answered."
+      options: ["Yes: I will continue on it in a provisional PR", "No: I am switching to other work"]
+    validations: { required: true }
+  - type: input
+    id: blocks
+    attributes:
+      label: Packet / PR
+      description: e.g. T-112 / #34
+    validations: { required: true }

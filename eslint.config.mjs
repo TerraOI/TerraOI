@@ -7,7 +7,7 @@ const config = [
   {
     ignores: [
       ".next/**", ".open-next/**", ".wrangler/**", "node_modules/**",
-      "archive/**", "docs/**", "TerraOI-Brand-Kit-v1.0.0/**",
+      "archive/**", "docs/**", "brand/terraoi-brand-kit/**",
       "next-env.d.ts", "src/contracts/database.types.ts", "cloudflare-env.d.ts",
     ],
   },

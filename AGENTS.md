@@ -12,6 +12,8 @@ TerraOI is a multi-tenant operational intelligence platform. Each customer compa
 
 ## 2. Stack and commands
 
+**Where things go:** [docs/REPO-STRUCTURE.md](docs/REPO-STRUCTURE.md). Index of all docs: [docs/README.md](docs/README.md).
+
 Next.js (App Router) + React + TypeScript on Cloudflare Workers through OpenNext; Supabase Postgres with RLS and pgvector; Zod at boundaries; Vitest; pnpm.
 
 | Task | Command |
@@ -36,9 +38,9 @@ Two builders work in parallel, one per lane. **Edit only your lane's paths plus 
 |---|---|
 | **Lane 1: Platform & experience** | `src/app/`, `src/components/`, `src/platform/{tenancy,identity,branding,chat,forms,notifications}/` |
 | **Lane 2: Knowledge & intelligence** | `src/platform/{knowledge,retrieval,agents,gateway,evals,budgets,audit}/`, `workers/`, `localbox/`, `evals/` |
-| **Shared** (both; changes coordinated) | `src/contracts/`, `supabase/`, `docs/`, `scripts/`, root config |
+| **Shared** (both; changes coordinated) | `src/contracts/`, `supabase/`, `docs/`, `scripts/`, `brand/` (read [brand/README.md](brand/README.md) first), root config |
 
-**Protected paths** need the supervisor's review (enforced by `.github/CODEOWNERS`): `supabase/migrations/`, `src/contracts/`, `src/platform/{tenancy,identity,policy}/`, `src/platform/gateway/` (chain and clearance), `workers/`, `localbox/`, `.github/`, `AGENTS.md`, `wrangler.jsonc`.
+**Protected paths** need the supervisor's review (enforced by `.github/CODEOWNERS`): `supabase/migrations/`, `src/contracts/`, `src/platform/{tenancy,identity,policy}/`, `src/platform/gateway/` (chain and clearance), `workers/`, `localbox/`, `.github/`, `AGENTS.md`, `wrangler.jsonc`, `brand/`.
 
 ## 4. Non-negotiables (security and data)
 
@@ -55,6 +57,9 @@ Breaking any of these is a blocking review finding, whatever the tests say.
 
 ## 5. Workflow for every task
 
+**Coordination with the other lane and the supervisor follows [docs/COORDINATION.md](docs/COORDINATION.md)**: how to claim a task, ask the other lane for a contract change, handle shared files and migrations, use labels and respond to supervisor reviews.
+
+0. **Start of every session:** pick up answers to your questions (COORDINATION.md §6, step 4). Then claim the task (§1): check open PRs, confirm dependencies are merged, open a draft PR.
 1. Read your packet in `docs/tasks/T-xxx.md` and the plan sections it cites.
 2. **Write the acceptance tests first** and confirm they fail for the right reason.
 3. Implement the smallest change that makes them pass. Stay inside the packet's "Owns" list.
@@ -73,10 +78,16 @@ Breaking any of these is a blocking review finding, whatever the tests say.
 - Changing anything in `src/contracts/` without an ADR in `docs/decisions/`.
 - Committing `.env*`, `.dev.vars*`, keys, tokens or generated credentials.
 - Weakening tenancy, RLS, clearance or verification "for now", even behind a flag.
+- Creating a new top-level folder, a new `src/platform/` module, or files that break the naming rules in [docs/REPO-STRUCTURE.md](docs/REPO-STRUCTURE.md). `pnpm check:structure` enforces this; ask with `needs-supervisor` instead.
 
 ## 7. When blocked or unsure
 
-Stop. Write the question into the PR description (or a draft PR) and tag the task as blocked. **Never guess** a security, tenancy, data-policy or contract decision; those belong to the supervisor. It is always acceptable to deliver less with a clear note rather than more with a hidden assumption.
+Search [docs/FAQ.md](docs/FAQ.md) first. Then **ask without stopping** ([COORDINATION.md §6](docs/COORDINATION.md)):
+
+- **Clarification:** open a *Question* issue stating what you will assume. If that is cheap to reverse, continue in a PR labeled `provisional` with `Provisional on: #<issue>`; CI blocks the merge until it is answered.
+- **Decision** (tenancy, RLS, clearance, verification, contracts, scope, weakening a test): open a *Needs supervisor decision* issue and **do not pre-empt it**. Work on independent parts or another ready packet.
+
+Never guess a security, tenancy, data-policy or contract decision. Delivering less with a clear note beats delivering more on a hidden assumption.
 
 ## 8. Definition of done
 
