@@ -1,7 +1,8 @@
 name: Main guard
 
 # Stopgap while branch protection is unavailable (private repo on GitHub Free).
-# Detects commits on main that did not arrive through a merged PR, and force-pushes,
+# Detects commits on main without a merged, reviewed PR (approval from a non-author on the
+# final commit; SUPERVISOR_LOGINS exempt), unverifiable ranges and force-pushes,
 # then fails visibly and opens a policy-violation issue. It cannot block the push;
 # deploy-staging.yml refuses to deploy such commits. Remove once rulesets are enabled.
 on:
@@ -27,6 +28,7 @@ jobs:
         id: check
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SUPERVISOR_LOGINS: ${{ vars.SUPERVISOR_LOGINS }}
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.event.after }}
           FORCED: ${{ github.event.forced }}
@@ -42,9 +44,9 @@ jobs:
           gh label create policy-violation --color B60205 \
             --description "Change reached main without the required PR review" --force
           body=$(printf '%s\n\n%s\n\n%s\n\n%s\n' \
-            "Commits reached \`main\` without a merged, reviewed pull request (AGENTS.md section 6)." \
+            "Commits reached \`main\` without a merged pull request approved by a non-author (AGENTS.md section 6)." \
             "$VIOLATIONS" \
             "Pushed by: \`$PUSHER\`. Detected by: $RUN_URL" \
-            "These commits will not be deployed to staging. Revert them or open a PR that reviews them, then close this issue.")
+            "Staging deploys stay blocked while this issue is open. Revert the commits or get them reviewed in a PR, then close this issue.")
           gh issue create --title "Policy violation: unreviewed change on main" \
             --label policy-violation --body "$body"

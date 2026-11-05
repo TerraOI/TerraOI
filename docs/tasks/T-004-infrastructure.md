@@ -13,7 +13,9 @@ Agents must not perform these steps; they need account access and secrets.
 - [ ] Local box: Cloudflare Tunnel + Access service token (staging), recorded in a password manager, not the repo
 - [ ] Entra (Microsoft) app registration for staging callbacks
 - [ ] Branch protection on `main`: **needs GitHub Team** (private repos on Free cannot use it). Then create ruleset `protect-main`: require PR, 1 approval, code-owner review, dismiss stale approvals, status checks `verify`, `database`, `lanes`, `secrets` (not the Cloudflare check), block force-push and deletion. After it is active, remove `.github/workflows/main-guard.yml` and the provenance step in `deploy-staging.yml`
-- [ ] Disconnect Cloudflare Workers Builds from this repo (or adopt it and remove `deploy-staging.yml`); one deploy path only (plan §13, §17.2)
+- [x] Disconnect Cloudflare Workers Builds from this repo (owner, 2026-11-04); one deploy path only (plan §13, §17.2)
+- [ ] Before merging PR #1: Settings → Secrets and variables → Actions → **Variables** → `SUPERVISOR_LOGINS` = `wyu610` (comma-separated). Without it, the supervisor's own merges have no second approver and are flagged as violations
+- [ ] Check environment support: protected environments (and environment secrets) for **private** repos need a paid plan. On GitHub Free, staging secrets may have to be **repository** secrets, which any workflow on any branch can read, including one edited in a PR. Treat that as one more reason for GitHub Team before real staging credentials are added
 
 ## Done evidence
 `docs/status/` entry listing what exists (no secret values) and a successful `Deploy staging` run.

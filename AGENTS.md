@@ -67,7 +67,7 @@ Breaking any of these is a blocking review finding, whatever the tests say.
 
 - Editing a migration that is already on `main`. Write a new migration.
 - Disabling, skipping, deleting or weakening tests or lint rules to get green.
-- `git commit --no-verify`, force-pushing `main`, or pushing directly to `main`. Until branch protection is available, `main-guard` detects these, opens a `policy-violation` issue, and staging will not deploy the commit.
+- `git commit --no-verify`, force-pushing `main`, or pushing directly to `main`. Until branch protection is available, `main-guard` detects these, opens a `policy-violation` issue, and staging deploys stay blocked until it is resolved. A PR counts as reviewed only with an approval from someone other than its author on its **final** commit; push after approval and you need a fresh approval.
 - Touching production resources or using production credentials from a development machine.
 - Adding a dependency without listing it, and the reason, in the PR.
 - Changing anything in `src/contracts/` without an ADR in `docs/decisions/`.

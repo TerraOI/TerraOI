@@ -2,6 +2,12 @@ name: Deploy staging
 
 # Deploys main to the isolated staging environment (plan §17.2).
 # Skips cleanly until T-004 (human-only) adds the staging secrets and routes.
+#
+# Stopgap provenance gate (no branch protection on GitHub Free private repos): the `provenance`
+# job runs without deploy secrets and blocks the deploy when any commit in the push lacks a
+# merged, reviewed PR, or while a policy-violation issue is open. LIMIT: on this plan a writer
+# can edit this workflow or the check script in a direct push, so this contains mistakes, not
+# a malicious writer. The real control is GitHub Team rulesets + protected environments (T-004).
 on:
   push:
     branches: [main]
@@ -10,30 +16,55 @@ on:
 permissions:
   contents: read
   pull-requests: read
+  issues: read
 
 concurrency:
   group: deploy-staging
   cancel-in-progress: false
 
 jobs:
+  provenance:
+    name: provenance
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+      - name: Every commit came through a merged, reviewed PR; no open violations
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SUPERVISOR_LOGINS: ${{ vars.SUPERVISOR_LOGINS }}
+          CHECK_OPEN_VIOLATIONS: "true"
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+          FORCED: ${{ github.event.forced }}
+          SHAS: ${{ github.event_name == 'workflow_dispatch' && github.sha || '' }}
+        run: node scripts/check-pr-provenance.mjs
+
   deploy:
     name: deploy-staging
+    needs: provenance
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: staging
     timeout-minutes: 25
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-      SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
-      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_STAGING_DB_PASSWORD }}
     steps:
+      # Secrets are passed only to the steps that use them, never job-wide.
       - name: Check staging is configured
         id: gate
+        env:
+          HAS_CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+          HAS_CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID != '' }}
+          HAS_SB_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN != '' }}
+          HAS_SB_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF != '' }}
+          HAS_SB_PASSWORD: ${{ secrets.SUPABASE_STAGING_DB_PASSWORD != '' }}
         run: |
-          for v in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID SUPABASE_ACCESS_TOKEN SUPABASE_PROJECT_REF SUPABASE_DB_PASSWORD; do
-            if [ -z "${!v}" ]; then
-              echo "::notice::Staging secret $v is not set (T-004). Skipping deploy."
+          for v in HAS_CF_TOKEN HAS_CF_ACCOUNT HAS_SB_TOKEN HAS_SB_REF HAS_SB_PASSWORD; do
+            if [ "${!v}" != "true" ]; then
+              echo "::notice::Staging secret for $v is not set (T-004). Skipping deploy."
               echo "ready=false" >> "$GITHUB_OUTPUT"; exit 0
             fi
           done
@@ -47,16 +78,14 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: pnpm
-      - name: Refuse commits that skipped PR review (stopgap for branch protection)
-        if: steps.gate.outputs.ready == 'true'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SHAS: ${{ github.sha }}
-        run: node scripts/check-pr-provenance.mjs
       - if: steps.gate.outputs.ready == 'true'
         run: pnpm install --frozen-lockfile
       - name: Apply migrations to staging (compatible changes first, plan §17.2)
         if: steps.gate.outputs.ready == 'true'
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_STAGING_DB_PASSWORD }}
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_STAGING_PROJECT_REF }}
         run: |
           pnpm exec supabase link --project-ref "$SUPABASE_PROJECT_REF"
           pnpm exec supabase db push --yes
@@ -65,4 +94,7 @@ jobs:
         run: pnpm cf:build
       - name: Deploy to Cloudflare (staging env)
         if: steps.gate.outputs.ready == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: pnpm exec wrangler deploy --env staging
