@@ -4,12 +4,25 @@ import { PoweredBy } from "./powered-by";
 import styles from "./sign-in.module.css";
 import type { SignInBrand } from "./types";
 
-/** Brand colors reach the page only as CSS custom properties on the root (T-131 rules). */
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+
+// Neutral fallbacks (graphite / white / slate) used when a brand value is not #RRGGBB.
+const FALLBACK = { primary: "#17252B", onPrimary: "#FFFFFF", accent: "#52636B" } as const;
+
+function color(value: string, fallback: string): string {
+  return HEX_COLOR.test(value) ? value : fallback;
+}
+
+/**
+ * Brand colors reach the page only as CSS custom properties on the root (T-131 rules).
+ * React escapes style values for HTML but not for CSS, so anything other than #RRGGBB could add
+ * declarations (e.g. "red;background:url(...)"). Reject it here even though T-103 validates too.
+ */
 export function brandVariables(brand: SignInBrand): CSSProperties {
   return {
-    "--primary": brand.primary,
-    "--on-primary": brand.onPrimary,
-    "--accent": brand.accent,
+    "--primary": color(brand.primary, FALLBACK.primary),
+    "--on-primary": color(brand.onPrimary, FALLBACK.onPrimary),
+    "--accent": color(brand.accent, FALLBACK.accent),
   } as CSSProperties;
 }
 

@@ -34,7 +34,7 @@ export function SignInPage({
 
       {showMagicLink && magicLinkAction && <MagicLinkForm action={magicLinkAction} />}
 
-      {showPassword && passwordAction && <PasswordForm action={passwordAction} />}
+      {showPassword && passwordAction && <PasswordForm action={passwordAction} defaultOpen={status === "invalid_credentials"} />}
 
       <StatusMessage status={status} />
     </AuthShell>

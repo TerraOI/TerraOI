@@ -2,9 +2,10 @@ import type { FormAction } from "./magic-link-form";
 import styles from "./sign-in.module.css";
 
 /** Collapsed behind a native <details>, so it opens without client JS. */
-export function PasswordForm({ action }: { action: FormAction }) {
+/** `defaultOpen` keeps the form expanded after a failed attempt, so the user can retry. */
+export function PasswordForm({ action, defaultOpen = false }: { action: FormAction; defaultOpen?: boolean }) {
   return (
-    <details className={styles.passwordToggle}>
+    <details className={styles.passwordToggle} open={defaultOpen}>
       <summary className={styles.secondary}>Use a password instead</summary>
       <form className={styles.form} action={action}>
         <label className={styles.field}>

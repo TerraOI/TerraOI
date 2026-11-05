@@ -4,9 +4,9 @@ export type SignInBrand = {
   name: string; // "Company1" / "TerraOI"
   tagline: string;
   logoUrl: string; // same-origin path or https URL only; validated by T-103
-  primary: string; // #RRGGBB
-  onPrimary: string;
-  accent: string;
+  primary: string; // #RRGGBB; anything else falls back to a neutral color
+  onPrimary: string; // #RRGGBB
+  accent: string; // #RRGGBB
   showPoweredBy: boolean; // true only in powered mode
   supportLabel: string;
 };
