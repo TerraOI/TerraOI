@@ -5,7 +5,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(37);
+select plan(46);
 
 -- Helpers report an error as its SQLSTATE instead of aborting the test transaction.
 -- SECURITY INVOKER on purpose: they run with the privileges of the role under test.
@@ -74,6 +74,7 @@ create temp table t_projects (case_name text, id uuid);
 create temp table t_domains (case_name text, host text);
 create temp table t_profiles (case_name text, id uuid);
 create temp table t_scoped (case_name text, org uuid);
+create temp table t_meta (case_name text, kind text, organisation_id uuid);
 create temp table t_out (case_name text, result text);
 reset role;
 
@@ -249,6 +250,63 @@ rollback to savepoint sp_scope_demo;
 
 select ok(public.current_organisation_id() is null,
   '37 the scope is transaction-local, never session state a pooled connection could hand to the next request');
+
+-- ---------------------------------------------------------------- #17 B1: tenant configuration is scoped, not only membership-filtered
+-- The dual-membership user `…a4` belongs to company1 and company2. Under the company1 scope they
+-- must see their own company1 domains, roles, permissions and role assignments and nothing of
+-- company2's; with no scope those four tables are empty for them. Reads of their own tenants and
+-- memberships (tests 19, 30) stay unscoped by design: that is how a client picks a scope at all.
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a4';
+insert into t_out values ('meta_scope_c1', pg_temp.try_scope('11111111-1111-4111-8111-111111111111'));
+insert into t_meta select 'multi_c1', 'domain',          organisation_id from public.tenant_domains;
+insert into t_meta select 'multi_c1', 'role',            organisation_id from public.organisation_roles;
+insert into t_meta select 'multi_c1', 'role_permission', organisation_id from public.role_permissions;
+insert into t_meta select 'multi_c1', 'membership_role', organisation_id from public.membership_roles;
+reset role;
+
+select is((select result from t_out where case_name = 'meta_scope_c1'), 'ok',
+  '38 the dual-membership user can scope to company1 for this check');
+select is((select count(*)::int from t_meta
+            where case_name = 'multi_c1' and kind = 'domain'
+              and organisation_id = '22222222-2222-4222-8222-222222222222'), 0::int,
+  '39 under the company1 scope no company2 host is readable, including staging hosts (§4.1 step 4)');
+select is((select count(*)::int from t_meta
+            where case_name = 'multi_c1' and kind = 'role'
+              and organisation_id = '22222222-2222-4222-8222-222222222222'), 0::int,
+  '40 under the company1 scope no company2 role definition is readable');
+select is((select count(*)::int from t_meta
+            where case_name = 'multi_c1' and kind = 'role_permission'
+              and organisation_id = '22222222-2222-4222-8222-222222222222'), 0::int,
+  '41 under the company1 scope no company2 permission matrix row is readable');
+select is((select count(*)::int from t_meta
+            where case_name = 'multi_c1' and kind = 'membership_role'
+              and organisation_id = '22222222-2222-4222-8222-222222222222'), 0::int,
+  '42 under the company1 scope no company2 role assignment is readable');
+select is((select count(*)::int from t_meta
+            where case_name = 'multi_c1' and kind = 'domain'
+              and organisation_id = '11111111-1111-4111-8111-111111111111'), 2::int,
+  '43 the scoping did not over-filter: their own two company1 hosts are still readable');
+select is((select count(*)::int from t_meta
+            where case_name = 'multi_c1' and kind = 'role'
+              and organisation_id = '11111111-1111-4111-8111-111111111111'), 2::int,
+  '44 and both company1 role definitions');
+select is((select count(*)::int from t_meta
+            where case_name = 'multi_c1' and kind in ('role_permission', 'membership_role')
+              and organisation_id = '11111111-1111-4111-8111-111111111111'), 10::int,
+  '45 and the six company1 permission rows plus four company1 role assignments');
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a4';
+insert into t_out values ('meta_clear', pg_temp.call_clear_scope());
+insert into t_meta select 'multi_noscope', 'domain',          organisation_id from public.tenant_domains;
+insert into t_meta select 'multi_noscope', 'role',            organisation_id from public.organisation_roles;
+insert into t_meta select 'multi_noscope', 'role_permission', organisation_id from public.role_permissions;
+insert into t_meta select 'multi_noscope', 'membership_role', organisation_id from public.membership_roles;
+reset role;
+
+select is((select count(*)::int from t_meta where case_name = 'multi_noscope'), 0::int,
+  '46 with no scope all four tenant-configuration tables read empty even for a member of both tenants (fail closed, §4.3)');
 
 select * from finish();
 rollback;
