@@ -25,12 +25,19 @@ relaxing clearance. Compose and the deterministic first-pass verifier run on top
 [`Answer`, `Claim`, `EvidenceRef`](../../src/contracts/answer.ts).
 Behavior rules: [docs/contracts/model-chain.md](../../docs/contracts/model-chain.md).
 
+**M1 verifier order (#9):** the `verify` chain starts at **Claude**. The local box is not eligible
+for `verify` until an F35 evaluation proves it serves a different, adequate model; until then route
+and compose may use the box while verification does not. This is configuration in `model_providers`
+and `provider_routes`, not a code special case, and it never relaxes clearance.
+
 ## Acceptance tests (write first)
 - [ ] positive: `public` compose walks local box → Workers AI and reports which tier answered
 - [ ] negative: a `client_confidential` payload never reaches DeepSeek or OpenRouter, and never
       reaches Workers AI unless the tenant explicitly added it (which `narrowClearance` cannot do)
 - [ ] negative: a `restricted` payload with the local box offline returns `unavailable` — it does
       not fall through to any cloud provider
+- [ ] negative: for `verify` the first eligible provider is **Claude**, and no local-box verifier is
+      selected before an F35-passing second model is configured on the box (#9)
 - [ ] negative: `verify` never selects the provider that composed the answer, and never a tier
       below `minVerifierTier`; with no eligible verifier, `requirement` claims are withheld and the
       answer degrades to `partial`

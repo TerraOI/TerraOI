@@ -1,6 +1,6 @@
 # T-211 Local-box OCR pull worker and job API (F32)
 
-Lane: 2 · Week: 2 · Protected: yes (`workers/`, `localbox/`, `supabase/migrations/`) · Depends on: T-111, T-112, T-115 · Status: ready
+Lane: 2 · Week: 2 · Protected: yes (`workers/`, `localbox/`, `supabase/migrations/`, `src/app/api/jobs/`) · Depends on: T-111, T-112, T-115 · Status: ready
 Plan refs: §7.2 (extraction executors), §13 (local box in the topology), §7.5, §16 (Forms/OCR row); F12, F32
 
 ## Goal
@@ -16,8 +16,8 @@ tenant, version, stage and lease on every call and stops the job the moment its 
   the worker-facing RPCs — timestamp agreed in the daily sync; migrations are protected and merged
   migrations are never edited
 - `supabase/tests/database/040_ingestion_jobs.test.sql`, `workers/*.test.ts`, `localbox/*.test.ts`
-- `src/app/api/jobs/` is a thin re-export of the Lane 2 handler: that PR carries `cross-lane` with the
-  reason ([COORDINATION.md §4](../../docs/COORDINATION.md))
+- `src/app/api/jobs/` — Lane 2 owns these route folders ([FAQ-0005](../../docs/FAQ.md)), so the job API
+  is implemented here directly: no re-export from Lane 1 and no `cross-lane` label
 
 ## Must not edit
 `src/contracts/`, merged migrations, `src/platform/gateway/` (the box's inference endpoint is the
@@ -28,8 +28,8 @@ gateway's business, T-115), `src/platform/chat/`, `brand/`
 `executor: local_box` is valid only for stage `extract`, and `restricted` is never enqueued
 (`isIngestibleInM1`). New security-invoker RPCs `lease_parse_job_v1`, `renew_parse_lease_v1`,
 `complete_parse_job_v1`, `abort_parse_job_v1`, each re-reading the authoritative job row and applying
-`set_tenant_scope(uuid)` from
-[the tenancy migration](../../supabase/migrations/20261105060000_tenancy_core.sql). Rules:
+`set_tenant_scope(uuid)` from the merged tenancy migration
+`supabase/migrations/20261105060000_tenancy_core.sql` (lands with T-003). Rules:
 [docs/contracts/knowledge-and-jobs.md](../../docs/contracts/knowledge-and-jobs.md).
 
 ## Acceptance tests (write first)

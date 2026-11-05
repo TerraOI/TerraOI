@@ -5,9 +5,8 @@ Plan refs: §12.1 (M1 two-pass verifier), §12.4 (chain walking, clearance), §9
 
 ## Goal
 Deterministic binding proves an answer's ids and spans exist; pass 2 proves the cited spans actually
-**support** each claim. A different model at or above the expert's `minVerifierTier` judges each claim
-from its claim text plus cited spans only, its verdict is recorded per claim, and a materially failing
-composition gets exactly one retry on the next eligible tier before the answer degrades or refuses.
+**support** each claim. A different model at or above `minVerifierTier` judges each claim from its claim
+text plus cited spans only, and a failing composition gets one retry on the next eligible tier.
 
 ## Owns (may edit)
 - `src/platform/gateway/` (`verify` task class, pass-2 entailment, Claude adapter, compose retry,
@@ -25,20 +24,21 @@ the employee sees), `src/app/`, `workers/`, `localbox/`, any merged migration
 [`TaskClass` `"verify"`, `CapabilityTier`, `PLATFORM_DEFAULT_CLEARANCE`, `narrowClearance()`,
 `chainFollowsPlatformOrder()`](../../src/contracts/provider-route.ts) and
 [`ExpertDefinition.modelChains`, `minVerifierTier`](../../src/contracts/expert-definition.ts); verdicts
-land in [`Claim.verificationStatus`](../../src/contracts/answer.ts) (`supported | partial |
-unsupported | contradicted`) and the whole answer in `Answer.status`
-(`answered | partial | refused | unavailable`). Behavior:
-[docs/contracts/model-chain.md](../../docs/contracts/model-chain.md) and
-[docs/contracts/chat-protocol.md](../../docs/contracts/chat-protocol.md). No provider SDK anywhere
+land in [`Claim.verificationStatus`](../../src/contracts/answer.ts) — `supported`, `partial`,
+`unsupported` or `contradicted` — and the whole answer in `Answer.status`
+(`answered | partial | refused | unavailable`). **In M1 the `verify` chain starts at Claude**: the
+local box becomes a verifier only once an F35 evaluation proves a different, adequate model on it
+(#9). Behavior: [docs/contracts/model-chain.md](../../docs/contracts/model-chain.md); no provider SDK
 outside `src/platform/gateway/` (AGENTS.md §4.3).
 
 ## Acceptance tests (write first)
 - [ ] positive: `src/platform/gateway/verifier-pass2.test.ts` — each claim is verified with **only** its
       claim text and cited spans (assert no other conversation turn is in the payload), and a
       `supported` verdict reaches the delivered answer
-- [ ] negative: the provider that composed the answer is never selected for `verify`, and any tier below
-      `minVerifierTier` is excluded; a `client_confidential` verify payload shows zero calls to
-      DeepSeek and OpenRouter in the recording mock
+- [ ] negative: for `verify` the first eligible provider is **Claude** and no local-box verifier runs
+      before an F35-passing second model exists on the box (#9); the composing provider is never
+      selected, any tier below `minVerifierTier` is excluded, and a `client_confidential` payload
+      shows zero DeepSeek and OpenRouter calls in the recording mock
 - [ ] negative: an `unsupported` or `contradicted` claim is dropped and coherence re-checked; if dropping
       it changes the decision the answer comes back `refused`, not quietly shortened
 - [ ] failure: no eligible verifier → `requirement` claims are withheld, the answer is `partial` with the
@@ -50,9 +50,9 @@ outside `src/platform/gateway/` (AGENTS.md §4.3).
       crashing; which tier composed and verified goes to the run audit, never into `Answer`
 
 ## Done evidence
-`pnpm verify`; staging: ask a question needing a `requirement` claim with the local box offline,
-capture the recorded chain (a compose tier and a different verify tier) and the per-claim verdicts from
-the run audit, and show the employee-visible answer names no provider.
+`pnpm verify`; staging: with the local box offline, ask a question that needs a `requirement` claim and
+show the run audit records Claude verifying while another tier composed — no provider name reaches the
+employee UI.
 
 ## Out of scope
 DeepSeek/OpenRouter adapters, passive health checks and circuit tuning (T-314), budgets and rate limits

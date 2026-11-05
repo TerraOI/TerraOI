@@ -16,9 +16,9 @@ project (or deactivating them) stops their access to Site A's sources in all thr
 - `supabase/tests/database/060_project_acl.test.sql`, `src/platform/retrieval/*.test.ts`
 
 ## Must not edit
-`src/contracts/`, merged migrations, `src/platform/chat/` and `src/app/` (Lane 1 calls this packet's
-decision function — request a change through
-[COORDINATION.md §2](../../docs/COORDINATION.md) if it needs one), `src/platform/gateway/`
+`src/contracts/`, merged migrations, `src/platform/chat/` and the Lane 1 half of `src/app/` — Lane 1
+calls this packet's decision function, so request a change through
+[COORDINATION.md §2](../../docs/COORDINATION.md) rather than editing it here; `src/platform/gateway/`
 
 ## Contract
 `search_corpus_v1(p_organisation_id, p_service_keys, p_project_id, p_collection_ids, p_query_text,
@@ -27,8 +27,8 @@ p_query_embedding, p_embedding_index_id, p_effective_on, p_authority_filters, p_
 and never a silently dropped filter that widens the search. F08 `authorizeSourceAccess` is implemented
 once as `authorize_source_access_v1(uuid)` and reused by citation access (F24, called from
 [T-203](./T-203-chat-ux.md)) and history loading (F17), on top of `set_tenant_scope(uuid)`,
-`is_active_member(uuid)` and `is_project_member(uuid)` from
-[the tenancy migration](../../supabase/migrations/20261105060000_tenancy_core.sql).
+`is_active_member(uuid)` and `is_project_member(uuid)` from the merged tenancy migration
+`supabase/migrations/20261105060000_tenancy_core.sql` (lands with T-003).
 
 ## Acceptance tests (write first)
 - [ ] positive: `supabase/tests/database/060_project_acl.test.sql` — a Site A member retrieves the

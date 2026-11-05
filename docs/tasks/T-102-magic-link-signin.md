@@ -20,8 +20,8 @@ cookies, and state-changing requests require exact-Origin plus CSRF checks.
 `TenantContext.membershipStatus` must be the literal `"active"`
 ([tenant-context.ts](../../src/contracts/tenant-context.ts)); tables
 `organisation_memberships`, `profiles`, `tenant_domains` and helpers `is_active_member`,
-`set_tenant_scope` from
-[the migration](../../supabase/migrations/20261105060000_tenancy_core.sql).
+`set_tenant_scope` from the merged tenancy migration
+`supabase/migrations/20261105060000_tenancy_core.sql` (lands with T-003).
 
 ## Acceptance tests (write first)
 - [ ] positive: magic link issued on `company1.terraoi.app` establishes a session whose cookie is

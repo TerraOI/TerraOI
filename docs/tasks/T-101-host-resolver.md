@@ -1,6 +1,6 @@
 # T-101 Exact-host tenant resolver and TenantContext per request
 
-Lane: 1 · Week: 1 · Protected: yes (`src/platform/tenancy/`) · Depends on: T-000, T-002, T-003 · Status: ready
+Lane: 1 · Week: 1 · Protected: yes (`src/platform/tenancy/`) · Depends on: T-000, T-002, T-003 · Status: in progress (wyuinline)
 Plan refs: §4.1, §9.4; F01
 
 ## Goal
@@ -19,8 +19,8 @@ generic failure with no tenant branding or data.
 ## Contract
 [`TenantContext`](../../src/contracts/tenant-context.ts) + `createTenantContext`,
 [`NormalizedHost`](../../src/contracts/keys.ts), RPC `resolve_tenant_host(text)` and
-`set_tenant_scope(uuid)` from
-[the migration](../../supabase/migrations/20261105060000_tenancy_core.sql). Rules and the
+`set_tenant_scope(uuid)` from the merged tenancy migration
+`supabase/migrations/20261105060000_tenancy_core.sql` (lands with T-003). Rules and the
 "who builds it" order are in [docs/contracts/tenancy-and-context.md](../../docs/contracts/tenancy-and-context.md).
 
 ## Acceptance tests (write first)

@@ -26,8 +26,8 @@ edited); additive `supabase/seed.sql` fixtures only in the same PR as a new migr
 [`tenant-context.ts`](../../src/contracts/tenant-context.ts);
 [`NormalizedHost`](../../src/contracts/keys.ts) for exact callback-URL allow-listing; tables
 `profiles` and `organisation_memberships` (`invited | active | suspended | removed`) with
-`is_active_member(uuid)` and `set_tenant_scope(uuid)` from
-[the tenancy migration](../../supabase/migrations/20261105060000_tenancy_core.sql). Identity proves
+`is_active_member(uuid)` and `set_tenant_scope(uuid)` from the merged tenancy migration
+`supabase/migrations/20261105060000_tenancy_core.sql` (lands with T-003). Identity proves
 *who*, membership decides *whether* (F02): see
 [docs/contracts/tenancy-and-context.md](../../docs/contracts/tenancy-and-context.md).
 

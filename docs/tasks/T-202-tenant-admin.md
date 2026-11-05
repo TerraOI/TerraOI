@@ -25,13 +25,14 @@ tenant's ids, and cannot lower a data class or widen an audience.
 Tables `organisations`, `organisation_memberships`, `organisation_roles`, `role_permissions`
 (`area` like `knowledge.read`, `level` `none | read | write | admin`), `membership_roles`,
 `projects`, `project_memberships`, plus `set_tenant_scope(uuid)`, `is_active_member(uuid)` and
-`is_project_member(uuid)` from
-[the tenancy migration](../../supabase/migrations/20261105060000_tenancy_core.sql).
+`is_project_member(uuid)` from the merged tenancy migration
+`supabase/migrations/20261105060000_tenancy_core.sql` (lands with T-003).
 [`DataClass`](../../src/contracts/data-class.ts) carries the M1 rule that `client_confidential`
 collections are project-scoped (§6.2 of
 [the plan](../../docs/plan/TerraOI-plan-v1.3.md)). Collection and source **rows** belong to
-[T-111](./T-111-knowledge-schema.md): if a scoped collection-admin RPC does not exist, request it
-through [COORDINATION.md §2](../../docs/COORDINATION.md) instead of writing knowledge SQL here.
+[T-111](./T-111-knowledge-schema.md): the owning lane provides the scoped RPC
+(`create_collection_v1`) and this page only calls it — never writes a knowledge table (#13(1),
+[FAQ-0004](../../docs/FAQ.md)).
 
 ## Acceptance tests (write first)
 - [ ] positive: `supabase/tests/database/013_tenant_admin.test.sql` — an admin invites an address, the
@@ -40,9 +41,9 @@ through [COORDINATION.md §2](../../docs/COORDINATION.md) instead of writing kno
       `project_id` from company2 is refused by the composite FK (`23503`), never silently ignored
 - [ ] negative: same file — a member without the matching `*.admin` level is refused by the RPC, a
       suspended membership's admin call fails, and demotion or removal bites on the next request
-- [ ] negative: `src/platform/tenancy/collection-admin.test.ts` — a `client_confidential` collection
-      without a project is refused; a data class may be raised by an authorized reviewer and is
-      **never** lowered here; relabeling never widens an existing source's audience
+- [ ] negative: `src/platform/tenancy/collection-admin.test.ts` — `create_collection_v1` (T-111's RPC)
+      refuses a `client_confidential` collection with no project; a class may be raised by an authorized
+      reviewer and is **never** lowered here, and relabeling never widens an existing source's audience
 - [ ] failure: duplicate invite is idempotent (exactly one membership row); a malformed email or role
       key is a validation error with no partial write; a failed role grant leaves permissions unchanged
 
