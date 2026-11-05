@@ -16,7 +16,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(77);
+select plan(79);
 
 -- ---------------------------------------------------------------- helpers
 create function pg_temp.try_scope(p_organisation_id uuid) returns text
@@ -521,7 +521,7 @@ select is((select count(*)::int from t_chunk where case_name = 'b1'), 2::int,
 select is((select n from t_count where case_name = 'b1_c1_chunks'), 0::int,
   '37 a company2 member reads zero company1 chunks: the same predicate, run in the other direction (§4.2)');
 
--- ---------------------------------------------------------------- 38-40 two memberships, one session
+-- ---------------------------------------------------------------- 38-42 two memberships, one session
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a4';
 insert into t_out values ('scope_a4_c1', pg_temp.try_scope('11111111-1111-4111-8111-111111111111'));
@@ -535,10 +535,24 @@ select is((select count(*)::int from t_chunk where case_name = 'a4_c1'), 5::int,
   '38 under the company1 scope a dual member sees the five company1 chunks (they are a Site A member)');
 select is((select count(*)::int from t_chunk where case_name = 'a4_c2'), 0::int,
   '39 after re-scoping to company2 they see no chunks at all: company2''s corpus is project-scoped and they are not a member of that project, and no company1 row followed them across the switch (§4.2, §4.3)');
-select is((select count(*)::int from t_coll where case_name = 'a4_c2'), 0::int,
-  '40 and no collections in the company2 scope either: their Site A membership grants nothing there (§6.2)');
+-- CI run 42063192297 reported "have: 1, want: 0" for the old assertion 40, and CI is right:
+-- company2's 52…0001 (gpr-reference) is tenant-wide — project_id is null, class public — so an
+-- active company2 member must see it in the company2 scope. That is plan §1.1/§6.2 audience
+-- working, not a leak: membership in the tenant is what opens a tenant-wide corpus. The rules
+-- with teeth here are (a) exactly one collection, (b) it is the tenant-wide one of the tenant
+-- they are scoped to, which by arithmetic means no company1 row crossed the switch, and
+-- (c) the project-scoped corpus stays hidden because they are not a member of that project.
+select is((select count(*)::int from t_coll where case_name = 'a4_c2'), 1::int,
+  '40 in the company2 scope a dual member sees exactly one collection: the tenant-wide corpus of the tenant they are scoped to now (§4.3)');
+select is((select count(*)::int from t_coll where case_name = 'a4_c2'
+             and id = '52000000-0000-4000-8000-000000000001'
+             and organisation_id = '22222222-2222-4222-8222-222222222222'), 1::int,
+  '41 that single row is company2''s tenant-wide gpr-reference collection, which together with 40 means no company1 collection crossed the scope switch with them (§4.2)');
+select is((select count(*)::int from t_coll where case_name = 'a4_c2'
+             and id = '52000000-0000-4000-8000-000000000002'), 0::int,
+  '42 but company2''s project-scoped xray-site-data collection stays hidden: they are a member of the tenant, not of that project, and tenant membership is not project membership (§1.1, §6.2)');
 
--- ---------------------------------------------------------------- 41-42 suspended membership
+-- ---------------------------------------------------------------- 43-44 suspended membership
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a3';
 insert into t_out values ('scope_a3', pg_temp.try_scope('11111111-1111-4111-8111-111111111111'));
@@ -554,11 +568,11 @@ insert into t_count select 'a3_all',
 reset role;
 
 select is((select result from t_out where case_name = 'scope_a3'), '28000',
-  '41 a suspended membership cannot scope, even holding a real organization id (§4.2)');
+  '43 a suspended membership cannot scope, even holding a real organization id (§4.2)');
 select is((select n from t_count where case_name = 'a3_all'), 0::int,
-  '42 the deactivated member sees nothing in any knowledge table, including the job and outbox queues');
+  '44 the deactivated member sees nothing in any knowledge table, including the job and outbox queues');
 
--- ---------------------------------------------------------------- 43-46 outbox atomicity (§7.2 step 1)
+-- ---------------------------------------------------------------- 45-48 outbox atomicity (§7.2 step 1)
 savepoint sp_outbox;
 insert into public.knowledge_sources (id, organisation_id, collection_id, kind, owner_user_id)
   values ('69000000-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111',
@@ -574,24 +588,24 @@ insert into public.source_versions (id, organisation_id, source_id, collection_i
 select is((select count(*)::int from public.outbox_events
             where aggregate_type = 'source_version'
               and aggregate_id = '79000000-0000-4000-8000-000000000001'), 1::int,
-  '43 capture writes the source version and exactly one outbox event in the same transaction (§7.2 step 1)');
+  '45 capture writes the source version and exactly one outbox event in the same transaction (§7.2 step 1)');
 select is((select event_type from public.outbox_events
             where aggregate_id = '79000000-0000-4000-8000-000000000001'),
   'knowledge.source_version.received',
-  '44 the event names the stage to start from and carries scope rather than object access (§13)');
+  '46 the event names the stage to start from and carries scope rather than object access (§13)');
 
 update public.source_versions set state = 'validating'
  where id = '79000000-0000-4000-8000-000000000001';
 select is((select count(*)::int from public.outbox_events
             where aggregate_id = '79000000-0000-4000-8000-000000000001'), 1::int,
-  '45 a state update appends no second capture event: the outbox cannot double-dispatch one version (§7.5)');
+  '47 a state update appends no second capture event: the outbox cannot double-dispatch one version (§7.5)');
 rollback to savepoint sp_outbox;
 
 select is((select count(*)::int from public.outbox_events
             where aggregate_id = '79000000-0000-4000-8000-000000000001'), 0::int,
-  '46 a rolled-back capture leaves no event behind, so a queue message can never outrun the data (§7.2)');
+  '48 a rolled-back capture leaves no event behind, so a queue message can never outrun the data (§7.2)');
 
--- ---------------------------------------------------------------- 47-68 the privileged write path
+-- ---------------------------------------------------------------- 49-70 the privileged write path
 -- These run as the migration owner, which is how the scoped RPCs and the pipeline write (plan
 -- §4.3, §13). Removing a guard trigger would fail them even though members already hold no
 -- write grant: the rule has to hold for the privileged path as well (§20.4 item 2).
@@ -619,27 +633,27 @@ insert into t_out values
       '72000000-0000-4000-8000-000000000001', 'public', 906, '{"page": 1}'::jsonb));
 
 select is((select result from t_out where case_name = 'collection_clear_project'), '23514',
-  '47 B2: clearing a project collection''s project_id is refused on the privileged path too: widening a corpus needs a new collection (§6.2)');
+  '49 B2: clearing a project collection''s project_id is refused on the privileged path too: widening a corpus needs a new collection (§6.2)');
 select is((select result from t_out where case_name = 'collection_move_org'), '23514',
-  '48 B2: a collection cannot be moved to another tenant, which is what the composite keys depend on (§6.2)');
+  '50 B2: a collection cannot be moved to another tenant, which is what the composite keys depend on (§6.2)');
 select is((select result from t_out where case_name = 'collection_lower_class'), '23514',
-  '49 B2: relabelling cannot lower a collection''s data class (§6.2)');
+  '51 B2: relabelling cannot lower a collection''s data class (§6.2)');
 select is((select result from t_out where case_name = 'collection_raise_class'), 'ok',
-  '50 raising a collection''s class is the one direction the guard allows, so the rule is a direction and not a block (§6.2)');
+  '52 raising a collection''s class is the one direction the guard allows, so the rule is a direction and not a block (§6.2)');
 select is((select result from t_out where case_name = 'collection_restricted'), '23514',
-  '51 a restricted collection cannot be created in M1: the SQL mirror of isIngestibleInM1 (§12.4, §15.0)');
+  '53 a restricted collection cannot be created in M1: the SQL mirror of isIngestibleInM1 (§12.4, §15.0)');
 select is((select result from t_out where case_name = 'collection_no_project'), '23514',
-  '52 a client_confidential collection without a project is rejected (§6.2)');
+  '54 a client_confidential collection without a project is rejected (§6.2)');
 select is((select result from t_out where case_name = 'collection_bogus_class'), '23514',
-  '53 an unrecognised data class is rejected rather than defaulted to something permissive (§6.2)');
+  '55 an unrecognised data class is rejected rather than defaulted to something permissive (§6.2)');
 select is((select result from t_out where case_name = 'chunk_below_parent_class'), '23514',
-  '54 a chunk may not carry a lower class than the source version it came from (§6.2, AGENTS.md §4.4)');
+  '56 a chunk may not carry a lower class than the source version it came from (§6.2, AGENTS.md §4.4)');
 select is((select result from t_out where case_name = 'chunk_bad_locator'), '23514',
-  '55 a locator is structured metadata: a page that is not a number is refused (F12)');
+  '57 a locator is structured metadata: a page that is not a number is refused (F12)');
 select is((select result from t_out where case_name = 'chunk_ok'), 'ok',
-  '56 a correctly labelled chunk in a readable version is accepted, so the guards above are not a blanket block');
+  '58 a correctly labelled chunk in a readable version is accepted, so the guards above are not a blanket block');
 select is((select result from t_out where case_name = 'chunk_xtenant'), '23503',
-  '57 the composite FK makes a cross-tenant chunk impossible for every role, privileged paths included (§6.2)');
+  '59 the composite FK makes a cross-tenant chunk impossible for every role, privileged paths included (§6.2)');
 
 insert into t_out values
   ('version_text', pg_temp.try_version_text('71000000-0000-4000-8000-000000000002',
@@ -656,19 +670,19 @@ insert into t_out values
       '71000000-0000-4000-8000-000000000001'));
 
 select is((select result from t_out where case_name = 'version_text'), '23514',
-  '58 rewriting a source version''s extracted text is refused: corrections are new versions (§7.2)');
+  '60 rewriting a source version''s extracted text is refused: corrections are new versions (§7.2)');
 select is((select result from t_out where case_name = 'version_hash'), '23514',
-  '59 rewriting a source version''s content hash is refused: the hash is the proof of what was captured (F10)');
+  '61 rewriting a source version''s content hash is refused: the hash is the proof of what was captured (F10)');
 select is((select result from t_out where case_name = 'version_uploader'), '23514',
-  '60 B4: the recorded capture identity cannot be rewritten either, so reviewer independence cannot be backdated (issue #8)');
+  '62 B4: the recorded capture identity cannot be rewritten either, so reviewer independence cannot be backdated (issue #8)');
 select is((select result from t_out where case_name = 'class_lowered'), '23514',
-  '61 relabelling cannot lower a version''s data class (§6.2)');
+  '63 relabelling cannot lower a version''s data class (§6.2)');
 select is((select result from t_out where case_name = 'class_raised'), 'ok',
-  '62 a reviewer raising a class is accepted, which is the only direction the rule permits (§6.2)');
+  '64 a reviewer raising a class is accepted, which is the only direction the rule permits (§6.2)');
 select is((select result from t_out where case_name = 'chunk_text'), '23514',
-  '63 a chunk cannot be rewritten in place either: retrieval cites what was actually extracted (F12)');
+  '65 a chunk cannot be rewritten in place either: retrieval cites what was actually extracted (F12)');
 select is((select result from t_out where case_name = 'current_version_other_source'), '23503',
-  '64 a source cannot adopt another source''s version as current, even inside one tenant (F13)');
+  '66 a source cannot adopt another source''s version as current, even inside one tenant (F13)');
 
 insert into t_out values
   ('state_out_of_set', pg_temp.try_version_state('71000000-0000-4000-8000-000000000001', 'processed')),
@@ -677,15 +691,15 @@ insert into t_out values
   ('state_revoked_back', pg_temp.try_version_state('71000000-0000-4000-8000-000000000001', 'published'));
 
 select is((select result from t_out where case_name = 'state_out_of_set'), '23514',
-  '65 a state outside the documented set is rejected: there is no hidden sixth state (§7.2)');
+  '67 a state outside the documented set is rejected: there is no hidden sixth state (§7.2)');
 select is((select result from t_out where case_name = 'state_forward'), 'ok',
-  '66 a legal transition inside the set is accepted (published to superseded, F13)');
+  '68 a legal transition inside the set is accepted (published to superseded, F13)');
 select is((select result from t_out where case_name = 'state_revoked'), 'ok',
-  '67 revoking a published version is a state change, not a deletion (F14)');
+  '69 revoking a published version is a state change, not a deletion (F14)');
 select is((select result from t_out where case_name = 'state_revoked_back'), '23514',
-  '68 a revoked version cannot be republished by a stale or replayed job (§7.3, F14)');
+  '70 a revoked version cannot be republished by a stale or replayed job (§7.3, F14)');
 
--- ---------------------------------------------------------------- 69-77 pinned index generations and jobs
+-- ---------------------------------------------------------------- 71-79 pinned index generations and jobs
 insert into t_out values
   ('embed_wrong_dims', pg_temp.try_embedding('11111111-1111-4111-8111-111111111111',
       '91000000-0000-4000-8000-000000000001', '81000000-0000-4000-8000-000000000003', 1, '[0.1,0.2,0.3]')),
@@ -706,23 +720,23 @@ insert into t_out values
       '71000000-0000-4000-8000-000000000001', 'index', 'cloud_worker', 'public', 1));
 
 select is((select result from t_out where case_name = 'embed_wrong_dims'), '23514',
-  '69 a vector that does not match the pinned dimensions is refused: incomparable vectors are corruption, not noise (§12.4, TOI-ADR-13)');
+  '71 a vector that does not match the pinned dimensions is refused: incomparable vectors are corruption, not noise (§12.4, TOI-ADR-13)');
 select is((select result from t_out where case_name = 'embed_uncleared_class'), '23514',
-  '70 N1: a vector for a client_confidential chunk is refused against a generation cleared only for public, because embedding sends the full chunk text to the provider (§12.4)');
+  '72 N1: a vector for a client_confidential chunk is refused against a generation cleared only for public, because embedding sends the full chunk text to the provider (§12.4)');
 select is((select result from t_out where case_name = 'embed_ok'), 'ok',
-  '71 a vector of the pinned shape, for a chunk the generation is cleared for, is accepted');
+  '73 a vector of the pinned shape, for a chunk the generation is cleared for, is accepted');
 select is((select result from t_out where case_name = 'embed_wrong_generation'), '23514',
-  '72 a vector cannot be attached to a generation its index row does not name (§8.3)');
+  '74 a vector cannot be attached to a generation its index row does not name (§8.3)');
 select is((select result from t_out where case_name = 'embed_rewrite'), '23514',
-  '73 re-embedding writes a new generation; it never overwrites a vector that an answer may still cite (§8.3)');
+  '75 re-embedding writes a new generation; it never overwrites a vector that an answer may still cite (§8.3)');
 select is((select result from t_out where case_name = 'index_second_active'), '23505',
-  '74 only one generation per tenant index may be active, so the pointer switches atomically (§8.3)');
+  '76 only one generation per tenant index may be active, so the pointer switches atomically (§8.3)');
 select is((select result from t_out where case_name = 'job_local_box_index'), '23514',
-  '75 the local box may only run extraction: OCR and inference stay separate processes (§13)');
+  '77 the local box may only run extraction: OCR and inference stay separate processes (§13)');
 select is((select result from t_out where case_name = 'job_restricted'), '23514',
-  '76 restricted content cannot be enqueued for ingestion in M1, in SQL as well as in the payload schema (§12.4)');
+  '78 restricted content cannot be enqueued for ingestion in M1, in SQL as well as in the payload schema (§12.4)');
 select is((select result from t_out where case_name = 'job_duplicate_stage'), '23505',
-  '77 a duplicate delivery of the same stage cannot create a second job row: the idempotency key absorbs it (§7.5)');
+  '79 a duplicate delivery of the same stage cannot create a second job row: the idempotency key absorbs it (§7.5)');
 
 select * from finish();
 rollback;
