@@ -68,6 +68,6 @@ export function parsePilotInquiry(body: unknown): ParsedPilotInquiry {
     }
     return { ok: false, fieldErrors };
   }
-  const { privacyAcknowledged: _p, website: _w, turnstileToken, ...inquiry } = result.data;
-  return { ok: true, inquiry, turnstileToken };
+  const { name, email, company, role, services, message, turnstileToken } = result.data;
+  return { ok: true, inquiry: { name, email, company, role, services, message }, turnstileToken };
 }
