@@ -37,3 +37,15 @@ venv/
 *.user
 bin/
 obj/
+
+# --- TerraOI app ---
+.next/
+.open-next/
+.wrangler/
+.dev.vars
+.dev.vars.*
+next-env.d.ts
+*.tsbuildinfo
+supabase/.temp/
+supabase/.branches/
+coverage/

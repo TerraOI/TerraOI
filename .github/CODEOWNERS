@@ -1,0 +1,17 @@
+# Protected paths need the supervisor's approval (plan §20.1).
+# Takes effect when branch protection on main requires code-owner review.
+# Builders: add yourselves to the lane paths below once your GitHub handles are known.
+
+/supabase/migrations/          @wyu610
+/src/contracts/                @wyu610
+/src/platform/tenancy/         @wyu610
+/src/platform/identity/        @wyu610
+/src/platform/policy/          @wyu610
+/src/platform/gateway/         @wyu610
+/workers/                      @wyu610
+/localbox/                     @wyu610
+/.github/                      @wyu610
+/AGENTS.md                     @wyu610
+/wrangler.jsonc                @wyu610
+/docs/plan/                    @wyu610
+/docs/decisions/               @wyu610

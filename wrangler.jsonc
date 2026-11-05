@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "terraoi-web",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-11-03",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
+  "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "terraoi-web" }],
+  // workers.dev and preview URLs must not become a tenant entry point (plan §4.1).
+  "workers_dev": false,
+  "preview_urls": false,
+  // Routes (e.g. "*.terraoi.app/*") are added in T-004 after DNS is verified (human-only, plan §20.8).
+  "env": {
+    "staging": {
+      "name": "terraoi-web-staging",
+      "workers_dev": false,
+      "preview_urls": false,
+      "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "terraoi-web-staging" }]
+      // Staging routes, vars and secrets: T-004. Never reference production resources here.
+    }
+  }
+}

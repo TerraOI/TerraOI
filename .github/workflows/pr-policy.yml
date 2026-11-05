@@ -1,0 +1,36 @@
+name: PR policy
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+jobs:
+  lanes:
+    name: lanes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: One build lane per PR unless labeled cross-lane (plan §20.1)
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+          PR_LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
+        run: node scripts/check-lanes.mjs
+
+  secrets:
+    name: secrets
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Scan the PR's commits for secrets
+        uses: trufflesecurity/trufflehog@v3.99.8
+        with:
+          extra_args: --results=verified,unknown
