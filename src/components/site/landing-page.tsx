@@ -1,15 +1,15 @@
 import Link from "next/link";
-import type { ReactNode } from "react";
 import { inter } from "@/components/auth/fonts";
 import { Footer } from "./footer";
 import { Hero } from "./hero";
 import { LogoWordmark } from "./logo-wordmark";
+import { PilotForm } from "./pilot-form";
 import styles from "./site.module.css";
 import { Steps } from "./steps";
 import { TrustStrip } from "./trust-strip";
 
-/** terraoi.app. `pilotForm` is the slot Task 10 fills with the inquiry form. */
-export function LandingPage({ pilotForm }: { pilotForm?: ReactNode }) {
+/** terraoi.app. `turnstileSiteKey` comes from the TURNSTILE_SITE_KEY Worker var (server side). */
+export function LandingPage({ turnstileSiteKey }: { turnstileSiteKey: string }) {
   return (
     <div className={`${styles.site} ${inter.variable}`}>
       <header className={styles.nav}>
@@ -28,7 +28,17 @@ export function LandingPage({ pilotForm }: { pilotForm?: ReactNode }) {
         <Hero />
         <Steps />
         <TrustStrip />
-        {pilotForm}
+        <section className={styles.pilot} id="pilot" aria-labelledby="pilot-title">
+          <div className={styles.pilotIntro}>
+            <h2 className={styles.pilotTitle} id="pilot-title">
+              Talk to us about a pilot
+            </h2>
+            <p className={styles.cardBody}>
+              Tell us what your teams fly, scan or survey. We reply by email.
+            </p>
+          </div>
+          <PilotForm siteKey={turnstileSiteKey} />
+        </section>
       </main>
       <Footer />
     </div>

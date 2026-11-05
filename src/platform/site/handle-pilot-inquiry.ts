@@ -1,3 +1,4 @@
+import { INQUIRY_COPY } from "./inquiry-copy";
 import { parsePilotInquiry, type PilotInquiry } from "./pilot-inquiry";
 
 // POST /api/pilot-inquiry (T-130). Checks run cheapest first; every outside call is injected so
@@ -14,11 +15,7 @@ export interface InquiryDeps {
 
 export const MAX_BODY_BYTES = 8192;
 
-export const INQUIRY_COPY = {
-  verificationFailed: "Verification failed. Try again.",
-  rateLimited: "Too many requests. Try again later.",
-  unavailable: "The service is temporarily unavailable. Try again later.",
-} as const;
+export { INQUIRY_COPY };
 
 function reply(status: number, body?: unknown): Response {
   return new Response(body === undefined ? null : JSON.stringify(body), {
@@ -74,7 +71,7 @@ export async function handlePilotInquiry(req: Request, deps: InquiryDeps): Promi
   try {
     body = JSON.parse(new TextDecoder().decode(bytes));
   } catch {
-    return reply(400, { fieldErrors: { form: "Check the form and try again." } });
+    return reply(400, { fieldErrors: { form: INQUIRY_COPY.checkForm } });
   }
   const parsed = parsePilotInquiry(body);
   if (!parsed.ok) return reply(400, { fieldErrors: parsed.fieldErrors });
