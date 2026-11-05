@@ -1,6 +1,6 @@
 # T-101 Exact-host tenant resolver and TenantContext per request
 
-Lane: 1 · Week: 1 · Protected: yes (`src/platform/tenancy/`) · Depends on: T-000, T-002, T-003 · Status: ready
+Lane: 1 · Week: 1 · Protected: yes (`src/platform/tenancy/`) · Depends on: T-000, T-002, T-003 · Status: in progress (wyuinline)
 Plan refs: §4.1, §9.4; F01
 
 ## Goal
@@ -24,15 +24,16 @@ generic failure with no tenant branding or data.
 "who builds it" order are in [docs/contracts/tenancy-and-context.md](../../docs/contracts/tenancy-and-context.md).
 
 ## Acceptance tests (write first)
-- [ ] `src/platform/tenancy/host-resolver.test.ts`: `company1.terraoi.app` → company1 id; `www.terraoi.app`
+Tests live in `src/platform/tenancy/host.test.ts` and `src/platform/tenancy/resolve-tenant-context.test.ts` (the packet named `host-resolver.test.ts`; one file per concern won).
+- [x] `src/platform/tenancy/host-resolver.test.ts`: `company1.terraoi.app` → company1 id; `www.terraoi.app`
       and `admin.terraoi.app` classified as reserved, not tenant
-- [ ] negative: unknown host, `company1.terraoi.app:8443`, `Company1.terraoi.app`,
+- [x] negative: unknown host, `company1.terraoi.app:8443`, `Company1.terraoi.app`,
       `deep.sub.company1.terraoi.app`, `workers.dev` preview alias, `127.0.0.1` → generic failure, zero tenant detail
-- [ ] negative: a `X-Forwarded-Host` / `Host` spoof cannot change the resolved organization;
+- [x] negative: a `X-Forwarded-Host` / `Host` spoof cannot change the resolved organization;
       the context is built from the externally routed host only
-- [ ] negative: suspended tenant (status `suspended`, or domain status not `active`) → no context, no branding
-- [ ] negative: a body/query/cookie `organisationId` is ignored and rejected at the contract boundary
-- [ ] failure: two concurrent requests for two different tenants from the same user keep separate
+- [x] negative: suspended tenant (status `suspended`, or domain status not `active`) → no context, no branding
+- [x] negative: a body/query/cookie `organisationId` is ignored and rejected at the contract boundary
+- [x] failure: two concurrent requests for two different tenants from the same user keep separate
       contexts (no module-level or process-global state)
 
 ## Done evidence
