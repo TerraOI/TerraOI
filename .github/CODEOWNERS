@@ -8,6 +8,8 @@
 /src/platform/identity/        @wyu610
 /src/platform/policy/          @wyu610
 /src/platform/gateway/         @wyu610
+/src/app/api/jobs/              @wyu610
+/src/app/api/knowledge/         @wyu610
 /workers/                      @wyu610
 /localbox/                     @wyu610
 /.github/                      @wyu610

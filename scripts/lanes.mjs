@@ -11,6 +11,10 @@ export const LANES = {
     "src/platform/notifications/",
   ],
   "lane-2-knowledge-intelligence": [
+    // HTTP surfaces whose handler, auth boundary and tests belong to Lane 2 (#11, FAQ-0005).
+    // They sit inside Lane 1's src/app/, so laneOf() must pick the longest matching prefix.
+    "src/app/api/jobs/",
+    "src/app/api/knowledge/",
     "src/platform/knowledge/",
     "src/platform/retrieval/",
     "src/platform/agents/",
@@ -26,12 +30,23 @@ export const LANES = {
 
 export const CROSS_LANE_LABEL = "cross-lane";
 
-/** Returns the lane key owning a path, or null for shared paths. */
+/**
+ * Returns the lane key owning a path, or null for shared paths.
+ * The longest matching prefix wins, so a narrower folder can belong to the other lane
+ * (e.g. src/app/api/jobs/ is Lane 2 inside Lane 1's src/app/), whatever the order above.
+ */
 export function laneOf(path) {
+  let owner = null;
+  let longest = 0;
   for (const [lane, prefixes] of Object.entries(LANES)) {
-    if (prefixes.some((p) => path.startsWith(p))) return lane;
+    for (const p of prefixes) {
+      if (p.length > longest && path.startsWith(p)) {
+        owner = lane;
+        longest = p.length;
+      }
+    }
   }
-  return null;
+  return owner;
 }
 
 /**
