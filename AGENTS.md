@@ -36,11 +36,11 @@ Two builders work in parallel, one per lane. **Edit only your lane's paths plus 
 
 | Lane | Owns |
 |---|---|
-| **Lane 1: Platform & experience** | `src/app/`, `src/components/`, `src/platform/{tenancy,identity,branding,chat,forms,notifications}/` |
-| **Lane 2: Knowledge & intelligence** | `src/platform/{knowledge,retrieval,agents,gateway,evals,budgets,audit}/`, `workers/`, `localbox/`, `evals/` |
+| **Lane 1: Platform & experience** | `src/app/` (except the two Lane 2 route folders), `src/components/`, `src/platform/{tenancy,identity,branding,chat,forms,notifications}/` |
+| **Lane 2: Knowledge & intelligence** | `src/app/api/jobs/`, `src/app/api/knowledge/` (FAQ-0005), `src/platform/{knowledge,retrieval,agents,gateway,evals,budgets,audit}/`, `workers/`, `localbox/`, `evals/` |
 | **Shared** (both; changes coordinated) | `src/contracts/`, `supabase/`, `docs/`, `scripts/`, `brand/` (read [brand/README.md](brand/README.md) first), root config |
 
-**Protected paths** need the supervisor's review (enforced by `.github/CODEOWNERS`): `supabase/migrations/`, `src/contracts/`, `src/platform/{tenancy,identity,policy}/`, `src/platform/gateway/` (chain and clearance), `workers/`, `localbox/`, `.github/`, `AGENTS.md`, `wrangler.jsonc`, `brand/`.
+**Protected paths** need the supervisor's review (enforced by `.github/CODEOWNERS`): `supabase/migrations/`, `src/contracts/`, `src/platform/{tenancy,identity,policy}/`, `src/platform/gateway/` (chain and clearance), `src/app/api/jobs/`, `src/app/api/knowledge/`, `workers/`, `localbox/`, `.github/`, `AGENTS.md`, `wrangler.jsonc`, `brand/`.
 
 ## 4. Non-negotiables (security and data)
 

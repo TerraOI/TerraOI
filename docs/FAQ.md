@@ -23,7 +23,7 @@ Source: PR #1 · Date: 2026-11-04 · Applies to: Lane 1
 ## Repository and assets
 
 ### FAQ-0005: Where do Lane 2 HTTP routes (job API, knowledge review API) live?
-**Answer:** In `src/app/api/jobs/` and `src/app/api/knowledge/`, owned by Lane 2 and protected in CODEOWNERS; every other path under `src/app/` stays Lane 1. Implement the route in Lane 2 directly, with no thin re-export from Lane 1. **Why:** the route file is the auth boundary, so it belongs to the lane that owns the handler and its tests (plan §20.2). Until the `scripts/lanes.mjs` change lands, don't open a PR that adds these routes.
+**Answer:** In `src/app/api/jobs/` and `src/app/api/knowledge/`, owned by Lane 2 and protected in CODEOWNERS; every other path under `src/app/` stays Lane 1. Implement the route in Lane 2 directly, with no thin re-export from Lane 1. **Why:** the route file is the auth boundary, so it belongs to the lane that owns the handler and its tests (plan §20.2). `scripts/lanes.mjs` picks the longest matching prefix, so the `lanes` CI check treats these folders as Lane 2.
 Source: #11 · Date: 2026-11-05 · Applies to: Lane 2
 
 ### FAQ-0004: My feature needs to write a table the other lane owns. Who writes it?

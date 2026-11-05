@@ -8,6 +8,18 @@ describe("laneOf", () => {
     expect(laneOf("supabase/migrations/0001_core.sql")).toBeNull();
     expect(laneOf("src/contracts/answer.ts")).toBeNull();
   });
+
+  it("gives Lane 2 its HTTP route folders inside Lane 1's src/app/ (#11)", () => {
+    expect(laneOf("src/app/api/jobs/route.ts")).toBe("lane-2-knowledge-intelligence");
+    expect(laneOf("src/app/api/jobs/[id]/lease/route.ts")).toBe("lane-2-knowledge-intelligence");
+    expect(laneOf("src/app/api/knowledge/review/route.ts")).toBe("lane-2-knowledge-intelligence");
+  });
+
+  it("keeps the rest of src/app/ in Lane 1, matching whole folder names only", () => {
+    expect(laneOf("src/app/api/chat/route.ts")).toBe("lane-1-platform-experience");
+    expect(laneOf("src/app/api/jobs-status/route.ts")).toBe("lane-1-platform-experience");
+    expect(laneOf("src/app/(tenant)/knowledge/page.tsx")).toBe("lane-1-platform-experience");
+  });
 });
 
 describe("checkLanes", () => {
