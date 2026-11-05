@@ -30,6 +30,22 @@ const ProgressBase = {
   emittedAt: z.iso.datetime(),
 };
 
+/**
+ * Why the chain moved to another position (§12.4 chain walking). A closed set, because free text
+ * here is how a provider name, a model id or an internal error would leak into an employee-visible
+ * progress stream (issue #16 N5, §9.3, §8.2). The UI renders one of these; nothing composes it.
+ */
+export const TierChangeReason = z.enum([
+  "provider_unavailable", // connection failure, 5xx, health check, open circuit
+  "quota_exhausted", // window allowance spent (F38)
+  "clearance", // not cleared for the payload's data class (§12.4)
+  "capability_tier", // below the task's minimum tier (§12.1)
+  "composing_model", // chain-walking rule (e): the verifier is not the composer
+  "output_rejected", // overflow or invalid structured output
+  "deadline", // stage deadline reached (F34)
+]);
+export type TierChangeReason = z.infer<typeof TierChangeReason>;
+
 export const ProgressEvent = z.discriminatedUnion("type", [
   // F29: a suggestion only; the employee's explicit pick always wins (§10.1).
   z.strictObject({
@@ -54,10 +70,11 @@ export const ProgressEvent = z.discriminatedUnion("type", [
   z.strictObject({
     ...ProgressBase,
     type: z.literal("tier_changed"),
-    // Chain positions, not provider names: provider identity is tenant-admin-only detail (§9.3).
+    // Chain positions, never provider names or model ids: provider identity is tenant-admin-only
+    // detail (§9.3). `reason` is a closed enum for the same reason.
     fromTier: z.number().int().positive(),
     toTier: z.number().int().positive(),
-    note: z.string().min(1).max(300),
+    reason: TierChangeReason,
   }),
 ]);
 export type ProgressEvent = z.infer<typeof ProgressEvent>;

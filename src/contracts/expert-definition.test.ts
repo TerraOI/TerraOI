@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   DEFAULT_PLATFORM_CHAIN,
+  DEFAULT_TASK_CHAIN_ORDER,
   ExpertDefinition,
   chainFollowsPlatformOrder,
 } from "./expert-definition";
@@ -147,5 +148,48 @@ describe("chain order (plan §12.4: experts may shorten, never reorder)", () => 
   it("rejects a reordered chain and an unknown provider", () => {
     expect(chainFollowsPlatformOrder(["claude", "local_box"], DEFAULT_PLATFORM_CHAIN)).toBe(false);
     expect(chainFollowsPlatformOrder(["local_box", "gpt-9000"], DEFAULT_PLATFORM_CHAIN)).toBe(false);
+  });
+
+  // Issue #16 N1: §12.4 gives each task class its own order, so a single flat list would reject
+  // the plan's own verify chain while letting a reordered compose chain through.
+  it("defines one order per task class, and verify is not the cost order", () => {
+    expect(DEFAULT_TASK_CHAIN_ORDER.compose).toEqual(DEFAULT_PLATFORM_CHAIN);
+    expect(DEFAULT_TASK_CHAIN_ORDER.verify).toEqual([
+      "local_box",
+      "claude",
+      "workers_ai",
+      "deepseek",
+      "openrouter",
+    ]);
+    expect(chainFollowsPlatformOrder(["claude", "workers_ai"], DEFAULT_TASK_CHAIN_ORDER.verify)).toBe(true);
+    expect(chainFollowsPlatformOrder(["claude", "workers_ai"], DEFAULT_PLATFORM_CHAIN)).toBe(false);
+  });
+
+  it("applies each chain to its own task order (N1)", () => {
+    // The supervisor's counter-example: this parsed before, because nothing called the helper.
+    expect(() =>
+      ExpertDefinition.parse({
+        ...validExpert(),
+        modelChains: { ...validExpert().modelChains, compose: ["openrouter", "local_box"] },
+      }),
+    ).toThrow(/compose chain/);
+
+    // And the plan's own verify order must parse, including the M1 start at Claude (issue #9).
+    const parsed = ExpertDefinition.parse({
+      ...validExpert(),
+      modelChains: {
+        ...validExpert().modelChains,
+        verify: ["claude", "workers_ai", "openrouter"],
+      },
+    });
+    expect(parsed.modelChains.verify).toEqual(["claude", "workers_ai", "openrouter"]);
+
+    // Cheap tasks keep cheap providers first: Claude is not in the route/condense order.
+    expect(() =>
+      ExpertDefinition.parse({
+        ...validExpert(),
+        modelChains: { ...validExpert().modelChains, route: ["local_box", "claude"] },
+      }),
+    ).toThrow(/route chain/);
   });
 });

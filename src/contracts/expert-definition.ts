@@ -1,11 +1,17 @@
 import { z } from "zod";
 
-import { CapabilityTier, DEFAULT_PLATFORM_CHAIN, chainFollowsPlatformOrder } from "./provider-route";
+import {
+  CapabilityTier,
+  DEFAULT_PLATFORM_CHAIN,
+  DEFAULT_TASK_CHAIN_ORDER,
+  chainFollowsPlatformOrder,
+  type TaskChainOrders,
+} from "./provider-route";
 import { ExpertKey, ProviderKey, ServiceKey, ToolKey, VersionTag } from "./keys";
 
 // The chain order and its guard belong to the provider contract; re-exported here so an
 // implementer reading one file sees the whole rule set (plan §5.2 + §12.4).
-export { DEFAULT_PLATFORM_CHAIN, chainFollowsPlatformOrder };
+export { DEFAULT_PLATFORM_CHAIN, DEFAULT_TASK_CHAIN_ORDER, chainFollowsPlatformOrder };
 
 /**
  * ExpertDefinition (plan §5.2). An expert is a governed, versioned retrieval/tool/policy
@@ -30,6 +36,8 @@ export const ExpertLimits = z.strictObject({
   stageDeadlineMs: z.number().int().positive(),
 });
 export type ExpertLimits = z.infer<typeof ExpertLimits>;
+
+const CHAIN_TASKS = Object.keys(DEFAULT_TASK_CHAIN_ORDER) as (keyof TaskChainOrders)[];
 
 export const ExpertDefinition = z
   .strictObject({
@@ -65,6 +73,21 @@ export const ExpertDefinition = z
     minVerifierTier: CapabilityTier,
   })
   .superRefine((expert, ctx) => {
+    // §12.4 "Per-task chains": every chain is checked against the order of *its own* task, so a
+    // reordered compose chain fails while the plan's own verify order (Claude before Workers AI)
+    // does not. One flat cost list would reject both.
+    for (const task of CHAIN_TASKS) {
+      const chain = expert.modelChains[task];
+      if (chain === undefined) continue;
+      if (!chainFollowsPlatformOrder(chain, DEFAULT_TASK_CHAIN_ORDER[task])) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["modelChains", task],
+          message: `the ${task} chain must follow that task's platform order (${DEFAULT_TASK_CHAIN_ORDER[task].join(" → ")}): experts may shorten it, not reorder it (§12.4)`,
+        });
+      }
+    }
+
     // §12.1: with no eligible verifier at or above the tier, requirement claims are withheld,
     // so the tier must be stated rather than inferred at runtime.
     if (expert.riskClass !== "knowledge" && expert.minVerifierTier === "small") {
