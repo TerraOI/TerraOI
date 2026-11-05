@@ -1,0 +1,52 @@
+# Tenancy and request context
+
+Schemas: [`tenant-context.ts`](../../src/contracts/tenant-context.ts),
+[`keys.ts`](../../src/contracts/keys.ts) · Plan §4.1–§4.3, §6.2 · Functions F01–F05, F28
+
+## Who builds a `TenantContext`
+
+Only the request pipeline, in this order, on **every** page, API, upload, download and action
+request:
+
+1. `resolveTenantHost` (F01) normalizes the externally routed hostname and looks it up
+   exactly in `tenant_domains`. Unknown, suspended, reserved or malformed hosts get a generic
+   failure — never a fallback tenant.
+2. `authenticateTenantUser` (F02) requires a verified session **and** an active
+   `organisation_memberships` row for that organization. Identity alone grants nothing.
+3. Roles, permitted services and permitted projects are computed server-side from current
+   database state, together with the `policyRevision` in force.
+4. `createTenantContext` parses and deep-freezes the result. Handlers receive a value that
+   cannot be re-pointed at another organization or widened to another project mid-request.
+
+The schema is `.strict()`: an organization, tenant, user, role or host field arriving in a body
+or query string is a parse error, not an ignored key. Inbound internal tenant headers are
+stripped and re-derived (plan §4.1 step 5).
+
+## What the host format rule does and does not prove
+
+`NormalizedHost` rejects uppercase, scheme, port, path and more than one subdomain level below
+the zone (`company1.terraoi.app` ✓, `deep.sub.company1.terraoi.app` ✗). That is format hygiene
+only. **Recognized** tenants come from the domain registry (F01), and a custom customer hostname
+would need one more label — so custom domains are a separate, ADR'd feature (plan §5.1).
+
+## Database scope and the RLS predicate (F03)
+
+Every tenant operation runs through a security-invoker RPC that, **in one transaction**:
+establishes a transaction-local organization, verifies `auth.uid()` membership, then executes
+bounded SQL. Consequences later tables must keep:
+
+- The effective read predicate is *active organization ∧ active membership ∧ request
+  organization matches ∧ area/level ∧ source/project audience ∧ permitted service ∧ published
+  version/effective date* (plan §6.2).
+- A scope set in one RPC never carries into the next: no session-level `SET`, no pooled
+  connection state, no process-global variable.
+- `SECURITY DEFINER` helpers pin `search_path` (enforced by
+  [`000_guardrails.test.sql`](../../supabase/tests/database/000_guardrails.test.sql)).
+- Every tenant table has composite `(organisation_id, id)` foreign keys and RLS with negative
+  tests for another tenant, another project and a deactivated member.
+
+## Lifecycle
+
+`organisations.status` moves `provisioning → active → suspended → archived/deleting`; a
+suspended tenant produces no `TenantContext` at all (F28), so sessions, reads, model calls and
+signed-object access stop together rather than being checked surface by surface.

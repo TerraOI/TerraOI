@@ -10,4 +10,4 @@
 | [tasks/](tasks/) | Task packets `T-NNN-*.md` and the template | To pick up or write work |
 | [decisions/](decisions/) | Implementation ADRs (platform ADRs are in plan §18.1) | Before changing a contract |
 | [status/](status/) | Weekly evidence register `YYYY-Www.md` | To see what is observed vs planned |
-| `contracts/` | Prose contracts that complement `src/contracts/` (created by T-002) | When implementing an interface |
+| [contracts/](contracts/) | Prose contracts that complement `src/contracts/` (added by T-002) | When implementing an interface |

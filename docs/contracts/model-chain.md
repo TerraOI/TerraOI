@@ -1,0 +1,58 @@
+# Model chain, clearance and pinned embeddings
+
+Schemas: [`provider-route.ts`](../../src/contracts/provider-route.ts),
+[`expert-definition.ts`](../../src/contracts/expert-definition.ts) ·
+Plan §12.3–§12.4, §5.2 · Functions F19–F22, F31, F37, F38 · ADRs TOI-ADR-12/13
+
+## Shape vs behavior
+
+This PR fixes the **shape** of chain configuration and the pure clearance arithmetic. Provider
+selection, health, circuits and retries (F31, F37, F38) are implemented in
+`src/platform/gateway/` (T-115, T-215, T-314). The gateway is the only place a provider SDK is
+called (AGENTS.md §4.3).
+
+`DEFAULT_PLATFORM_CHAIN` is the cost order of TOI-ADR-12:
+`local_box → workers_ai → claude → deepseek → openrouter`. Real model names, capability tiers and
+cost ranks are rows in `model_providers` (`PlatformProvider`), not code constants, so an expert
+release can change them without a code change — and never past the data policy.
+
+## Default clearance (plan §12.4)
+
+| Data class | local_box | workers_ai | claude | deepseek | openrouter |
+|---|---|---|---|---|---|
+| `public` | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `internal` | ✓ | ✓ | ✓ | – | – |
+| `client_confidential` | ✓ | tenant decision | ✓ | – | – |
+| `restricted` | ✓ | – | – | – | – |
+
+`PLATFORM_DEFAULT_CLEARANCE` encodes exactly that. `narrowClearance(tenantPolicy)` **only
+intersects**: a tenant list may remove providers and keeps the platform cost order in the result;
+a tenant entry the platform does not allow is dropped rather than merged; an omitted class keeps
+the platform default. There is deliberately no widening parameter — widening needs a recorded
+tenant decision and a provider-terms review (§12.4), which is a supervisor decision
+([COORDINATION.md §6](../COORDINATION.md)). Unknown class keys throw rather than being ignored.
+
+Chain helpers: `chainFollowsPlatformOrder(chain, platformOrder)` is the §5.2 rule that an expert
+may shorten its chain but never reorder it; `isIngestibleInM1` is §12.4's "restricted content is
+not ingested in M1 at all", used by ingestion payloads and form templates.
+
+## Pinned embeddings
+
+`EmbeddingIndex` names one provider, model, dimension, metric and generation, with a `status` of
+`building | active | retired` and no fallback field. Vectors from different models are
+incomparable, so:
+
+- outage → ingestion waits and queries take the labeled `lexical_only` lane (§8.1);
+- model change → a shadow generation is built, evaluated, then the pointer switches atomically
+  (§8.3) — never a runtime fallback;
+- embedding sends full chunk text, so `clearedFor` must cover every class in the index.
+  Company1's choice between **E1** (Workers AI embeds `client_confidential`) and **E2**
+  (local-box-only index, lexical fallback when the box is down) is still open (plan §18.3) and
+  lands here as data once recorded.
+
+## Cost control (F19)
+
+Every billable phase reserves against the tenant budget before the call, per chain attempt, and
+an ambiguous timeout counts as potentially billed (§12.3). Free tiers (local box, Workers AI
+allowance) are metered in units so exhaustion is predicted rather than discovered by a 429.
+Reservations, actual usage and which tier answered go to the run audit — never into `Answer`.
