@@ -84,7 +84,8 @@ export function buildIdentityPorts(env: Partial<IdentityEnv>, options: { fetchIm
     if (baseUrl.length === 0 || anonKey.length === 0) {
       throw new Error("SUPABASE_URL and SUPABASE_ANON_KEY bindings are required");
     }
-    // `apikey` + a bearer of the same publishable key is the Auth REST contract. Nothing else.
+    // `apikey` + a bearer of the same publishable key is the Auth REST contract. Nothing else: a
+    // service-role key would be a §4.2 privileged path with an ADR, and #37 has not granted one.
     return { apikey: anonKey, authorization: `Bearer ${anonKey}`, "content-type": "application/json" };
   };
 
