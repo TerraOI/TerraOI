@@ -767,6 +767,28 @@ describe("POST /api/knowledge/uploads/:id/complete", () => {
     expect(fake.versions).toHaveLength(0);
   });
 
+  it("refuses a completion that tries to name the object key or the destination collection", async () => {
+    const bytes = await buildSyntheticPdf({ pages: [{ lines: ["Synthetic redirect attempt."] }] });
+    const fake = makeFakeStore();
+    const objects = new Map<string, Uint8Array>();
+    const deps = makeDeps({ fake, objects }) as UploadDeps;
+    const { uploadId, objectRef } = await begin(deps);
+    objects.set(objectRef, bytes);
+    const response = await handleCompleteUpload(
+      completeRequest(uploadId, {
+        sha256: await sha256Hex(bytes),
+        objectRef: `knowledge/${COMPANY2}/uploads/stolen/object`,
+        collectionId: PROJECT_C1,
+      }),
+      deps,
+    );
+    expect(response.status).toBe(400);
+    expect(await errorCode(response)).toBe("invalid_request");
+    // Nothing was read from the key the body named, and nothing was captured.
+    expect(fake.reads).toEqual([]);
+    expect(fake.versions).toHaveLength(0);
+  });
+
   it("a session created by one member is not completable by another member of the same tenant", async () => {
     const bytes = await buildSyntheticPdf({});
     const fake = makeFakeStore();
