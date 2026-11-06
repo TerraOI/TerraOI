@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { clearedCookie, serializeSetCookie } from "./cookie";
+import { issueCsrfToken, verifyCsrfToken } from "./csrf";
 import {
   LOGIN_STATE_COOKIE_BASE,
   LOGIN_STATE_TTL_SECONDS,
@@ -13,6 +14,77 @@ const SECRET = "synthetic-test-secret-not-a-real-key-0000000000";
 const NOW = 1_800_000_000;
 const HOST_A = "company1.terraoi.app";
 const HOST_B = "company2.terraoi.app";
+
+// The PKCE `code_verifier` travels inside the signed login-state cookie: HttpOnly (no browser
+// script reads it), HMAC-signed (a client cannot swap its own), host-bound, single-use, and typed
+// `login_state` so no other token can pose as the carrier — or be posed as one by it.
+describe("the PKCE carrier is the login state and nothing else", () => {
+  it("hands back the verifier only for a matching, host-correct state", async () => {
+    const mine = await createLoginState({ host: HOST_A, secret: SECRET, now: NOW, secureTransport: true });
+    const cookieHeader = `${mine.cookie.name}=${mine.cookie.value}`;
+
+    const wrongHost = await verifyLoginState({ cookieHeader, presentedState: mine.nonce, host: HOST_B, secret: SECRET, now: NOW });
+    expect(wrongHost).toEqual({ ok: false, reason: "host_mismatch" });
+
+    const wrongState = await verifyLoginState({ cookieHeader, presentedState: "x".repeat(43), host: HOST_A, secret: SECRET, now: NOW });
+    expect(wrongState).toEqual({ ok: false, reason: "state_mismatch" });
+
+    const right = await verifyLoginState({ cookieHeader, presentedState: mine.nonce, host: HOST_A, secret: SECRET, now: NOW });
+    expect(right.ok).toBe(true);
+    if (!right.ok) return;
+    expect(right.codeVerifier).toBe(mine.codeVerifier);
+  });
+
+  it("a session or CSRF token cannot act as the PKCE carrier, even carrying a pkce claim", async () => {
+    const verifier = "verifier-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const cases: TokenClaims[] = [
+      { typ: "session", sid: "s", sub: "00000000-0000-4000-8000-0000000000a1", host: HOST_A, pkce: verifier, iat: NOW, exp: NOW + 60 },
+      { typ: "csrf", jti: "j", host: HOST_A, pkce: verifier, iat: NOW, exp: NOW + 60 },
+    ];
+    for (const claims of cases) {
+      const token = await signToken(claims, SECRET);
+      const check = await verifyLoginState({
+        cookieHeader: `__Host-toi_login_state=${token}`,
+        presentedState: "whatever",
+        host: HOST_A,
+        secret: SECRET,
+        now: NOW,
+      });
+      expect(check.ok).toBe(false);
+      if (check.ok) return;
+      expect(check.reason).toBe("malformed");
+    }
+  });
+
+  it("a login state with no verifier is refused instead of passed on empty", async () => {
+    const nonce = "n".repeat(43);
+    const token = await signToken({ typ: "login_state", jti: nonce, host: HOST_A, iat: NOW, exp: NOW + 60 }, SECRET);
+    const check = await verifyLoginState({
+      cookieHeader: `__Host-toi_login_state=${token}`,
+      presentedState: nonce,
+      host: HOST_A,
+      secret: SECRET,
+      now: NOW,
+    });
+    expect(check).toEqual({ ok: false, reason: "malformed" });
+  });
+
+  it("the state cookie is not a CSRF token, and a CSRF token is not a state cookie", async () => {
+    const state = await createLoginState({ host: HOST_A, secret: SECRET, now: NOW, secureTransport: true });
+    const asCsrf = await verifyCsrfToken({ token: state.cookie.value, host: HOST_A, secret: SECRET, now: NOW });
+    expect(asCsrf).toEqual({ ok: false, reason: "malformed" });
+
+    const csrf = await issueCsrfToken({ host: HOST_A, secret: SECRET, now: NOW });
+    const asState = await verifyLoginState({
+      cookieHeader: `__Host-toi_login_state=${csrf}`,
+      presentedState: "anything-at-all",
+      host: HOST_A,
+      secret: SECRET,
+      now: NOW,
+    });
+    expect(asState.ok).toBe(false);
+  });
+});
 
 // The magic-link callback is a GET the browser makes after the mail provider redirects. The nonce
 // in the URL proves nothing on its own: it has to match a host-only cookie this browser was given
@@ -33,7 +105,8 @@ describe("createLoginState / verifyLoginState", () => {
       secret: SECRET,
       now: NOW,
     });
-    expect(check).toEqual({ ok: true });
+    expect(check).toEqual({ ok: true, codeVerifier: state.codeVerifier });
+    expect(state.codeVerifier).toMatch(/^[A-Za-z0-9_-]{43,}$/);
   });
 
   it("rejects a link whose state parameter does not match this browser's cookie", async () => {
