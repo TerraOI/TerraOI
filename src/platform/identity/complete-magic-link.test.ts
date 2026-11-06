@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { completeMagicLink, type MagicLinkCallbackPorts } from "./complete-magic-link";
 import { createLoginState, LOGIN_STATE_COOKIE_BASE } from "./login-state";
-import { issueSession, SESSION_COOKIE_BASE } from "./session";
+import { SESSION_COOKIE_BASE } from "./session";
 
 const SECRET = "synthetic-test-secret-not-a-real-key-0000000000";
 const NOW = 1_800_000_000;
