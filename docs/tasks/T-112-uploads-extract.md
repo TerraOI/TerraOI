@@ -1,7 +1,7 @@
 # T-112 Upload session, completion and cloud extraction of digital PDFs
 
-Lane: 2 Â· Week: 1 Â· Protected: yes (`src/app/api/knowledge/`, and any migration here) Â· Depends on: T-111 Â· Status: in progress (wyuinline)
-Plan refs: Â§7.2 steps 1â€“3, Â§9.2.1, Â§6.2; F09, F10, F12
+Lane: 2 · Week: 1 · Protected: yes (`src/app/api/knowledge/`, and any migration here) · Depends on: T-111 · Status: in progress (wyuinline)
+Plan refs: §7.2 steps 1–3, §9.2.1, §6.2; F09, F10, F12
 
 ## Goal
 An authorized member starts an upload, the object lands in private storage under a server-chosen
@@ -33,12 +33,12 @@ knowledge tables. `uploaded_by` is what T-213 later compares a reviewer against.
 - [ ] positive: the stored row's `uploaded_by` equals the calling `auth.uid()` and its tenant equals
       the host-resolved organization; a body claiming another `uploaded_by` or tenant is ignored
 - [ ] negative: a direct `insert` into `knowledge_sources` or `source_versions` as `authenticated`
-      is a permission error (`42501`) â€” only the scoped RPC writes (#13(1))
+      is a permission error (`42501`) — only the scoped RPC writes (#13(1))
 - [ ] negative: a session created for tenant A cannot be completed on tenant B, and cannot be
       completed into a collection the user may not publish into
 - [ ] negative: a user without collection publish permission gets 403 and no source row
 - [ ] failure: a `.pdf` that is really an `.exe`, an oversized file, a 0-byte file, a zip bomb and
-      an encrypted PDF each end in `quarantined`/`failed` with a safe reason code â€” never a
+      an encrypted PDF each end in `quarantined`/`failed` with a safe reason code — never a
       silently empty "successful" source
 - [ ] idempotency: the same completion posted twice creates exactly one version and one job; an
       "already uploaded" hint appears **only** when the existing copy is readable by this uploader,
