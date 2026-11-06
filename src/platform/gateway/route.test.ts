@@ -77,11 +77,19 @@ describe("eligible chain (plan §12.4)", () => {
       },
     );
     expect(noEndpoint.eligible.map((entry) => entry.providerKey)).toEqual(["local_box"]);
-    expect(noEndpoint.skipped).toContainEqual({ providerKey: "claude", reason: "no_adapter" });
+    expect(noEndpoint.skipped).toContainEqual({ providerKey: "claude", reason: "no_endpoint" });
   });
 
   it("drops a provider whose registry row does not serve this task class", () => {
-    const decision = route({ task: "verify", dataClass: "public", minTier: "medium", nowMs: T0 });
+    // The union makes this request carry `composedWith`: the type checker caught a real omission
+    // in this very test when rule (e) became un-representable-without-it.
+    const decision = route({
+      task: "verify",
+      dataClass: "public",
+      minTier: "medium",
+      nowMs: T0,
+      composedWith: { providerKey: "workers_ai", model: "hosted-beta" },
+    });
     expect(decision.skipped).toContainEqual({ providerKey: "deepseek", reason: "task_unsupported" });
     expect(decision.skipped).toContainEqual({ providerKey: "openrouter", reason: "task_unsupported" });
   });
@@ -310,6 +318,22 @@ describe("verify chain (issue #9, plan §12.1, §12.4 (d)/(e))", () => {
     const decision = route({ ...verifyRequest, chain: expertChain });
     expect(decision.eligible.map((entry) => entry.providerKey)).toEqual(["claude"]);
     expect(decision.eligible[0]?.chainPosition).toBe(1);
+  });
+
+  // Rule (e) is "the verifier is not the model that composed the answer". `RouteRequest` makes a
+  // `verify` request without `composedWith` a compile error; this covers a caller whose argument
+  // arrived unvalidated (a queue payload, a job row): the route selects nothing rather than guessing.
+  it("a verify route that cannot name the composer selects nothing", () => {
+    const unvalidated = {
+      task: "verify",
+      dataClass: "internal",
+      minTier: "medium",
+      nowMs: T0,
+    } as unknown as RouteRequest;
+    const decision = route(unvalidated);
+    expect(decision.eligible).toEqual([]);
+    expect(decision.skipped.length).toBeGreaterThan(0);
+    expect(decision.skipped.every((skip) => skip.reason === "composer_unknown")).toBe(true);
   });
 
   it("the local box is not a verifier before an F35-approved second model is recorded", () => {

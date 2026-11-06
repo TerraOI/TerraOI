@@ -37,8 +37,7 @@ export interface AdapterRegistry {
   has(providerKey: ProviderKey): boolean;
 }
 
-export interface RouteRequest {
-  task: TaskClass;
+interface RouteRequestBase {
   /** The payload's highest data class (§6.2), computed by the caller with `maxDataClass`. */
   dataClass: DataClass;
   tenantPolicy?: Partial<ClearanceMatrix>;
@@ -46,24 +45,42 @@ export interface RouteRequest {
   chain?: readonly ProviderKey[];
   /** §12.1: for `verify`, the expert's `minVerifierTier`. */
   minTier?: CapabilityTier;
-  /** Chain-walking rule (e): the model that composed this answer, when the task is `verify`. */
-  composedWith?: { providerKey: ProviderKey; model: string };
   /** Explicit clock so circuit state is deterministic in tests. */
   nowMs: number;
 }
+
+/**
+ * §12.4 rule (e) removes "the same model that composed the answer", so a model call that is not a
+ * verification has nothing to name here, and a verification **must** name it. A `verify` request
+ * that could omit it would be a route that can select the composer, so the union makes that state
+ * unrepresentable instead of documenting it.
+ */
+export interface ModelRouteRequest extends RouteRequestBase {
+  task: "route" | "condense" | "compose";
+  composedWith?: never;
+}
+
+export interface VerifierRouteRequest extends RouteRequestBase {
+  task: "verify";
+  composedWith: { providerKey: ProviderKey; model: string };
+}
+
+export type RouteRequest = ModelRouteRequest | VerifierRouteRequest;
 
 export type RouteSkipReason =
   | "chain_order"
   | "unknown_provider"
   | "task_unsupported"
   | "not_cleared"
+  | "no_endpoint"
   | "no_adapter"
   | "circuit_open"
   | "unhealthy"
   | "quota_exhausted"
   | "below_tier"
   | "verifier_not_evaluated"
-  | "composed_the_answer";
+  | "composed_the_answer"
+  | "composer_unknown";
 
 export interface RouteEntry {
   providerKey: ProviderKey;
@@ -114,6 +131,15 @@ export function selectModelRoute(request: RouteRequest, deps: RouteDeps): RouteD
     return decision;
   }
 
+  // Rule (e) cannot be enforced without knowing who composed the answer, so a `verify` route that
+  // cannot say selects nothing. The union above makes that a compile error for typed callers; this
+  // guard covers a caller whose argument arrived unvalidated (a queue payload, a job row).
+  const composedWith: VerifierRouteRequest["composedWith"] | undefined = request.composedWith;
+  if (request.task === "verify" && composedWith === undefined) {
+    for (const providerKey of chain) skipped.push({ providerKey, reason: "composer_unknown" });
+    return decision;
+  }
+
   const rows = new Map<ProviderKey, PlatformProvider>(config.providers.map((row) => [row.providerKey, row]));
   const endpoints = new Map(config.endpoints.map((endpoint) => [endpoint.providerKey, endpoint]));
   // Intersect-only, so a tenant list can never widen the reviewed baseline (§12.4, issue #16 N4).
@@ -136,8 +162,13 @@ export function selectModelRoute(request: RouteRequest, deps: RouteDeps): RouteD
       return;
     }
     const endpoint = endpoints.get(providerKey);
-    if (endpoint === undefined || !adapters.has(providerKey)) {
-      // No adapter registered for this provider: nothing can be called, so nothing is called.
+    if (endpoint === undefined) {
+      // The reviewed configuration names no model for this provider: nothing can be called.
+      skipped.push({ providerKey, reason: "no_endpoint" });
+      return;
+    }
+    if (!adapters.has(providerKey)) {
+      // No adapter is registered in this deployment (T-314/T-215 own the remaining providers).
       skipped.push({ providerKey, reason: "no_adapter" });
       return;
     }
@@ -168,7 +199,7 @@ export function selectModelRoute(request: RouteRequest, deps: RouteDeps): RouteD
         return;
       }
       // (e) the verifier is never the model that composed this answer.
-      if (request.composedWith !== undefined && request.composedWith.model === verifierModel.model) {
+      if (composedWith !== undefined && composedWith.model === verifierModel.model) {
         skipped.push({ providerKey, reason: "composed_the_answer" });
         return;
       }
