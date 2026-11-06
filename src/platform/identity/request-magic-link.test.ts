@@ -11,7 +11,7 @@ const C1 = "11111111-1111-4111-8111-111111111111";
 
 interface Harness {
   ports: MagicLinkRequestPorts;
-  sent: Array<{ email: string; redirectTo: string }>;
+  sent: Array<{ email: string; redirectTo: string; codeVerifier: string }>;
   limiterKeys: Array<{ host: string; email: string }>;
   requestKeys: string[];
   allowed: boolean;
@@ -104,7 +104,11 @@ describe("handleMagicLinkRequest (POST /auth/magic-link)", () => {
       secret: SECRET,
       now: NOW,
     });
-    expect(check).toEqual({ ok: true });
+    expect(check).toEqual({ ok: true, codeVerifier: expect.any(String) });
+    // The provider was given the challenge for exactly the verifier this browser's cookie carries.
+    expect(state.sent[0]?.codeVerifier).toBe(check.ok ? check.codeVerifier : undefined);
+    if (!check.ok) return;
+    expect(state.sent[0]?.codeVerifier).toMatch(/^[A-Za-z0-9_-]{43,}$/);
 
     const elsewhere = await verifyLoginState({
       cookieHeader: cookieOf(response).split(";")[0],

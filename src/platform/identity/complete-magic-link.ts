@@ -40,6 +40,12 @@ export interface MagicLinkCallbackPorts {
     code: string;
     state: string;
     host: string;
+    /**
+     * The PKCE verifier, read out of the verified login-state cookie (never from the request). The
+     * provider will not exchange a code without it, and it is what makes a captured callback URL
+     * useless on its own.
+     */
+    codeVerifier: string;
   }): Promise<IdentityExchange>;
   findMembership(organisationId: string, userId: string): Promise<MembershipRecord | null>;
   /**
@@ -90,7 +96,12 @@ export async function completeMagicLink(input: MagicLinkCallbackInput): Promise<
 
   let identity: Awaited<ReturnType<MagicLinkCallbackPorts["exchangeLoginCode"]>>;
   try {
-    identity = await ports.exchangeLoginCode({ code, state, host: parsed.host });
+    identity = await ports.exchangeLoginCode({
+      code,
+      state,
+      host: parsed.host,
+      codeVerifier: stateCheck.codeVerifier,
+    });
   } catch {
     console.error("magic-link callback failed", { host: parsed.host, step: "exchangeLoginCode" });
     return loginRedirect(parsed.host, "unavailable", consumedState);
