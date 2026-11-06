@@ -342,6 +342,52 @@ describe("pass 1 rejects citations that do not exist in this run (plan §12.1)",
     ]);
   });
 
+  it("a length-truncated completion is billed work with nothing usable: settled against reported usage (§12.3)", async () => {
+    const h = depsOf({
+      local_box: [
+        {
+          ok: true,
+          text: '{"summary":"cut off mid-',
+          model: "open-weights-alpha",
+          finishReason: "length",
+          usage: { inputUnits: 9_000, outputUnits: 800 },
+        },
+      ],
+    });
+    const { answer, audit } = await composeAnswer(input(), h.deps);
+    expect(answer.status).toBe("unavailable");
+    const [attempt] = audit.composeAttempts;
+    if (!attempt) throw new Error("expected one compose attempt");
+    expect(attempt.outcome).toBe("context_overflow");
+    expect(attempt.reconciled).toBe("settled");
+    expect(h.meter.events).toEqual([
+      `reserve:local_box:${attempt.attemptId}`,
+      `reconcile:settled:${attempt.attemptId}`,
+    ]);
+    expect(h.meter.events.filter((event) => event.includes("reconcile:released:"))).toEqual([]);
+  });
+
+  it("a truncated completion from a provider that reports no usage keeps the full reservation as ambiguous", async () => {
+    const h = depsOf({
+      local_box: [
+        { ok: true, text: '{"summary":"cut off mid-', model: "open-weights-alpha", finishReason: "length" },
+      ],
+    });
+    const { answer, audit } = await composeAnswer(input(), h.deps);
+    expect(answer.status).toBe("unavailable");
+    const [attempt] = audit.composeAttempts;
+    if (!attempt) throw new Error("expected one compose attempt");
+    expect(attempt.outcome).toBe("context_overflow");
+    // The reservation was the expert's own `maxOutputTokens`, and this is exactly the shape §12.3
+    // calls ambiguous: the box generated to its limit, so the units are unknown, not zero.
+    expect(attempt.reservedUnits.maxOutputUnits).toBe(EXPERT.limits.maxOutputTokens);
+    expect(attempt.reconciled).toBe("ambiguous");
+    expect(h.meter.events).toEqual([
+      `reserve:local_box:${attempt.attemptId}`,
+      `reconcile:ambiguous:${attempt.attemptId}`,
+    ]);
+  });
+
   it("a chain that never yields a valid structured answer ends unavailable, not a guess", async () => {
     const h = depsOf({
       local_box: [answered("prose without structure", "open-weights-alpha")],
