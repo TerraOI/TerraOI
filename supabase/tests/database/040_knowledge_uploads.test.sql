@@ -78,6 +78,21 @@ begin
 end;
 $fn$;
 
+create function pg_temp.try_clear_scope() returns text
+language plpgsql security invoker as $fn$
+begin
+  begin
+    -- SET LOCAL lives for the whole test transaction, so an earlier block's scope is still in force:
+    -- this is how the file reaches a genuinely unscoped call (the merged tenancy migration's own
+    -- helper, not a session-level `reset`).
+    perform public.clear_tenant_scope();
+    return 'ok';
+  exception when others then
+    return sqlstate::text;
+  end;
+end;
+$fn$;
+
 -- Direct writes as the calling role: these are the mutations the scoped RPCs exist to prevent.
 create function pg_temp.try_direct_source_insert(p_organisation_id uuid, p_collection_id uuid) returns text
 language plpgsql security invoker as $fn$
@@ -237,6 +252,7 @@ select is((select result from t_out where case_name = 'helper_rpc_execute'), 'no
 -- ---------------------------------------------------------------- 7-16 opening a session
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+insert into t_out values ('cleared_scope', pg_temp.try_clear_scope());
 insert into t_out values ('begin_without_scope', pg_temp.try_begin('51000000-0000-4000-8000-000000000001',
   't112noscope1', 'noscope.pdf', null));
 insert into t_out values ('scope', pg_temp.try_scope('11111111-1111-4111-8111-111111111111'));
