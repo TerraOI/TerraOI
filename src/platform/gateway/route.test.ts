@@ -304,6 +304,19 @@ describe("per-task chain order (plan §12.4, the per-task table)", () => {
   });
 });
 
+/**
+ * HOSTILE FIXTURE — never copy this, and never import it from production code.
+ *
+ * `RouteRequest` is a union that makes a `verify` route without `composedWith` a **compile error**,
+ * which is the point (§12.4 rule (e)). This function exists for exactly one test: feeding the
+ * runtime guard an argument shaped like something that arrived unvalidated — a queue payload, a job
+ * row, a replayed audit record. A real caller passes a typed `VerifierRouteRequest` and cannot
+ * reach this path.
+ */
+function verifyRouteFromQueuePayload(fields: Record<string, unknown>): RouteRequest {
+  return fields as unknown as RouteRequest;
+}
+
 describe("verify chain (issue #9, plan §12.1, §12.4 (d)/(e))", () => {
   const verifyRequest: RouteRequest = {
     task: "verify",
@@ -320,17 +333,13 @@ describe("verify chain (issue #9, plan §12.1, §12.4 (d)/(e))", () => {
     expect(decision.eligible[0]?.chainPosition).toBe(1);
   });
 
-  // Rule (e) is "the verifier is not the model that composed the answer". `RouteRequest` makes a
-  // `verify` request without `composedWith` a compile error; this covers a caller whose argument
-  // arrived unvalidated (a queue payload, a job row): the route selects nothing rather than guessing.
+  // Rule (e) is "the verifier is not the model that composed the answer". The union makes a
+  // `verify` request without `composedWith` a compile error; this case runs the runtime guard with
+  // the hostile fixture above, standing in for an argument that arrived unvalidated.
   it("a verify route that cannot name the composer selects nothing", () => {
-    const unvalidated = {
-      task: "verify",
-      dataClass: "internal",
-      minTier: "medium",
-      nowMs: T0,
-    } as unknown as RouteRequest;
-    const decision = route(unvalidated);
+    const decision = route(
+      verifyRouteFromQueuePayload({ task: "verify", dataClass: "internal", minTier: "medium", nowMs: T0 }),
+    );
     expect(decision.eligible).toEqual([]);
     expect(decision.skipped.length).toBeGreaterThan(0);
     expect(decision.skipped.every((skip) => skip.reason === "composer_unknown")).toBe(true);
