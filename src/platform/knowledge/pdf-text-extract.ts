@@ -229,7 +229,13 @@ export async function extractPdfTextLayer(
   if (!looksLikePdf(bytes)) return failed(["not_a_pdf", ...featureNotesList]);
   if (!hasPdfEof(bytes)) return failed(["missing_eof", ...featureNotesList]);
 
-  const spans = scanObjects(bytes, MAX_OBJECTS_SCANNED);
+  const scan = scanObjects(bytes, MAX_OBJECTS_SCANNED);
+  if (scan.truncated) {
+    // Same rule as capture: a scan we could not finish is a failure, never a partial success whose
+    // missing pages would quietly become missing evidence.
+    return failed(["scan_truncated", ...featureNotesList]);
+  }
+  const spans = scan.spans;
   const byNumber = new Map<number, PdfObjectSpan>();
   for (const span of spans) if (!byNumber.has(span.objectNumber)) byNumber.set(span.objectNumber, span);
 

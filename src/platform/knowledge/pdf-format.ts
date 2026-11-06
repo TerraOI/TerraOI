@@ -60,16 +60,27 @@ const isWhitespace = (code: number | undefined): boolean =>
   code === 0x20 || code === 0x09 || code === 0x0a || code === 0x0d || code === 0x0c;
 
 /**
- * Lists indirect objects in file order. A stream body is skipped by its `/Length`, because stream
- * payload bytes may contain the words `endobj` or `endstream`; a stream whose `/Length` lies is
- * recovered by scanning for `endstream` (the usual case in damaged writers).
+ * Lists indirect objects in file order, up to `maxObjects`. A stream body is skipped by its
+ * `/Length`, because stream payload bytes may contain the words `endobj` or `endstream`; a stream
+ * whose `/Length` lies is recovered by scanning for `endstream` (the usual case in damaged writers).
+ *
+ * `truncated` is part of the contract, not an optimization detail: it says "there may be more
+ * objects after the last one I returned". Every caller has to fail closed on it — a document with
+ * 100,000 streams whose payload lives in stream #99,001 is exactly how a partial check turns into a
+ * false "verified" (the seam this function's cap would otherwise create).
  */
-export function scanObjects(bytes: Uint8Array, maxObjects: number): PdfObjectSpan[] {
+export interface PdfObjectScan {
+  spans: PdfObjectSpan[];
+  truncated: boolean;
+}
+
+export function scanObjects(bytes: Uint8Array, maxObjects: number): PdfObjectScan {
   const objects: PdfObjectSpan[] = [];
   let cursor = 0;
   for (;;) {
     const keyword = indexOfAscii(bytes, "obj", cursor);
-    if (keyword < 0 || objects.length >= maxObjects) return objects;
+    if (keyword < 0) return { spans: objects, truncated: false };
+    if (objects.length >= maxObjects) return { spans: objects, truncated: true };
     // Read `<number> <generation> obj` backwards from the keyword.
     let p = keyword - 1;
     while (p >= 0 && isWhitespace(bytes[p])) p -= 1;
@@ -106,7 +117,7 @@ export function scanObjects(bytes: Uint8Array, maxObjects: number): PdfObjectSpa
       const afterStream = indexOfAscii(bytes, "endobj", dataEnd);
       bodyEnd = afterStream >= 0 ? afterStream : bytes.length;
     }
-    if (bodyEnd < 0) return objects;
+    if (bodyEnd < 0) return { spans: objects, truncated: true };
     objects.push({ objectNumber, bodyStart, bodyEnd });
     cursor = bodyEnd + "endobj".length;
   }

@@ -183,6 +183,7 @@ export const SAFE_UPLOAD_MESSAGES: Record<string, string> = {
   malformed_pdf: "The PDF could not be read.",
   encrypted_pdf: "Password-protected PDFs cannot be added.",
   decompression_bomb: "The file was refused because of its compression structure.",
+  scan_truncated: "The file was refused because it holds more parts than this workspace can inspect.",
   internal_error: "The upload could not be completed. Please try again.",
 };
 
@@ -211,6 +212,7 @@ const VERIFICATION_STATUS: Partial<Record<UploadFailureReason, number>> = {
   malformed_pdf: 422,
   encrypted_pdf: 422,
   decompression_bomb: 422,
+  scan_truncated: 422,
 };
 
 const REGISTER_STATUS: Record<RegisterRefusalReason, number> = {

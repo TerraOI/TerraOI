@@ -40,7 +40,14 @@ export type UploadFailureReason =
   | "unsupported_type"
   | "malformed_pdf"
   | "encrypted_pdf"
-  | "decompression_bomb";
+  | "decompression_bomb"
+  /**
+   * The object scan hit its cap, so the rest of the file was never inspected. Its own code, rather
+   * than `malformed_pdf`, because an operator has to be able to tell a crafted document from a
+   * merely enormous one — and because "we checked 4,096 of them" must never be reported as "checked
+   * all of them" (plan §7.2: a failure is visible).
+   */
+  | "scan_truncated";
 
 /**
  * What the caller does with the refusal: `quarantined` is "the bytes are hostile or unusable",
@@ -163,9 +170,16 @@ export async function verifyCapturedObject(input: VerifyObjectInput): Promise<Ve
 
   // Decompression budget across every FlateDecode stream in the file (plan §7.2 step 2). This is
   // also what makes the extraction stage cheap to bound later: the object is already known to fit.
+  //
+  // Two limits, deliberately: the byte budget bounds *decompressed volume*, this object cap bounds
+  // *parsing time* on a Worker. 64 MB spread over 100,000 tiny streams is still unbounded CPU, so
+  // scanning is capped separately — and hitting the cap is a refusal, never a partial pass.
   let budget = input.limits?.maxDecompressedBytes ?? MAX_DECOMPRESSED_BYTES;
-  const objects = scanObjects(bytes, MAX_STREAMS_INSPECTED);
-  for (const span of objects) {
+  const scan = scanObjects(bytes, MAX_STREAMS_INSPECTED);
+  if (scan.truncated) {
+    return refusal("quarantined", "scan_truncated", { sizeBytes: bytes.length, mediaType: guess.mediaType, notes });
+  }
+  for (const span of scan.spans) {
     const stream = readStream(bytes, span);
     if (!stream || stream.filter !== "FlateDecode") continue;
     const inflated = await inflateBounded(stream.data, budget);
