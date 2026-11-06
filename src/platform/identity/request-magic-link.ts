@@ -4,7 +4,8 @@ import type { HostRecord } from "@/platform/tenancy/resolve-tenant-context";
 import { canonicalEmail } from "./email";
 import { verifyCsrfToken } from "./csrf";
 import { statusOnly, redirectSameHost, readCappedBody, LOGIN_PATH } from "./http-response";
-import { createLoginState, type CookieSpec } from "./login-state";
+import { createLoginState } from "./login-state";
+import type { CookieSpec } from "./cookie";
 import type { SigninOutcome } from "./outcomes";
 import { hasUsableSecret } from "./signed-token";
 
