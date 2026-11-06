@@ -1,6 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { cookieName, isHttpsUrl, parseCookieHeader, serializeSetCookie, type CookieSpec } from "./cookie";
+import {
+  clearedCookie,
+  cookieName,
+  isHttpsUrl,
+  parseCookieHeader,
+  serializeSetCookie,
+  type CookieSpec,
+} from "./cookie";
 
 // Plan §4.2: "Use host-only Secure, HttpOnly session cookies without Domain=.terraoi.app; use the
 // __Host- prefix where the selected auth adapter supports its requirements." TerraOI *is* the
@@ -100,9 +107,8 @@ describe("parseCookieHeader", () => {
 });
 
 describe("cookieName / isHttpsUrl", () => {
-  it("uses the __Host- prefix only where the browser can honor it", () => {
+  it("uses the __Host- prefix whenever the transport is secure", () => {
     expect(cookieName("toi_session", true)).toBe("__Host-toi_session");
-    expect(cookieName("toi_session", false)).toBe("toi_session");
   });
 
   it("recognizes only an https routed URL as a secure transport", () => {
@@ -110,5 +116,47 @@ describe("cookieName / isHttpsUrl", () => {
     expect(isHttpsUrl("http://company1.terraoi.app/login")).toBe(false);
     expect(isHttpsUrl("http://localhost:3000/login")).toBe(false);
     expect(isHttpsUrl("not a url")).toBe(false);
+  });
+});
+
+// The PR #18 N1 lesson, applied to cookies: an escape hatch must be bound to the environment, not
+// merely explicit at the call site. A production path that "works right because nobody passes
+// false" is the bug shape, so the non-`__Host-`, non-`Secure` form exists only in a development
+// runtime. That also protects the staging check the packet asks for: a mis-proxied `http://` request
+// URL cannot quietly produce a non-Secure session cookie that nobody objects to.
+describe("the non-__Host- form is bound to a development runtime", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("refuses an unprefixed cookie name outside a development runtime", () => {
+    expect(() => cookieName("toi_session", false)).toThrow(/development/i);
+    vi.stubEnv("NODE_ENV", "production");
+    expect(() => cookieName("toi_session", false)).toThrow(/development/i);
+  });
+
+  it("refuses a cookie without Secure outside a development runtime, whatever the name", () => {
+    expect(() => serializeSetCookie({ ...BASE, name: "toi_session", secure: false })).toThrow(/secure/i);
+    vi.stubEnv("NODE_ENV", "production");
+    expect(() => serializeSetCookie({ ...BASE, name: "toi_session", secure: false })).toThrow(/secure/i);
+  });
+
+  it("allows both in an explicit development runtime so `next dev` still works", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    expect(cookieName("toi_session", false)).toBe("toi_session");
+    expect(serializeSetCookie({ ...BASE, name: "toi_session", secure: false })).toBe(
+      "toi_session=dGVzdHRva2Vu; Path=/; Max-Age=28800; HttpOnly; SameSite=Lax",
+    );
+  });
+
+  it("still refuses a __Host- name without Secure even in development", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    expect(() => serializeSetCookie({ ...BASE, secure: false })).toThrow(/secure/i);
+  });
+
+  it("a cleared cookie follows the same rule", () => {
+    expect(() => clearedCookie("toi_session", false)).toThrow(/development/i);
+    vi.stubEnv("NODE_ENV", "development");
+    expect(serializeSetCookie(clearedCookie("toi_session", false))).toBe("toi_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax");
   });
 });
