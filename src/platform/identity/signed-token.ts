@@ -21,7 +21,8 @@ const decoder = new TextDecoder();
 const TOKEN_SHAPE = /^[A-Za-z0-9_-]+$/;
 export const MIN_SECRET_LENGTH = 32;
 
-function bytesToBase64Url(bytes: Uint8Array): string {
+/** Base64url without padding: safe in a cookie value, a query value or a JSON field. */
+export function bytesToBase64Url(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -47,9 +48,14 @@ export function hasUsableSecret(secret: string | null | undefined): secret is st
 }
 
 async function hmac(payload: string, secret: string): Promise<Uint8Array> {
+  return hmacBytes(secret, payload);
+}
+
+/** Exported for the adapters, which need a keyed digest rather than a token. */
+export async function hmacBytes(secret: string, message: string): Promise<Uint8Array> {
   if (!hasUsableSecret(secret)) throw new Error("a signing secret binding is required");
   const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(payload));
+  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(message));
   return new Uint8Array(signature);
 }
 
