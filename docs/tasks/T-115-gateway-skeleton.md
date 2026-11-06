@@ -1,6 +1,6 @@
 # T-115 Gateway skeleton: route selection, clearance filter, compose, verifier pass 1
 
-Lane: 2 · Week: 1 · Protected: yes (`src/platform/gateway/`) · Depends on: T-002, T-111 · Status: ready
+Lane: 2 · Week: 1 · Protected: yes (`src/platform/gateway/`) · Depends on: T-002, T-111 · Status: in progress (wyuinline)
 Plan refs: §12.1 (pass 1), §12.3, §12.4 (chain walking), §10.1; F20 (=F31+F38), F31, F38, F19 (reserve only)
 
 ## Goal
