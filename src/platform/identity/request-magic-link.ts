@@ -29,7 +29,7 @@ export interface MagicLinkRequestPorts {
   /** The limiter identity: an adapter hashes this, it never stores the address itself. */
   rateLimitKey(input: { host: string; email: string }): Promise<string>;
   allowRequest(key: string): Promise<boolean>;
-  sendMagicLink(input: { email: string; redirectTo: string }): Promise<void>;
+  sendMagicLink(input: { email: string; redirectTo: string; codeVerifier: string }): Promise<void>;
 }
 
 /** A sign-in form carries an address and a token; anything larger is someone probing. */
@@ -88,7 +88,9 @@ export async function handleMagicLinkRequest(input: MagicLinkRequestInput): Prom
   });
   const callbackUrl = `https://${parsed.host}${CALLBACK_PATH}?state=${encodeURIComponent(loginState.nonce)}`;
   try {
-    await ports.sendMagicLink({ email, redirectTo: callbackUrl });
+    // The verifier goes to the provider as an S256 challenge, so the code it later hands back can
+    // only be exchanged by a server holding this browser's cookie.
+    await ports.sendMagicLink({ email, redirectTo: callbackUrl, codeVerifier: loginState.codeVerifier });
   } catch {
     // The provider's failure detail never travels to the browser: it can name an account, a rate
     // limit or a configuration problem the caller has no business seeing.

@@ -19,7 +19,7 @@ type Membership = { membershipId: string; status: "invited" | "active" | "suspen
 
 interface Harness {
   ports: MagicLinkCallbackPorts;
-  exchanges: Array<{ code: string; state: string; host: string }>;
+  exchanges: Array<{ code: string; state: string; host: string; codeVerifier: string }>;
   memberships: string[];
   redeemed: Array<{ organisationId: string; userId: string; email: string }>;
   identity: { ok: true; userId: string; email: string; emailVerified: boolean } | { ok: false; reason: "invalid_or_expired" };
@@ -286,6 +286,14 @@ describe("completeMagicLink (GET /auth/callback)", () => {
     expect(locationOf(response).host).toBe(HOST_A);
     expect(locationOf(response).pathname).toBe("/");
     expect(response.headers.getSetCookie().join("\n")).not.toContain("evil.example");
+  });
+
+  it("takes the PKCE verifier from the login-state cookie and never from the request", async () => {
+    const { h } = await callback({ query: { code_verifier: "attacker-supplied-verifier-00000000000000000" } });
+    expect(h.exchanges).toHaveLength(1);
+    const verifier = h.exchanges[0]?.codeVerifier as string;
+    expect(verifier).toMatch(/^[A-Za-z0-9_-]{43,}$/);
+    expect(verifier).not.toContain("attacker");
   });
 
   it("gives a host that is not a live tenant nothing at all", async () => {
