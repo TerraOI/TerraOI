@@ -3,8 +3,8 @@ import { z } from "zod";
 import { parseHost, requestHost, type HostAdapterOptions } from "@/platform/tenancy/host";
 import type { HostRecord, MembershipRecord } from "@/platform/tenancy/resolve-tenant-context";
 
-import { isDevelopmentRuntime, isHttpsUrl } from "./cookie";
-import { consumeLoginState, verifyLoginState, type CookieSpec } from "./login-state";
+import { isDevelopmentRuntime, isHttpsUrl, type CookieSpec } from "./cookie";
+import { consumeLoginState, verifyLoginState } from "./login-state";
 import { canonicalEmail } from "./email";
 import { statusOnly, redirectSameHost, LOGIN_PATH } from "./http-response";
 import { issueSession } from "./session";
