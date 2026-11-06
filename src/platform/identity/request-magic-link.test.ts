@@ -151,15 +151,23 @@ describe("handleMagicLinkRequest (POST /auth/magic-link)", () => {
 
   // A POST that *looks* same-site but arrives from a sibling tenant origin is the attack §4.2 names.
   it("rejects an Origin that is not exactly this host over https", async () => {
-    for (const origin of ["https://company2.terraoi.app", "http://company1.terraoi.app", "https://company1.terraoi.app:8443", "null", "https://company1.terraoi.app.evil.example"]) {
-      const { response, state } = await request(HOST, { email: "owner1@company1.test" }, () => {});
-      const forged = await handleMagicLinkRequest({
-        request: await post(HOST, { email: "owner1@company1.test" }, { origin }),
+    const token = await issueCsrfToken({ host: HOST, secret: SECRET, now: NOW });
+    for (const origin of [
+      "https://company2.terraoi.app",
+      "http://company1.terraoi.app",
+      "https://company1.terraoi.app:8443",
+      "null",
+      "https://company1.terraoi.app.evil.example",
+    ]) {
+      const state = harness();
+      const response = await handleMagicLinkRequest({
+        request: await post(HOST, { csrf_token: token, email: "owner1@company1.test" }, { origin }),
         ports: state.ports,
       });
-      expect(forged.status, origin).toBe(403);
+      expect(response.status, origin).toBe(403);
+      expect(response.headers.getSetCookie(), origin).toHaveLength(0);
       expect(state.sent, origin).toHaveLength(0);
-      expect(response.status).toBe(303);
+      expect(state.requestKeys, origin).toHaveLength(0);
     }
   });
 

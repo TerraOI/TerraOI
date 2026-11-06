@@ -37,8 +37,12 @@ function base64UrlToBytes(value: string): Uint8Array | null {
   }
 }
 
-/** A deployment binding, never a repository value (AGENTS.md §4.6). Callers fail closed without one. */
-export function hasUsableSecret(secret: string | null | undefined): boolean {
+/**
+ * A deployment binding, never a repository value (AGENTS.md §4.6). Callers fail closed without one.
+ * Narrowing to `string` is deliberate: a caller that has passed this check can hand the secret on to
+ * `signToken` / `verifyToken` without a cast, and one that has not must choose the safe answer.
+ */
+export function hasUsableSecret(secret: string | null | undefined): secret is string {
   return typeof secret === "string" && secret.length >= MIN_SECRET_LENGTH;
 }
 
