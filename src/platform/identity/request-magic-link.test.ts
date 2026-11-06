@@ -258,7 +258,7 @@ describe("handleMagicLinkRequest (POST /auth/magic-link)", () => {
     const limitedStranger = await shape("nobody@nowhere.example", false);
     expect(limitedInvited).toEqual(limitedStranger);
     expect(limitedInvited.status).toBe(303);
-    expect(locationOf({ headers: new Headers({ location: limitedInvited.location as string }) }).searchParams.get("outcome")).toBe("rate_limited");
+    expect(new URL(limitedInvited.location as string).searchParams.get("outcome")).toBe("rate_limited");
   });
 
   it("normalizes the address before the limiter sees it, so case tricks do not buy budget", async () => {
