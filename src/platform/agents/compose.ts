@@ -6,7 +6,7 @@ import { OpaqueId, type ProviderKey } from "@/contracts/keys";
 import type { CapabilityTier, ClearanceMatrix } from "@/contracts/provider-route";
 import type { TenantContext } from "@/contracts/tenant-context";
 
-import { callModelGateway, type GatewayDeps } from "@/platform/gateway/call";
+import { callModelGateway, type AttemptRecord, type GatewayDeps } from "@/platform/gateway/call";
 import { selectModelRoute, type RouteDecision } from "@/platform/gateway/route";
 import { bindClaimsToEvidence, type RunEvidence } from "@/platform/gateway/verify-binding";
 
@@ -103,7 +103,12 @@ export interface ComposeAudit {
   dataClass: DataClass;
   matrixRevision: number | null;
   answeredBy: { providerKey: ProviderKey; model: string; chainPosition: number } | null;
-  composeAttempts: number;
+  /**
+   * Every compose attempt as the gateway recorded it (outcome, reservation, reconciliation):
+   * F40 replay needs the per-attempt truth, and §12.3's "an ambiguous attempt is still billed" is
+   * only checkable if the run keeps it. Audit content — never rendered to an employee (§9.3).
+   */
+  composeAttempts: AttemptRecord[];
   composeSkipped: RouteDecision["skipped"];
   verifierRoute: RouteDecision | null;
   semanticVerification: "not_configured" | "no_eligible_verifier" | "ran" | "not_needed";
@@ -204,7 +209,7 @@ export async function composeAnswer(
     dataClass,
     matrixRevision: null,
     answeredBy: null,
-    composeAttempts: 0,
+    composeAttempts: [],
     composeSkipped: [],
     verifierRoute: null,
     semanticVerification: "not_configured",
@@ -263,7 +268,7 @@ export async function composeAnswer(
     deps,
   );
 
-  audit.composeAttempts = composed.attempts.length;
+  audit.composeAttempts = composed.attempts;
   audit.composeSkipped = composed.skipped;
   audit.matrixRevision = composed.matrixRevision;
 

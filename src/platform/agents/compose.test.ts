@@ -300,7 +300,46 @@ describe("pass 1 rejects citations that do not exist in this run (plan §12.1)",
     const { answer, audit } = await composeAnswer(input(), h.deps);
     expect(answer.status).toBe("unavailable");
     expect(answer.truncation).toEqual([]);
-    expect(audit.composeAttempts).toBe(1);
+
+    // And the rejected attempt is **billed**, not released: the model ran, produced output, and the
+    // schema is what refused it. §12.3 — an attempt is settled against reported usage, or kept as
+    // potentially billed when usage is unknown; "nothing was spent" would be the under-count.
+    const [attempt] = audit.composeAttempts;
+    if (!attempt) throw new Error("expected one compose attempt");
+    expect(attempt.outcome).toBe("invalid_output");
+    expect(attempt.reservedUnits).toEqual({
+      maxInputUnits: expect.any(Number),
+      maxOutputUnits: EXPERT.limits.maxOutputTokens,
+    });
+    expect(attempt.reconciled).toBe("settled");
+    expect(h.meter.events).toEqual([
+      `reserve:local_box:${attempt.attemptId}`,
+      `reconcile:settled:${attempt.attemptId}`,
+    ]);
+    expect(h.meter.events.filter((event) => event.includes("reconcile:released:"))).toEqual([]);
+  });
+
+  it("unusable output with no reported usage keeps its reservation as potentially billed (§12.3)", async () => {
+    const h = depsOf({
+      local_box: [
+        {
+          ok: true,
+          text: "prose the schema cannot hold, and this provider reports no usage",
+          model: "open-weights-alpha",
+          finishReason: "stop",
+        },
+      ],
+    });
+    const { answer, audit } = await composeAnswer(input(), h.deps);
+    expect(answer.status).toBe("unavailable");
+    const [attempt] = audit.composeAttempts;
+    if (!attempt) throw new Error("expected one compose attempt");
+    expect(attempt.outcome).toBe("invalid_output");
+    expect(attempt.reconciled).toBe("ambiguous");
+    expect(h.meter.events).toEqual([
+      `reserve:local_box:${attempt.attemptId}`,
+      `reconcile:ambiguous:${attempt.attemptId}`,
+    ]);
   });
 
   it("a chain that never yields a valid structured answer ends unavailable, not a guess", async () => {
