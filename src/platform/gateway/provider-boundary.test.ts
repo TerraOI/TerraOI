@@ -119,5 +119,7 @@ describe("the gateway is the only place a provider is reached (AGENTS.md §4.3)"
     expect(gatewayFiles).toContain(`${GATEWAY}/route.ts`);
     expect(gatewayFiles).toContain(`${GATEWAY}/circuit.ts`);
     expect(gatewayFiles).toContain(`${GATEWAY}/config.ts`);
+    // From 115b the guard also proves it is looking at the place where the real `fetch` calls live.
+    expect(gatewayFiles).toContain(`${GATEWAY}/adapters.ts`);
   });
 });

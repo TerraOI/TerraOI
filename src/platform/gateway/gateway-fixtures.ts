@@ -9,6 +9,7 @@ import type { ProviderKey } from "@/contracts/keys";
 
 import { parseGatewayConfiguration, type GatewayConfiguration, type ProviderEndpoint } from "./config";
 import type { HealthProbe } from "./circuit";
+import type { AdapterCallOutcome, AdapterCallRequest, ProviderAdapter } from "./adapters";
 
 /**
  * Synthetic fixtures for the gateway tests (AGENTS.md §4.7: synthetic data only, no secrets).
@@ -146,4 +147,94 @@ export function fakeProbe(providerKey: ProviderKey, options: { healthy: boolean 
 
 export function registryOf<T extends { providerKey: ProviderKey }>(...entries: T[]): Map<ProviderKey, T> {
   return new Map(entries.map((entry) => [entry.providerKey, entry]));
+}
+
+/**
+ * A recorded provider mock (issue #9: "T-115 uses recorded mocks"). `script` is consumed per call
+ * and the last entry repeats, so a permanently failing provider is `[failed("connection")]`. The
+ * call list is what makes "this provider never saw that payload" an assertion, not a claim.
+ */
+export interface FakeAdapter extends ProviderAdapter {
+  calls: AdapterCallRequest[];
+}
+
+export function fakeAdapter(providerKey: ProviderKey, script: AdapterCallOutcome[]): FakeAdapter {
+  const calls: AdapterCallRequest[] = [];
+  return {
+    providerKey,
+    calls,
+    async complete(request) {
+      calls.push(request);
+      return script[Math.min(calls.length - 1, script.length - 1)] ?? { ok: false, kind: "connection", possiblyBilled: false };
+    },
+  };
+}
+
+export function answered(text: string, model: string): AdapterCallOutcome {
+  return {
+    ok: true,
+    text,
+    model,
+    finishReason: "stop",
+    usage: { inputUnits: 40, outputUnits: 12 },
+  };
+}
+
+export function failed(
+  kind: Extract<AdapterCallOutcome, { ok: false }>["kind"],
+  possiblyBilled = false,
+): AdapterCallOutcome {
+  return { ok: false, kind, possiblyBilled };
+}
+
+/** A meter port that records the order of reservations and reconciliations (§12.3 evidence). */
+export interface RecordingMeter {
+  events: string[];
+  reserveCalls: Array<{ organisationId: string; runId: string; attemptId: string }>;
+  byAttempt: Map<string, { reserved: boolean; reconciled?: string }>;
+  reserveThrows: boolean;
+  reserve(input: {
+    organisationId: string;
+    runId: string;
+    attemptId: string;
+    task: string;
+    providerKey: string;
+    maxInputUnits: number;
+    maxOutputUnits: number;
+  }): Promise<{ reservationId: string }>;
+  reconcile(input: {
+    attemptId: string;
+    reservationId: string;
+    outcome: "settled" | "released" | "ambiguous";
+    usedInputUnits?: number;
+    usedOutputUnits?: number;
+  }): Promise<void>;
+}
+
+export function recordingMeter(): RecordingMeter {
+  const meter: RecordingMeter = {
+    events: [],
+    reserveCalls: [],
+    byAttempt: new Map(),
+    reserveThrows: false,
+    async reserve(input) {
+      meter.events.push(`reserve:${input.providerKey}:${input.attemptId}`);
+      meter.reserveCalls.push({
+        organisationId: input.organisationId,
+        runId: input.runId,
+        attemptId: input.attemptId,
+      });
+      meter.byAttempt.set(input.attemptId, { reserved: true });
+      if (meter.reserveThrows) throw new Error("synthetic budget authority unavailable");
+      return { reservationId: `res-${input.attemptId}` };
+    },
+    async reconcile(input) {
+      meter.events.push(`reconcile:${input.outcome}:${input.attemptId}`);
+      meter.byAttempt.set(input.attemptId, {
+        reserved: meter.byAttempt.get(input.attemptId)?.reserved ?? false,
+        reconciled: input.outcome,
+      });
+    },
+  };
+  return meter;
 }
