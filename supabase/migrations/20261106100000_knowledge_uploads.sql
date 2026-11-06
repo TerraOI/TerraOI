@@ -534,7 +534,7 @@ begin
   if v_organisation is null then
     raise exception 'tenant scope is required' using errcode = '28000';
   end if;
-  if p_state not in ('quarantined', 'failed') then
+  if p_state is null or p_state not in ('quarantined', 'failed') then
     raise exception 'an outcome must be quarantined or failed' using errcode = '22023';
   end if;
   if p_reason_code is null or p_reason_code not in (
