@@ -15,7 +15,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(61);
+select plan(63);
 
 -- ---------------------------------------------------------------- helpers
 create function pg_temp.syn_hash(p_seed text) returns text
@@ -629,6 +629,24 @@ select is(((select source_version_id from t_versions where case_name = 'b1_same_
   '60 and the version it received is its own row, never the hidden company1 version id (§6.2 composite keys)');
 select is((select count(*)::int from public.source_versions where content_hash = pg_temp.syn_hash('hidden')), 3::int,
   '61 three rows hold that content — one per collection — which is exactly what the per-collection dedup key guarantees and a tenant-wide key would have destroyed (§6.2)');
+
+-- ---------------------------------------------------------------- 62-63 the deactivated member
+-- A scope established by an active member stays in the transaction, so this isolates the RPC's own
+-- membership check: same tenant scope, different JWT subject, a suspended membership (AGENTS.md §4.2).
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+insert into t_out values ('scope', pg_temp.try_scope('11111111-1111-4111-8111-111111111111'));
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a3';
+insert into t_out values ('suspended_begin', pg_temp.try_begin('51000000-0000-4000-8000-000000000001',
+  't112a3suspended', 'suspended-member.pdf', null));
+insert into t_out values ('suspended_register', pg_temp.try_register(
+  (select id from t_sessions where case_name = 'a1_first'), pg_temp.syn_hash('suspended'), 2048, 'application/pdf'));
+reset role;
+
+select is((select result from t_out where case_name = 'suspended_begin'), '28000',
+  '62 a suspended membership cannot open an upload session even under a scope an active member established: the RPC re-checks membership itself, it does not trust the scope GUC (§4.2, AGENTS.md §4.1)');
+select is((select result from t_out where case_name = 'suspended_register'), '28000',
+  '63 nor may it capture into one: the same membership gate runs before the session lookup, and the lookup is bound to created_by anyway');
 
 select * from finish();
 rollback;
