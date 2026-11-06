@@ -99,6 +99,13 @@ export interface PdfSpec {
   missingEof?: boolean;
   /** Emits one content stream whose literal text expands to this many bytes (bomb fixture). */
   expandContentToBytes?: number;
+  /**
+   * Emits this many extra FlateDecode objects *after* the pages: filler that a bounded structural
+   * scan must count, used with `bombStreamBytes` to place a bomb past the scan cap.
+   */
+  fillerStreams?: number;
+  /** Emits a final FlateDecode object that inflates to this many bytes (past every filler). */
+  bombStreamBytes?: number;
 }
 
 function pdfLiteral(text: string): string {
@@ -197,6 +204,25 @@ export async function buildSyntheticPdf(spec: PdfSpec): Promise<Uint8Array> {
       : `<< /Length ${body.byteLength} >>`;
     parts.push(ascii(`${firstContent + i} 0 obj\n${dict}\nstream\n`));
     parts.push(body);
+    parts.push(ascii("\nendstream\nendobj\n"));
+  }
+
+  if (spec.fillerStreams !== undefined && spec.fillerStreams > 0) {
+    // Unreferenced but structurally valid FlateDecode objects: they force a scanner to walk them.
+    const fillerPayload = await deflateZlib(ascii("BT ET"));
+    for (let n = 0; n < spec.fillerStreams; n += 1) {
+      parts.push(
+        ascii(`${500 + n} 0 obj\n<< /Length ${fillerPayload.byteLength} /Filter /FlateDecode >>\nstream\n`),
+      );
+      parts.push(fillerPayload);
+      parts.push(ascii("\nendstream\nendobj\n"));
+    }
+  }
+  if (spec.bombStreamBytes !== undefined && spec.bombStreamBytes > 0) {
+    const huge = ascii("A".repeat(spec.bombStreamBytes));
+    const packed = await deflateZlib(huge);
+    parts.push(ascii(`900 0 obj\n<< /Length ${packed.byteLength} /Filter /FlateDecode >>\nstream\n`));
+    parts.push(packed);
     parts.push(ascii("\nendstream\nendobj\n"));
   }
 

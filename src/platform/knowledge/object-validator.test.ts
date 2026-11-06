@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { buildSyntheticPdf, sha256Hex, syntheticExecutableBytes, syntheticPngBytes, syntheticZipBytes, ascii, concatBytes } from "./fixtures";
 import {
   MAX_DECOMPRESSED_BYTES,
+  MAX_STREAMS_INSPECTED,
   MAX_UPLOAD_BYTES,
   sniffSignature,
   verifyCapturedObject,
@@ -143,6 +144,25 @@ describe("verifyCapturedObject", () => {
       limits: { maxDecompressedBytes: 200_000 },
     });
     expect(reason).toBe("decompression_bomb");
+    expect(outcome).toBe("quarantined");
+  });
+
+  it("a bomb placed past the structural scan cap is refused, not half-checked (fail-closed scan)", async () => {
+    // The budget here is *larger* than the payload, so the byte budget alone would pass this file:
+    // the only thing that can refuse it is knowing that the scan stopped before the last object.
+    const bytes = await buildSyntheticPdf({
+      pages: [{ lines: ["Synthetic ordinary page."] }],
+      fillerStreams: MAX_STREAMS_INSPECTED,
+      bombStreamBytes: 4_000_000,
+    });
+    expect(bytes.byteLength).toBeLessThan(2_000_000);
+    const { reason, outcome } = await expectRefusal({
+      read: { status: "ok", bytes },
+      maxBytes: MAX_UPLOAD_BYTES,
+      expectedSha256: await sha256Hex(bytes),
+      limits: { maxDecompressedBytes: 8_000_000 },
+    });
+    expect(reason).toBe("scan_truncated");
     expect(outcome).toBe("quarantined");
   });
 
