@@ -1,6 +1,6 @@
 # T-112 Upload session, completion and cloud extraction of digital PDFs
 
-Lane: 2 · Week: 1 · Protected: yes (`src/app/api/knowledge/`, and any migration here) · Depends on: T-111 · Status: ready
+Lane: 2 · Week: 1 · Protected: yes (`src/app/api/knowledge/`, and any migration here) · Depends on: T-111 · Status: in progress (wyuinline)
 Plan refs: §7.2 steps 1–3, §9.2.1, §6.2; F09, F10, F12
 
 ## Goal
