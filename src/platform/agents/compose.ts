@@ -110,12 +110,15 @@ export interface ComposeAudit {
   bindingRejected: string[];
   withheldRequirementClaims: number;
   droppedByVerifier: string[];
+  /** Pass-2 outcomes as returned, for the provider-quality view plan §17.1 asks for. Audit-only. */
+  verdicts: SemanticVerdict[];
 }
 
 /**
  * The structured shape the compose model must return. It deliberately does **not** accept
- * `verificationStatus` or an authority the pack did not carry: the model may propose, only the
- * platform decides (§4.8: model output is untrusted input).
+ * `verificationStatus`, an authority the pack did not carry, or a `truncation` note: the model may
+ * propose claims and report conflicts it sees between sources (§10.1), but what was left out of an
+ * answer is the platform's statement, not the model's (§12.1, AGENTS.md §4.8).
  */
 const ComposeCandidate = z
   .strictObject({
@@ -132,7 +135,6 @@ const ComposeCandidate = z
     ),
     unknowns: z.array(z.string().min(1).max(1000)),
     conflicts: z.array(z.string().min(1).max(1000)).default([]),
-    truncation: z.array(z.string().min(1).max(1000)).default([]),
   })
   .superRefine((candidate, ctx) => {
     const ids = new Set(candidate.claims.map((claim) => claim.id));
@@ -209,6 +211,7 @@ export async function composeAnswer(
     bindingRejected: [],
     withheldRequirementClaims: 0,
     droppedByVerifier: [],
+    verdicts: [],
   };
 
   // No evidence at all: nothing to compose from, so no model is asked and nothing is reserved.
@@ -329,6 +332,7 @@ export async function composeAnswer(
       route: verifierRoute,
     });
     for (const verdict of returned) verdicts.set(verdict.claimId, verdict);
+    audit.verdicts = [...returned];
     audit.semanticVerification = "ran";
     const dropped = claims.filter((claim) => {
       const verdict = verdicts.get(claim.id);

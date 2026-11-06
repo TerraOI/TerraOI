@@ -108,7 +108,6 @@ function candidate(claims: Claim[], extra: Record<string, unknown> = {}): string
     })),
     unknowns: [],
     conflicts: [],
-    truncation: [],
     ...extra,
   });
 }
@@ -294,6 +293,16 @@ describe("pass 1 rejects citations that do not exist in this run (plan §12.1)",
     expect(answer.claims[0]?.verificationStatus).toBe("binding_passed");
   });
 
+  it("a model that reports its own truncation is rejected: the platform states what was left out (§12.1)", async () => {
+    const h = depsOf({
+      local_box: [answered(candidate([], { truncation: ["I left out the second procedure."] }), "open-weights-alpha")],
+    });
+    const { answer, audit } = await composeAnswer(input(), h.deps);
+    expect(answer.status).toBe("unavailable");
+    expect(answer.truncation).toEqual([]);
+    expect(audit.composeAttempts).toBe(1);
+  });
+
   it("a chain that never yields a valid structured answer ends unavailable, not a guess", async () => {
     const h = depsOf({
       local_box: [answered("prose without structure", "open-weights-alpha")],
@@ -376,6 +385,7 @@ describe("verification selection (plan §12.1 rules (d)/(e), issue #9)", () => {
     expect(audit.answeredBy?.providerKey).toBe("local_box");
     expect(routeOf(audit).eligible.map((entry) => entry.providerKey)).toEqual(["claude"]);
     expect(audit.semanticVerification).toBe("ran");
+    expect(audit.verdicts.map((verdict) => [verdict.claimId, verdict.status])).toEqual([["c1", "supported"]]);
     expect(answer.claims[0]?.verificationStatus).toBe("supported");
     expect(answer.status).toBe("answered");
     assertNothingInternalLeaks(answer, "requirement claim verified by a second model");
