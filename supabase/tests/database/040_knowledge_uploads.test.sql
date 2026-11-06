@@ -593,5 +593,26 @@ select is((select result from t_out where case_name = 'guard_created_by'), '2351
 select is((select result from t_out where case_name = 'guard_reopen'), '23514',
   '58 and a completed capture cannot be reopened, so a replayed or malicious update cannot resume writing into a closed session (§7.2)');
 
+-- ---------------------------------------------------------------- 59-61 the same bytes in another tenant
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000b1';
+insert into t_out values ('scope', pg_temp.try_scope('22222222-2222-4222-8222-222222222222'));
+insert into t_sessions
+  select 'b1_same_hash', o_session_id, o_object_ref, o_max_size_bytes, o_state, o_reused
+    from public.begin_upload_session_v1('52000000-0000-4000-8000-000000000001',
+      't112b1same', 'company2-copy.pdf', null);
+insert into t_versions
+  select 'b1_same_hash', o_source_id, o_source_version_id, o_state, o_already_uploaded
+    from public.register_source_version_v1((select id from t_sessions where case_name = 'b1_same_hash'),
+      pg_temp.syn_hash('hidden'), 2048, 'application/pdf');
+reset role;
+
+select is((select already from t_versions where case_name = 'b1_same_hash'), false,
+  '59 company2 uploading bytes company1 already holds gets the ordinary result: no hint, and nothing naming the other tenant''s copy (§4.2, #13(2))');
+select is(((select source_version_id from t_versions where case_name = 'b1_same_hash') = '71000000-0000-4000-8000-000000000099'), false,
+  '60 and the version it received is its own row, never the hidden company1 version id (§6.2 composite keys)');
+select is((select count(*)::int from public.source_versions where content_hash = pg_temp.syn_hash('hidden')), 3::int,
+  '61 three rows hold that content — one per collection — which is exactly what the per-collection dedup key guarantees and a tenant-wide key would have destroyed (§6.2)');
+
 select * from finish();
 rollback;
