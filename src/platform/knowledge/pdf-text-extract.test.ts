@@ -101,6 +101,52 @@ describe("extractPdfTextLayer", () => {
     expect(result.text).not.toMatch(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/);
   });
 
+  it("a `/Filter` nested in DecodeParms does not make an undecodable chain look decodable", async () => {
+    // The reproduction the lead posted on #78: the same document as the case above, with one
+    // insertion in the content-stream dictionary —
+    //   << /Length N /DecodeParms << /Filter /FlateDecode >> /Filter [/FlateDecode /ASCII85Decode] >>
+    // A scan that does not count dictionary depth stops at the *nested* name, sees a chain it can
+    // decode, inflates one hop and publishes those bytes with no note. The dictionary claims two
+    // hops; only one ran, so this is text from a chain that was never fully decoded — the same
+    // defect class as B1 on #54, which is what this slice exists to close (AGENTS.md §4.5).
+    const bytes = await buildSyntheticPdf({
+      pages: [
+        {
+          compressed: true,
+          filters: ["FlateDecode", "ASCII85Decode"],
+          filterSyntax: "array",
+          dictExtra: " /DecodeParms << /Filter /FlateDecode >>",
+          lines: ["MARKER-TEXT-THAT-WAS-NEVER-DECODED"],
+        },
+      ],
+    });
+    const result = await extractPdfTextLayer(bytes);
+    // Asserted first so a failure names the harm: bytes of a half-decoded chain reaching the text.
+    expect(result.text, "half-decoded bytes must never become text").not.toContain("MARKER-TEXT-THAT-WAS-NEVER-DECODED");
+    expect(result.outcome).toBe("no_text_layer");
+    expect(result.notes).toContain("unsupported_filter_chain_flatedecode_ascii85decode");
+    expect(result.text).toBe("");
+  });
+
+  it("an honest DecodeParms does not cost a page its text either", async () => {
+    // The benign direction of the same bug: `/Crypt` in the parameter dictionary is not this stream's
+    // filter, so a lone FlateDecode stream must still decode. Depth-blind scanning refused it as
+    // `unsupported_filter_crypt`.
+    const bytes = await buildSyntheticPdf({
+      pages: [
+        {
+          compressed: true,
+          dictExtra: " /DecodeParms << /Filter /Crypt /Columns 72 >>",
+          lines: ["Ordinary compressed page with parameter dictionaries."],
+        },
+      ],
+    });
+    const result = await extractPdfTextLayer(bytes);
+    expect(result.outcome).toBe("extracted");
+    expect(result.text).toContain("Ordinary compressed page with parameter dictionaries.");
+    expect(result.notes.filter((note) => note.startsWith("unsupported_filter_"))).toEqual([]);
+  });
+
   it("keeps page numbering and a visible note when one page's only stream is skipped", async () => {
     const bytes = await buildSyntheticPdf({
       pages: [

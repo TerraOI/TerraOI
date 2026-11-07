@@ -23,17 +23,48 @@ describe("parseFilterChain", () => {
     expect(parseFilterChain("<< /Length 5 /Filter /FlateDecode /Length1 3 >>")).toEqual(["FlateDecode"]);
   });
 
-  it("resolves a nested DecodeParms filter the way the byte scan always has, and refuses it", () => {
-    // First `/Filter` in the object dictionary wins, even inside DecodeParms: pinned as fail-closed
-    // (`unsupported_filter_crypt`), not as correct. A stream-level `/Filter` written after
-    // DecodeParms is therefore missed — refused, never mis-decoded, and what the old pattern did too.
-    expect(parseFilterChain("<< /DecodeParms << /Filter /Crypt >> /Length 5 >>")).toEqual(["Crypt"]);
-    expect(parseFilterChain("<< /DecodeParms << /Filter /Crypt >> /Length 5 /Filter /FlateDecode >>")).toEqual(["Crypt"]);
+  it("ignores a /Filter nested inside another dictionary and finds the stream's own entry", () => {
+    // ISO 32000-1 §7.4.4: a parameter dictionary carries its *own* `/Filter` when it is itself
+    // compressed (`DecodeParms << /Filter /Crypt >>`). A scan that does not count `<<`/`>>` depth
+    // takes that nested name as the stream's chain, so a stream whose real chain is
+    // `[/FlateDecode /ASCII85Decode]` reads as `[/FlateDecode]`: one hop inflated, the rest of the
+    // chain never applied, and the bytes published as `extracted` with no note. The lead's
+    // reproduction on #78, and the same fail-open class this PR exists to close.
+    expect(parseFilterChain("<< /DecodeParms << /Filter /Crypt >> /Length 5 >>")).toEqual([]);
+    expect(parseFilterChain("<< /DecodeParms << /Filter /Crypt >> /Length 5 /Filter /FlateDecode >>")).toEqual(["FlateDecode"]);
+    expect(parseFilterChain("<< /Length 78 /DecodeParms << /Filter /FlateDecode >> /Filter [/FlateDecode /ASCII85Decode] >>")).toEqual([
+      "FlateDecode",
+      "ASCII85Decode",
+    ]);
+    expect(parseFilterChain("<< /Length 5 /Filter /FlateDecode /DecodeParms << /Filter /Crypt >> >>")).toEqual(["FlateDecode"]);
     expect(parseFilterChain("<< /DecodeParms << /Columns 7 >> /Filter /FlateDecode >>")).toEqual(["FlateDecode"]);
+    // Two levels deep, and the decoy dictionary closed before the real key.
+    expect(parseFilterChain("<< /DecodeParms << /X << /Filter /Crypt >> >> /Filter /LZWDecode >>")).toEqual(["LZWDecode"]);
+    // A decoy that is the only `/Filter` in the object says nothing about this stream: the payload is
+    // read as stored, which is the same answer as `<< /Length 5 >>`.
+    expect(isFlateOnlyChain(parseFilterChain("<< /DecodeParms << /Filter /FlateDecode >> /Length 5 >>"))).toBe(false);
+  });
+
+  it("reads a % comment as a comment: a /Filter inside one is not a key", () => {
+    // PDF 32000-1 §7.2.2: a comment runs from `%` to the end of the line and is not tokens. Skipping
+    // literal and hex strings without skipping comments is the same mistake one character over.
+    expect(parseFilterChain("<< /Length 4 % /Filter /FlateDecode\n >>")).toEqual([]);
+    expect(parseFilterChain("<< /Length 4 % /Filter /FlateDecode\n /Filter /LZWDecode >>")).toEqual(["LZWDecode"]);
+    expect(parseFilterChain("<< /Filter /FlateDecode % /DecodeParms << /Filter /Crypt >>\n >>")).toEqual(["FlateDecode"]);
+    // The same rule inside a `/Filter` array: a name written in a comment is not one of this stream's
+    // filters. Left unhandled, a comment would grow the chain and refuse (or un-meter) a stream that
+    // is really single-filter — the benign direction, but the same mistake.
+    expect(parseFilterChain("<< /Filter [ /FlateDecode % phantom /LZWDecode\n ] >>")).toEqual(["FlateDecode"]);
+    expect(isFlateOnlyChain(parseFilterChain("<< /Filter [ /FlateDecode % phantom /LZWDecode\n ] >>"))).toBe(true);
+    // A comment before the value is already legal and stays legal (the value reader skips it).
+    expect(parseFilterChain("<< /Filter % leading comment\n /FlateDecode >>")).toEqual(["FlateDecode"]);
   });
 
   it("fails closed when /Filter is present but its value cannot be read", () => {
-    for (const dict of ["<< /Filter [] >>", "<< /Filter / >>", "<< /Filter 12 0 R >>"]) {
+    // Every entry is a value a real generator would not write, and all four are fail-open if the
+    // reader treats "I could not read it" as "there is no filter": the payload would be published as
+    // stored text. `/Filter << … >>` is a dictionary where a name or array belongs.
+    for (const dict of ["<< /Filter [] >>", "<< /Filter / >>", "<< /Filter 12 0 R >>", "<< /Filter << /K -1 >> >>"]) {
       const chain = parseFilterChain(dict);
       expect(chain).toEqual([UNREADABLE_FILTER]);
       expect(isFlateOnlyChain(chain)).toBe(false);

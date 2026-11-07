@@ -191,6 +191,35 @@ describe("verifyCapturedObject", () => {
     expect(outcome).toBe("quarantined");
   });
 
+  it("a bomb parked behind a DecodeParms decoy is metered, not skipped", async () => {
+    // `<< /Length N /DecodeParms << /Filter /Crypt >> /Filter [/FlateDecode /ASCII85Decode] >>`: the
+    // stored bytes are a zlib stream (the chain's outermost hop), so the decompression budget applies
+    // whether or not the second hop is ever decoded. A scan that takes the first `/Filter` in text
+    // order reports the chain as ["Crypt"], calls the stream un-inflatable, notes it, and leaves a
+    // 2 MB expansion uncounted (plan §7.2 step 2).
+    const bytes = await buildSyntheticPdf({
+      pages: [
+        { lines: ["Synthetic ordinary page."] },
+        {
+          compressed: true,
+          filters: ["FlateDecode", "ASCII85Decode"],
+          filterSyntax: "array",
+          dictExtra: " /DecodeParms << /Filter /Crypt >>",
+          lines: ["Synthetic exploding page."],
+        },
+      ],
+      expandContentToBytes: 2_000_000,
+    });
+    const { reason, outcome } = await expectRefusal({
+      read: { status: "ok", bytes },
+      maxBytes: MAX_UPLOAD_BYTES,
+      expectedSha256: await sha256Hex(bytes),
+      limits: { maxDecompressedBytes: 200_000 },
+    });
+    expect(reason).toBe("decompression_bomb");
+    expect(outcome).toBe("quarantined");
+  });
+
   it("an array-form FlateDecode stream within the budget still verifies", async () => {
     const bytes = await buildSyntheticPdf({
       pages: [{ compressed: true, filterSyntax: "array_spaced", lines: ["Synthetic compressed page."] }],

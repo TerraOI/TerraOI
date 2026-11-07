@@ -102,6 +102,13 @@ export interface PdfPageSpec {
    * dictionary, which is exactly what a parser that cannot decode that chain has to cope with.
    */
   filters?: readonly string[];
+  /**
+   * Inserts this text into the content-stream dictionary immediately after `/Length` and **before**
+   * the `/Filter` entry, verbatim: ` /DecodeParms << /Filter /FlateDecode >>` writes a nested
+   * parameter dictionary whose own `/Filter` a depth-blind scan takes for the stream's chain. This
+   * fixture emits the bytes and interprets nothing — the point is what a parser does with them.
+   */
+  dictExtra?: string;
 }
 
 export interface PdfSpec {
@@ -234,7 +241,7 @@ export async function buildSyntheticPdf(spec: PdfSpec): Promise<Uint8Array> {
     const chain = page.filters ?? (page.compressed === true ? ["FlateDecode"] : []);
     const packed = page.compressed === true || chain[0] === "FlateDecode";
     const body = packed ? await deflateZlib(raw) : raw;
-    const dict = `<< /Length ${body.byteLength}${filterEntry(chain, page.filterSyntax)} >>`;
+    const dict = `<< /Length ${body.byteLength}${page.dictExtra ?? ""}${filterEntry(chain, page.filterSyntax)} >>`;
     parts.push(ascii(`${firstContent + i} 0 obj\n${dict}\nstream\n`));
     parts.push(body);
     parts.push(ascii("\nendstream\nendobj\n"));
