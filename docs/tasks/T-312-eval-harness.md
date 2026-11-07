@@ -43,26 +43,23 @@ Every eval run is a **real** gateway call: same clearance, same reservation, no 
 not *published*, until this packet's F36 gate can pass.
 
 ## Acceptance tests (write first)
-- [ ] positive: `src/platform/evals/run.test.ts` — the same inputs produce the same case order, and the run
-      row names the expert version, chain configuration and corpus generation it was measured against
-- [ ] positive: `supabase/tests/database/090_eval_cases_and_runs.test.sql` — one run row per execution with
-      one result row per case carrying a failure class; a rerun writes a new run, never edits the old one
-- [ ] positive: F34 drafts land as `agent_drafted` with expected source version + locator, and are excluded
-      from scoring until an eligible reviewer approves them
-- [ ] negative: a `client_confidential` case produces **zero** DeepSeek/OpenRouter calls in the mock (the
-      §16 model-chain scenario), and an eval run never widens `narrowClearance` to make a case runnable
-- [ ] negative: cases drafted from a collection the reviewing expert may not read do not exist for them;
-      a company1 case never appears in company2's set and an id from another tenant returns no row
-- [ ] negative: a review by a `suspended` membership or by a member not entitled to the expert's
-      collections is not a valid approval, and its case stays out of the scored set
-- [ ] negative: the isolation/bait cases must show the expert **refusing** (must-refuse, cross-tenant,
-      project-restricted), not returning nothing — an absent answer scores as a failure, not a pass
-- [ ] failure: a provider outage or an uncleared chain mid-run is recorded as an infrastructure failure
-      class, never a zero that would push prompt tuning the wrong way; a corpus generation that changed
-      mid-run discards the run rather than comparing across generations
-- [ ] failure: F36 refuses publication when the approved count or any threshold is short, and the previous
-      expert version remains selectable; a case whose expected source was revoked (T-213) re-queues for
-      review instead of silently scoring zero
+- [ ] positive: `src/platform/evals/run.test.ts` — the same inputs produce the same case order, and the run row
+      names the expert version, chain configuration and corpus generation it was measured against
+- [ ] positive: `supabase/tests/database/090_eval_cases_and_runs.test.sql` — one run row per execution with one
+      result per case carrying a failure class; a rerun writes a new run and never edits the old one
+- [ ] positive: F34 drafts land as `agent_drafted` with expected source version and locator, excluded from
+      scoring until an eligible reviewer approves them
+- [ ] negative: a `client_confidential` case produces **zero** DeepSeek/OpenRouter calls in the mock (§16), and
+      an eval run never widens `narrowClearance` to make a case runnable
+- [ ] negative: cases drafted from a collection the reviewing expert may not read do not exist for them; a
+      company1 case never appears in company2's set and an id from another tenant returns no row; an approval
+      by a `suspended` membership or by someone not entitled to the expert's collections is not valid, and its
+      case stays out of the scored set; isolation and bait cases must show the expert **refusing**, not an
+      absent answer, which scores as a failure
+- [ ] failure: a provider outage mid-run is an infrastructure failure class, never a zero that would push tuning
+      the wrong way; a corpus generation that changed mid-run discards the run; F36 refuses publication when any
+      threshold or the approved count is short and the previous expert version stays selectable; a case whose
+      expected source was revoked (T-213) re-queues for review instead of silently scoring zero
 
 ## Done evidence
 `pnpm eval:ci` subset output in the PR; `pnpm verify`; `pnpm db:test` (CI `database` job — no Docker on

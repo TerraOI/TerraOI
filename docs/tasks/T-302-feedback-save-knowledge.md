@@ -45,26 +45,25 @@ here writes a knowledge table. Identity into Postgres is settled: #37 closed wit
 session plus the user's own access token, so a submission is written as the user, under RLS.
 
 ## Acceptance tests (write first)
-- [ ] positive: `src/components/chat/feedback.test.tsx` — a rating on a delivered answer writes one row
-      keyed to the `run_id` and never mutates the answer, and "Suggest correction" carries the correction
-      text into the submission draft rather than into the answer
-- [ ] positive: `src/components/knowledge/submission-review.test.tsx` — the save form shows the answer's
-      cited sources and requires the employee to confirm the audience before it can submit
-- [ ] positive: `supabase/tests/database/085_chat_feedback.test.sql` — a second rating from the same user
-      for the same run is an update of that one row, not a second signal
+- [ ] positive: `src/components/chat/feedback.test.tsx` — a rating on a delivered answer writes one row keyed
+      to the `run_id` and never mutates the answer, and "Suggest correction" carries its text into the
+      submission draft rather than into the answer
+- [ ] positive: `src/components/knowledge/submission-review.test.tsx` — the save form shows the answer's cited
+      sources and requires the employee to confirm the audience before submitting
+- [ ] positive: `supabase/tests/database/085_chat_feedback.test.sql` — a second rating from the same user for
+      the same run updates that one row rather than adding a second signal
 - [ ] negative: same file — another tenant sees no rating or submission row, a company2 user cannot name a
       company1 collection as the audience (composite FK `23503`), and a `suspended` membership
       (`left@company1.test`) can neither rate, save nor review
-- [ ] negative: a member of neither project cannot save an answer whose evidence is Site A-only; the
-      reviewer of a `client_confidential` submission must be a member of the bound project; the author
-      never appears as an eligible approver of their own submission
-- [ ] negative: a save cannot widen an audience or lower a class, and the stored class equals the highest
-      class of the answer's dependencies even when the employee picks a "public" collection
-- [ ] failure: saving after the cited source was revoked (T-213) or after project membership was removed
-      (T-214) is refused with a re-read, not saved with a broken citation; a correction containing
-      instruction-shaped text is stored as data and never obeyed (AGENTS.md §4.8)
-- [ ] failure: a rating posted with a forged `run_id` from another conversation is refused, and a
-      submission whose proposed text is empty or oversized is a validation error with no partial write
+- [ ] negative: a member of neither project cannot save an answer whose evidence is Site A-only; the reviewer of
+      a `client_confidential` submission must belong to the bound project; the author never appears as an
+      eligible approver of their own submission; a save cannot widen an audience or lower a class, and the
+      stored class equals the highest class of the answer's dependencies even when a "public" collection is
+      picked
+- [ ] failure: saving after the cited source was revoked (T-213) or project membership was removed (T-214) is
+      refused with a re-read, not saved with a broken citation; a forged `run_id` from another conversation is
+      refused; instruction-shaped correction text is stored as data and never obeyed (§4.8); an empty or
+      oversized submission is a validation error with no partial write
 
 ## Done evidence
 `pnpm verify`; `pnpm db:test` for the rating table (CI `database` job here); staging: rate one answer

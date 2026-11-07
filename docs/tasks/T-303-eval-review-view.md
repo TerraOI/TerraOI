@@ -45,19 +45,18 @@ This packet assumes a permission area named by the supervisor and adds no grant 
       the reviewer and the time from the session
 - [ ] positive: an **edit** returns the case to a pending decision rather than approving the old text, and
       the approved set is what Lane 2's export writes to `evals/<expert>/`
-- [ ] negative: a company1 lead never sees a company2 case, and a case id from another tenant returns no
-      row and no existence signal
+- [ ] negative: a company1 lead never sees a company2 case, and a case id from another tenant returns no row
+      and no existence signal
 - [ ] negative: a case whose expected source is a Site A `client_confidential` version is hidden from a
-      reviewer outside Site A and shown to a member of it; approving can never attach a source version
-      the reviewer may not read
-- [ ] negative: a `suspended` membership (`left@company1.test`) sees and decides nothing, and a member
-      without the review permission gets no nav entry and a refusal from the RPC
-- [ ] negative: only `agent_drafted` cases appear as drafts, and a case drafted from a collection the
-      reviewer cannot see is not listed even when its id is guessed
-- [ ] failure: approving a case whose expected source has been revoked (T-213) is refused; a second
-      decision on the same case is refused or recorded as a conflict, never silently overwritten
-- [ ] failure: a decision posted with a forged reviewer, an unknown case type or an answer-point list
-      that names no source is a validation error and leaves the case in its previous state
+      reviewer outside Site A and shown to a member of it; approving can never attach a source version the
+      reviewer may not read
+- [ ] negative: a `suspended` membership (`left@company1.test`) sees and decides nothing, a member without the
+      review permission gets no nav entry and a refusal from the RPC, only `agent_drafted` cases appear as
+      drafts, and a case drafted from a collection the reviewer cannot see is not listed even for a guessed id
+- [ ] failure: approving a case whose expected source has been revoked (T-213) is refused; a second decision on
+      the same case is refused or recorded as a conflict, never silently overwritten; a decision posted with a
+      forged reviewer, an unknown case type or an answer-point list that names no source is a validation error
+      and leaves the case in its previous state
 
 ## Done evidence
 `pnpm verify`; staging: as the seeded Company1 lead, approve 10 drafted cases and reject 2, edit one and

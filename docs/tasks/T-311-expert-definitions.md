@@ -23,52 +23,48 @@ across only the experts this employee may use.
 
 ## Must not edit
 `src/contracts/` — [`ExpertDefinition`](../../src/contracts/expert-definition.ts) and
-[`ProgressEvent`](../../src/contracts/chat.ts) are merged and a change needs an ADR;
-`src/platform/chat/` (Lane 1 renders the `routing` event, [T-203](./T-203-chat-ux.md));
-`src/platform/retrieval/` beyond passing the scope it is given; merged migrations; no prompt body holding
-client data (AGENTS.md §4.7).
+[`ProgressEvent`](../../src/contracts/chat.ts) are merged and a change needs an ADR; `src/platform/chat/`
+(Lane 1 renders the `routing` event, [T-203](./T-203-chat-ux.md)); `src/platform/retrieval/` beyond passing
+the scope it is given; merged migrations; no prompt body holding client data (AGENTS.md §4.7).
 
 ## Contract
-[`ExpertDefinition`](../../src/contracts/expert-definition.ts) as merged: `promptTemplateRef` (id +
-version, never an inline body), per-task `modelChains` validated against
+[`ExpertDefinition`](../../src/contracts/expert-definition.ts) as merged: `promptTemplateRef` (id + version,
+never an inline body), per-task `modelChains` validated against
 [`DEFAULT_TASK_CHAIN_ORDER`](../../src/contracts/provider-route.ts) for **that** task, `limits`,
 `clarificationPolicy`, three `refusalTemplates`, `minVerifierTier`, and a pinned `embeddingIndexKey`;
-`verify` starts at **Claude** (#9) and dropping an entry is not reordering. F29 returns one `expertKey`
-plus a confidence into the `routing` event, and §11's acceptance line is the rule: it cannot return an
-expert outside the list, below the threshold the UI asks the employee, and the employee's explicit pick
-always wins (§10.1). The authorized list is `TenantContext.permittedServiceKeys`
+`verify` starts at **Claude** (#9) and dropping an entry is not reordering. F29 returns one `expertKey` plus
+a confidence into the `routing` event, and §11's line is the rule: it cannot return an expert outside the
+list, below the threshold the UI asks the employee, and the employee's explicit pick always wins (§10.1).
+The authorized list is `TenantContext.permittedServiceKeys`
 ([`tenant-context.ts`](../../src/contracts/tenant-context.ts)) — today an **input** to
 `resolveTenantContext` ([`resolve-tenant-context.ts:33`](../../src/platform/tenancy/resolve-tenant-context.ts))
-with no registry behind it, which is what these tables supply. Rules:
-[docs/contracts/model-chain.md](../../docs/contracts/model-chain.md).
+with no registry behind it, which is what these tables supply
+([docs/contracts/model-chain.md](../../docs/contracts/model-chain.md)).
 **Assumed, decisions owed:** §6.1's `service_definitions` / `expert_definitions` / `tenant_services` /
-`tenant_experts` have **no owning packet** — the same class of gap as #45 and #41 — so this packet
-assumes it creates them in one migration and asks the supervisor to confirm that scope; `embeddingIndexKey`
-names the generation #6 decided for the engineering half, and no client collection is bound past `internal`
-until Company1 answers; and `evaluationSetVersion` names a set only
-[T-312](./T-312-eval-harness.md) can score, so **v1 is registered here, not published** — F36 refuses
-publication without a passing run.
+`tenant_experts` have **no owning packet** — the same class of gap as #45 and #41 — so this packet assumes it
+creates them in one migration and asks the supervisor to confirm that scope; `embeddingIndexKey` names the
+generation #6 decided for the engineering half, with no client collection bound past `internal` until
+Company1 answers; and `evaluationSetVersion` names a set only [T-312](./T-312-eval-harness.md) can score, so
+**v1 is registered here, not published** — F36 refuses publication without a passing run.
 
 ## Acceptance tests (write first)
-- [ ] positive: `supabase/tests/database/075_experts_and_prompts.test.sql` — both v1 definitions parse,
-      each chain is a subsequence of its own task order, `verify` starts at Claude, and each prompt row
-      stores a body hash, an owner and a status
-- [ ] positive: `src/platform/agents/route-expert.test.ts` — a UAV-worded question suggests
-      `uav-compliance` and a GPR field-setup question suggests `gpr`, each with a confidence; below the
-      threshold the result is "ask the employee" and no retrieval ran
-- [ ] positive: routing uses the `route` chain (no Claude in that order) and the run records which provider
-      answered, or that keyword rules routed
-- [ ] negative: `routeExpert` never returns an expert outside the list it was given — a forged `expertKey`
-      is refused and a service the tenant has not enabled is not a candidate (no hidden-service
-      enumeration, §8.1)
-- [ ] negative: another tenant's `tenant_experts` row never resolves for this organization, and a
-      `suspended` membership resolves no expert at all
-- [ ] negative: a definition whose chain reorders its task's order, whose `minVerifierTier` is below what
-      its `riskClass` allows, or whose `promptTemplateRef` points at a draft prompt is refused on insert;
-      a tenant override touches vocabulary and style only and cannot widen bindings or lower clearance
+- [ ] positive: `supabase/tests/database/075_experts_and_prompts.test.sql` — both v1 definitions parse, each
+      chain is a subsequence of its own task order, `verify` starts at Claude, and each prompt row stores a
+      body hash, an owner and a status
+- [ ] positive: `src/platform/agents/route-expert.test.ts` — a UAV-worded question suggests `uav-compliance`
+      and a GPR field-setup question suggests `gpr`, each with a confidence; below the threshold the result is
+      "ask the employee" and no retrieval ran
+- [ ] positive: routing uses the `route` chain (no Claude in that order) and records which provider answered,
+      or that keyword rules routed
+- [ ] negative: `routeExpert` never returns an expert outside the list it was given — a forged `expertKey` is
+      refused and a service the tenant has not enabled is not a candidate (no hidden-service enumeration,
+      §8.1); another tenant's `tenant_experts` row never resolves here, and a `suspended` membership resolves
+      no expert at all
+- [ ] negative: on insert, a definition is refused when its chain reorders that task's order, its
+      `minVerifierTier` is below what its `riskClass` allows, or its `promptTemplateRef` points at a draft
+      prompt; a tenant override touches vocabulary and style only and cannot widen bindings or lower clearance
 - [ ] failure: no cleared, healthy `route` provider → keyword rules or an explicit question, never a silent
-      guess, with the fallback recorded
-- [ ] failure: a published prompt cannot be edited in place (a new version or nothing), and a run naming a
+      guess, with the fallback recorded; a published prompt cannot be edited in place, and a run naming a
       withdrawn expert version is refused rather than quietly using the newest
 
 ## Done evidence
