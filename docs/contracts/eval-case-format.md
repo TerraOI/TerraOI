@@ -1,5 +1,8 @@
 # Eval case files: layout, shape, provenance, lifecycle
 
+**Status: proposed, not ratified.** Nothing in CI reads these files; there is no `eval:` script, no
+scheduled run and no validator, because no packet owns the `.github/` schedule ([#74](https://github.com/TerraOI/TerraOI/issues/74)). The layout below is what the drafted batch in `evals/` follows so the leads have something concrete to review; the owner of the eval harness (T-312, still a packet in review) and the supervisor ratify or replace it.
+
 Schemas: [`answer.ts`](../../src/contracts/answer.ts), [`data-class.ts`](../../src/contracts/data-class.ts),
 [`keys.ts`](../../src/contracts/keys.ts) · Plan §14.1, §6.1 (Evaluation group, line 336), §11 F34–F36 ·
 Lane 2 owns [`evals/`](../REPO-STRUCTURE.md) · **No `EvalCase` schema exists in `src/contracts/` yet**:
