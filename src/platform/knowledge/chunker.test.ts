@@ -65,6 +65,11 @@ describe("chunking keeps the structure that makes a chunk quotable (plan §7.2 s
 });
 
 describe("chunk identity is a function of (source version, parser generation, position, content)", () => {
+  it("is a uuid, because knowledge_chunks.id is a uuid primary key", async () => {
+    const chunks = await chunked("One.\n");
+    expect(chunks[0]?.chunkId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  });
+
   it("is stable across runs for the same version and parser generation", async () => {
     const text = "## A\n\nOne.\n\n## B\n\nTwo.\n";
     const first = await chunked(text);
@@ -89,9 +94,61 @@ describe("chunk identity is a function of (source version, parser generation, po
   });
 
   it("assigns distinct ids to identical text at different positions", async () => {
-    const chunks = await chunked("Same.\n\nSame.\n");
+    // maxChars keeps the two identical paragraphs in separate chunks: with the default cap they
+    // pack into one chunk, which would satisfy "different positions" trivially and test nothing.
+    const chunks = await chunked("Same.\n\nSame.\n", { maxChars: 7 });
     expect(chunks).toHaveLength(2);
+    expect(chunks[0]?.text).toBe("Same.");
+    expect(chunks[1]?.text).toBe("Same.");
     expect(chunks[0]?.chunkId).not.toBe(chunks[1]?.chunkId);
+  });
+});
+
+describe("page locators survive the split (F12, knowledge_chunks.locator)", () => {
+  it("attributes each chunk to the page its text came from", async () => {
+    const chunks = await chunkExtractedText({
+      sourceVersionId: VERSION,
+      parserGeneration: "ocr-2026-10",
+      dataClass: "public",
+      pages: [
+        { page: 1, text: "## Cover\n\nSite survey of plot 12, executed 2026-10-04." },
+        { page: 2, text: "## Findings\n\nRebar at 12 cm along line L1." },
+      ],
+    });
+    expect(chunks.map((chunk) => chunk.page)).toEqual([1, 2]);
+    expect(chunks.map((chunk) => chunk.headings)).toEqual([["Cover"], ["Findings"]]);
+  });
+
+  it("splits a page-sized block without losing the page it belongs to", async () => {
+    const rows = Array.from({ length: 20 }, (_unused, i) => `Line L${i}: rebar response.`).join("\n");
+    const chunks = await chunkExtractedText({
+      sourceVersionId: VERSION,
+      parserGeneration: "v1",
+      dataClass: "internal",
+      maxChars: 120,
+      pages: [{ page: 7, text: rows }],
+    });
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const chunk of chunks) expect(chunk.page).toBe(7);
+  });
+
+  it("refuses an input that carries neither text nor pages rather than publishing an empty source", async () => {
+    await expect(
+      chunkExtractedText({ sourceVersionId: VERSION, parserGeneration: "v1", dataClass: "public" }),
+    ).rejects.toThrow(/no extracted text/i);
+  });
+});
+
+describe("the size cap stops short of what the schema would reject", () => {
+  it("refuses one run-on line longer than body_text's limit rather than failing in the database", async () => {
+    await expect(chunked("x".repeat(100_001), { maxChars: 200 })).rejects.toThrow(/body_text limit/);
+  });
+
+  it("keeps one long quotable line rather than quoting a fragment of the document", async () => {
+    const long = `signal ${"y".repeat(5_000)}`;
+    const chunks = await chunked(long, { maxChars: 200 });
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]?.text).toBe(long);
   });
 });
 

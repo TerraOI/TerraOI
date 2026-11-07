@@ -79,12 +79,23 @@ describe("the pinned index is checked against the configured route before any pr
       chunks: [chunk("c1", "internal"), chunk("c2", "public")],
       embed: async (texts) => {
         calls += 1;
-        return texts.map(() => [0, 0, 0]);
+        return texts.map(() => Array.from({ length: 1024 }, (_unused, i) => i / 1024));
       },
     });
     expect(calls).toBe(1);
     expect(outcome.vectors.map((vector) => vector.chunkId)).toEqual(["c2"]);
     expect(outcome.refused[0]).toMatchObject({ chunkId: "c1", reason: "class_not_cleared_for_index" });
+  });
+
+  it("refuses to guess which vector belongs to which chunk when the batch size disagrees", async () => {
+    await expect(
+      embedPlanned({
+        index: INDEX,
+        route: ROUTE,
+        chunks: [chunk("c1", "internal"), chunk("c2", "public")],
+        embed: async () => [Array.from({ length: 1024 }, (_unused, i) => i)],
+      }),
+    ).rejects.toThrow(/1 vectors for 2 chunks/);
   });
 });
 
@@ -120,6 +131,19 @@ describe("embedding clearance is a separate decision from the chunk existing (#1
   });
 });
 
+describe("a returned vector must match the pinned index (TOI-ADR-13)", () => {
+  it("refuses a vector whose length is not the index's dimension instead of storing it", async () => {
+    const outcome = await embedPlanned({
+      index: INDEX,
+      route: ROUTE,
+      chunks: [chunk("c1", "internal")],
+      embed: async () => [Array.from({ length: 768 }, (_unused, i) => i)],
+    });
+    expect(outcome.vectors).toEqual([]);
+    expect(outcome.refused[0]).toMatchObject({ chunkId: "c1", reason: "provider_dimension_mismatch" });
+  });
+});
+
 describe("publish is atomic and a failed embed never publishes partially (§7.2 step 8)", () => {
   it("waits instead of publishing when any planned chunk failed", () => {
     expect(planPublication({ generation: 1, planned: 5, embedded: 4, failed: 1 })).toMatchObject({
@@ -145,6 +169,16 @@ describe("publish is atomic and a failed embed never publishes partially (§7.2 
     });
     expect(publication).toMatchObject({ kind: "wait", reason: "incomplete_embedding" });
   });
+
+  it("publishes a version with no vectors when nothing was refused (the lexical-only lane)", () => {
+    // planned 0 with nothing failed means every chunk that *could* be embedded was: a lexical-only
+    // source is publishable, because issues #6 and #13 label the degraded lane rather than refusing
+    // the row. What gates publication beyond completeness is the review queue, which is T-213.
+    expect(planPublication({ generation: 2, planned: 0, embedded: 0, failed: 0 })).toEqual({
+      kind: "publish",
+      generation: 2,
+    });
+  });
 });
 
 describe("a metadata-only class change flips visibility without re-embedding (§7.2, #13)", () => {
@@ -166,5 +200,14 @@ describe("a metadata-only class change flips visibility without re-embedding (§
       action: "remove_vectors",
       reason: "class_not_ingestible_in_m1",
     });
+  });
+
+  it("asks for an embedding call when a chunk moves into a class the index is cleared for", () => {
+    // Cleared_for is deliberately narrower than the class set: `internal` never had a vector in this
+    // generation, so a chunk that becomes `public` cannot just flip visibility - no vector exists.
+    const clearedForPublicOnly: EmbeddingIndex = { ...INDEX, clearedFor: ["public"] };
+    expect(
+      planClassChange({ index: clearedForPublicOnly, fromClass: "internal", toClass: "public" }),
+    ).toMatchObject({ action: "embed_required", reembed: true });
   });
 });
