@@ -95,9 +95,13 @@ export interface VerifierCallInput<T> extends GatewayCallInputBase<T> {
   task: "verify";
   composedWith: { providerKey: ProviderKey; model: string };
   minTier: CapabilityTier;
-  /** Which verification this is — a claim index or pass id. Two verifies at one chain position must
-   *  not share an attempt id, and a replay of one must keep it (§12.3). */
-  passTag?: string;
+  /**
+   * Which verification this is — a claim index or pass id. **Required**: two verifies at one chain
+   * position are two calls, and an id they share lets one reservation satisfy, or double-book, the
+   * other (§12.3). A caller that cannot name its pass has not decided what it is metering, so the
+   * gateway refuses the call rather than inventing `single`.
+   */
+  passTag: string;
 }
 
 export type GatewayCallInput<T> = ModelCallInput<T> | VerifierCallInput<T>;
@@ -131,7 +135,13 @@ export type GatewayUnavailableReason =
   | "no_eligible_provider"
   | "all_attempts_failed"
   | "deadline"
-  | "budget_authority_unavailable";
+  | "budget_authority_unavailable"
+  /**
+   * The call itself was not buildable — a verify without its pass tag, or an adapter that refused the
+   * request it was handed. Nothing was asked of any provider and nothing is billable; it is reported
+   * apart from `all_attempts_failed` so a wiring bug never looks like an outage (§12.4).
+   */
+  | "misconfigured_call";
 
 export type GatewayCallResult<T> =
   | {
@@ -157,7 +167,10 @@ export type GatewayCallResult<T> =
     };
 
 /** Closed mapping: provider failure → the employee-visible reason code (§9.3, issue #16 N5). */
-const FAILURE_TO_PROGRESS_REASON: Record<ProviderFailureKind, TierChangeReason> = {
+// `invalid_request` is deliberately absent: a request this gateway built wrong never becomes a tier
+// change, because the chain does not walk past it. Excluding it from the map's keys makes the
+// compiler prove that every lookup site has handled it first.
+const FAILURE_TO_PROGRESS_REASON: Record<Exclude<ProviderFailureKind, "invalid_request">, TierChangeReason> = {
   connection: "provider_unavailable",
   timeout: "provider_unavailable",
   server_error: "provider_unavailable",
@@ -178,12 +191,13 @@ function extractStructured(text: string): unknown {
   }
 }
 
-function attemptIdOf(runId: string, chainPosition: number, task: string, passTag: string | undefined): string {
+function attemptIdOf(runId: string, chainPosition: number, task: string, passTag: string): string {
   // A (run, chain position) pair is not a call. One position can hold a compose **and** a per-claim
   // verify, and their reservations must not satisfy or double-book each other (§12.3), so the id names
   // the call. A replay of the same call still deduplicates, which is the property the pair alone
-  // appeared to provide.
-  const role = task === "verify" ? `verify:${passTag ?? "single"}` : task;
+  // appeared to provide. There is no fallback tag: a verify that cannot say which pass it is gets
+  // refused before anything is reserved (see `callModelGateway`).
+  const role = task === "verify" ? `verify:${passTag}` : task;
   return `${runId}:${chainPosition}:${role}`;
 }
 
@@ -203,6 +217,21 @@ export async function callModelGateway<T>(
   const clock = deps.clock ?? Date.now;
   const startedAtMs = clock();
   const deadlineAtMs = startedAtMs + input.stageDeadlineMs;
+
+  // A verify call that cannot say which pass it is would hand every claim in the run the same
+  // metering key, so one claim's reservation satisfies another's (§12.3). The type requires the tag;
+  // this is the runtime half, because an input can be replayed from a queue payload an older caller
+  // built. Nothing is routed, reserved or called.
+  if (input.task === "verify" && (typeof input.passTag !== "string" || input.passTag.trim().length === 0)) {
+    return {
+      ok: false,
+      status: "unavailable",
+      reason: "misconfigured_call",
+      attempts: [],
+      skipped: [],
+      matrixRevision: deps.config.matrixRevision,
+    };
+  }
 
   const common = {
     dataClass: input.dataClass,
@@ -269,11 +298,12 @@ export async function callModelGateway<T>(
       continue;
     }
 
+    // The tag is only meaningful for a verify; a non-verify call is already named by its task.
     const attemptId = attemptIdOf(
       input.runId,
       entry.chainPosition,
       input.task,
-      input.task === "verify" ? input.passTag : undefined,
+      input.task === "verify" ? input.passTag : "",
     );
     let reservationId: string;
     try {
@@ -350,13 +380,22 @@ export async function callModelGateway<T>(
       };
     }
 
-    attempt.outcome = outcome.kind;
+    const kind = outcome.kind;
+    attempt.outcome = kind;
+    if (kind === "invalid_request") {
+      // Nothing left this process, so the reservation is released rather than held as ambiguous, and
+      // the provider is not scored — the fault is in a request this gateway built. The walk stops
+      // instead of failing over: the next provider would be handed the same broken request, and three
+      // such calls would open a circuit that is not unhealthy (§12.4).
+      await reconcile(deps, attempt, reservationId, outcome, "released");
+      return fail("misconfigured_call");
+    }
     // §12.3: an ambiguous attempt keeps its liability; a clean failure releases the reservation.
     await reconcile(deps, attempt, reservationId, outcome, outcome.possiblyBilled ? "ambiguous" : "released");
     deps.health.recordFailure(entry.providerKey, clock());
-    if (outcome.kind === "rate_limited") deps.health.noteQuotaExhausted(entry.providerKey, true);
+    if (kind === "rate_limited") deps.health.noteQuotaExhausted(entry.providerKey, true);
     previousPosition = entry.chainPosition;
-    advanceReason = FAILURE_TO_PROGRESS_REASON[outcome.kind];
+    advanceReason = FAILURE_TO_PROGRESS_REASON[kind];
   }
 
   return fail("all_attempts_failed");

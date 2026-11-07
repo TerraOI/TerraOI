@@ -28,7 +28,14 @@ export type ProviderFailureKind =
   | "server_error"
   | "context_overflow"
   | "invalid_output"
-  | "provider_denied";
+  | "provider_denied"
+  /**
+   * The request itself is wrong — a required field this gateway builds is missing. Nothing was sent
+   * and nothing can be billed, and the provider is not at fault: classifying it as
+   * `provider_denied`/`provider_unavailable` would feed the circuit breaker and report our own wiring
+   * bug as an outage (plan §12.4 chain-walking rule (b)). The chain must stop, not fail over.
+   */
+  | "invalid_request";
 
 export interface ModelMessage {
   role: "system" | "user" | "assistant";
@@ -177,7 +184,7 @@ export function createLocalBoxAdapter(options: LocalBoxAdapterOptions): Provider
       const headers = headersOf();
       if (headers === undefined) return { ok: false, kind: "provider_denied", possiblyBilled: false };
       const model = modelOf(request);
-      if (model === undefined) return { ok: false, kind: "provider_denied", possiblyBilled: false };
+      if (model === undefined) return { ok: false, kind: "invalid_request", possiblyBilled: false };
 
       const response = await post(
         `${base}/v1/chat/completions`,
@@ -246,7 +253,7 @@ export function createWorkersAiAdapter(options: WorkersAiAdapterOptions): Provid
         return { ok: false, kind: "provider_denied", possiblyBilled: false };
       }
       const model = modelOf(request);
-      if (model === undefined) return { ok: false, kind: "provider_denied", possiblyBilled: false };
+      if (model === undefined) return { ok: false, kind: "invalid_request", possiblyBilled: false };
       const response = await post(
         runUrl(model),
         {
