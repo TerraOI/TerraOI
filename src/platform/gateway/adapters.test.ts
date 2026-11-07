@@ -103,7 +103,9 @@ describe("local_box adapter (plan §12.4 Local box contract)", () => {
       maxOutputUnits: 400,
       timeoutMs: 5_000,
     } as unknown as AdapterCallRequest);
-    expect(outcome).toMatchObject({ ok: false, kind: "provider_denied", possiblyBilled: false });
+    // A request this gateway built is the gateway's bug, not the provider's: `provider_denied` would
+    // read as an outage and feed the circuit breaker. Nothing was sent, so nothing is billable.
+    expect(outcome).toMatchObject({ ok: false, kind: "invalid_request", possiblyBilled: false });
     expect(capture.requests).toHaveLength(0);
   });
 
@@ -299,6 +301,22 @@ describe("workers_ai adapter (Cloudflare Workers AI REST)", () => {
     expect(request?.url).toBe(
       "https://api.cloudflare.com/client/v4/accounts/synthetic-account/ai/run/hosted-gamma-verifier",
     );
+  });
+
+  it("refuses a request with no model rather than running the endpoint's pinned composing model", async () => {
+    const capture = capturingFetch([() => Response.json({ success: true, result: { response: "x" } })]);
+    const outcome = await adapterFor(capture.fetch).complete({
+      attemptId: "attempt-no-model-ai",
+      task: "verify",
+      dataClass: "internal",
+      messages: [{ role: "user", text: "Is this supported?" }],
+      maxOutputUnits: 200,
+      timeoutMs: 5_000,
+    } as unknown as AdapterCallRequest);
+    // Workers AI pins the model in the URL, so a defaulted model is invisible in the request body:
+    // the only safe behaviour is to make no request at all and call it our own error.
+    expect(outcome).toMatchObject({ ok: false, kind: "invalid_request", possiblyBilled: false });
+    expect(capture.requests).toHaveLength(0);
   });
 
   it("no token means no request (fail closed)", async () => {

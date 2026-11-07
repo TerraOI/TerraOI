@@ -21,8 +21,10 @@ import { CircuitBook } from "./circuit";
 import {
   callModelGateway,
   UNAVAILABLE_MESSAGE,
+  type GatewayCallInput,
   type GatewayDeps,
   type ModelCallInput,
+  type VerifierCallInput,
 } from "./call";
 import type { AdapterCallOutcome, ProviderFailureKind } from "./adapters";
 
@@ -306,6 +308,7 @@ describe("verify through the gateway: rule (e) is not the caller's job (plan §1
         task: "verify",
         minTier: "medium",
         composedWith: { providerKey: "local_box", model: "open-weights-alpha" },
+        passTag: "pass-1",
       },
       h.deps,
     );
@@ -341,6 +344,7 @@ describe("the selected model reaches the provider, and the attempt identity says
         task: "verify",
         minTier: "medium",
         composedWith: { providerKey: "local_box", model: "open-weights-alpha" },
+        passTag: "pass-1",
       },
       h.deps,
     );
@@ -359,6 +363,7 @@ describe("the selected model reaches the provider, and the attempt identity says
       task: "verify" as const,
       minTier: "medium" as const,
       composedWith: { providerKey: "local_box" as const, model: "open-weights-alpha" },
+      passTag: "pass-1" as const,
     };
 
     const firstCompose = await callModelGateway(composeInput, harness({ claude: [answered(JSON.stringify({ answer: "a" }), "hosted-gamma")] }).deps);
@@ -378,6 +383,91 @@ describe("the selected model reaches the provider, and the attempt identity says
     expect(composeId).not.toBe(verifyId);
     // And the dedupe property the comment on attemptIdOf promises: a replayed call is the same attempt.
     expect(retryId).toBe(composeId);
+  });
+});
+
+describe("a call that is the gateway's own bug is refused, not charged to the provider (plan §12.3, §12.4)", () => {
+  const verifyBase = () => ({
+    ...baseInput({ chain: ["claude"], runId: "run-pass", dataClass: "internal" }),
+    task: "verify" as const,
+    minTier: "medium" as const,
+    composedWith: { providerKey: "local_box" as const, model: "open-weights-alpha" },
+  });
+
+  /** `undefined` here is a *runtime* case: a replay or a queue payload can arrive without a tag. */
+  function verifyCall(tag: string | undefined): GatewayCallInput<{ answer: string }> {
+    const base = verifyBase();
+    return (tag === undefined ? base : { ...base, passTag: tag }) as GatewayCallInput<{ answer: string }>;
+  }
+
+  it("two per-claim verifies at one chain position get different attempt ids, and a replay of one keeps its own", async () => {
+    const first = await callModelGateway(verifyCall("claim-1"), harness({ claude: [answered(JSON.stringify({ answer: "supported" }), "hosted-gamma")] }).deps);
+    const second = await callModelGateway(verifyCall("claim-2"), harness({ claude: [answered(JSON.stringify({ answer: "supported" }), "hosted-gamma")] }).deps);
+    const replay = await callModelGateway(verifyCall("claim-1"), harness({ claude: [answered(JSON.stringify({ answer: "supported" }), "hosted-gamma")] }).deps);
+    for (const outcome of [first, second, replay]) {
+      if (!outcome.ok) throw new Error(`expected a verifier, got ${outcome.reason}`);
+    }
+    const firstId = first.attempts[0]?.attemptId;
+    // Two claims verified at the same position are two calls: one id for both lets one reservation
+    // satisfy, or double-book, the other (§12.3).
+    expect(firstId).toBeTruthy();
+    expect(second.attempts[0]?.attemptId).toBeTruthy();
+    expect(second.attempts[0]?.attemptId).not.toBe(firstId);
+    expect(replay.attempts[0]?.attemptId).toBe(firstId);
+  });
+
+  it("a verify call that names no pass is refused before anything is reserved or called (§12.3)", async () => {
+    const h = harness({ claude: [answered(JSON.stringify({ answer: "supported" }), "hosted-gamma")] });
+    const result = await callModelGateway(verifyCall(undefined), h.deps);
+    if (result.ok) throw new Error(`expected a refusal, got an answer from ${result.providerKey}`);
+    // `verify:single` was the old fallback: every untagged claim in a run shared one metering key.
+    expect(result.reason).toBe("misconfigured_call");
+    expect(result.attempts).toHaveLength(0);
+    expect(h.meter.reserveCalls).toHaveLength(0);
+    expect(adapterFor(h, "claude").calls).toHaveLength(0);
+    // Our bug must not be counted against the provider: one such call must not nudge the circuit.
+    expect(h.book.snapshot("claude").consecutiveFailures).toBe(0);
+    expect(h.book.snapshot("claude").state).toBe("closed");
+    expect(h.events).toHaveLength(0);
+  });
+
+  it("a blank pass tag is the same bug as no pass tag", async () => {
+    const h = harness({ claude: [answered(JSON.stringify({ answer: "supported" }), "hosted-gamma")] });
+    const result = await callModelGateway(verifyCall("   "), h.deps);
+    if (result.ok) throw new Error("expected a refusal for a blank pass tag");
+    expect(result.reason).toBe("misconfigured_call");
+    expect(h.meter.reserveCalls).toHaveLength(0);
+  });
+
+  it("a verify input that does not name its pass does not compile: the type is the enforcement", () => {
+    const base = baseInput({ dataClass: "internal" });
+    // `tsc --noEmit` fails while this directive is unused, i.e. the moment `passTag` is optional again.
+    // @ts-expect-error plan §12.3 — a verify call without its pass tag must not typecheck.
+    const untagged: VerifierCallInput<{ answer: string }> = { ...base, task: "verify", minTier: "medium", composedWith: { providerKey: "local_box", model: "open-weights-alpha" } };
+    expect(untagged.task).toBe("verify");
+  });
+
+  it("a provider that reports our request as invalid stops the walk instead of failing over the chain (§12.4)", async () => {
+    const h = harness({
+      local_box: [failed("invalid_request")],
+      claude: [answered(JSON.stringify({ answer: "supported" }), "hosted-gamma")],
+    });
+    const result = await callModelGateway(baseInput({ chain: ["local_box", "claude"], dataClass: "internal" }), h.deps);
+    if (result.ok) throw new Error(`expected the walk to stop, got an answer from ${result.providerKey}`);
+    expect(result.reason).toBe("misconfigured_call");
+    expect(result.attempts).toHaveLength(1);
+    expect(result.attempts[0]?.outcome).toBe("invalid_request");
+    // The bug is in the request, so the next provider would refuse it too: it must never see the
+    // payload, and the provider we did ask must not be scored as unhealthy for our mistake.
+    expect(adapterFor(h, "claude").calls).toHaveLength(0);
+    expect(h.book.snapshot("local_box").consecutiveFailures).toBe(0);
+    expect(h.book.snapshot("local_box").state).toBe("closed");
+    expect(h.events).toHaveLength(0);
+    // Nothing was sent, so the reservation is released rather than held as ambiguous (§12.3).
+    const attemptId = result.attempts[0]?.attemptId;
+    expect(h.meter.events).toContain(`reserve:local_box:${attemptId}`);
+    expect(h.meter.events).toContain(`reconcile:released:${attemptId}`);
+    expect(h.meter.byAttempt.get(String(attemptId))?.reconciled).toBe("released");
   });
 });
 
