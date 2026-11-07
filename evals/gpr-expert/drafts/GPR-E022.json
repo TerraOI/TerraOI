@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "caseId": "GPR-E022",
+  "expertKey": "gpr-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "When do we use the EM channel alongside the radar?",
+  "expectedAnswerPoints": [
+    "The manual's guidance on the metal/EM channel and the interpretation note's rule for confirming metallic services, each with locator."
+  ],
+  "expectedClaimTypes": [
+    "requirement",
+    "source_fact"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "Must not claim the EM channel detects non-metallic services; no detection guarantee."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-GPR-MAN-G40 page:10 section:2.4; SYNTH-GPR-UTIL-NOTE-14 page:4 section:2.3",
+  "expectedFixtures": [
+    "SYNTH-GPR-MAN-G40",
+    "SYNTH-GPR-UTIL-NOTE-14"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

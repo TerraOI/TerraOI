@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "UAV-E022",
+  "expertKey": "uav-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "Which battery pack identifiers did the pre-flight form list for 2026-0007-SYNTH?",
+  "expectedAnswerPoints": [
+    "The two pack identifiers exactly as submitted (PACK-SYNTH-14, PACK-SYNTH-22) with the field path and template version."
+  ],
+  "expectedClaimTypes": [
+    "record_fact"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "client_confidential",
+  "projectScope": "synth-site-07",
+  "forbiddenClaims": [
+    "Must not present the identifiers as a maintenance or airworthiness status; no submissions from another project."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-UAV-PF-CHECK-FORM-01 form_field:'battery_pack_ids' (submission 2026-0007-SYNTH, template v1)",
+  "expectedFixtures": [
+    "SYNTH-UAV-PF-CHECK-FORM-01"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

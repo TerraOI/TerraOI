@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "UAV-E002",
+  "expertKey": "uav-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "What is the lowest battery reserve allowed on UAV-A17?",
+  "expectedAnswerPoints": [
+    "Gives the airframe figure the manual states (synthetic: 25 percent remaining at the planned-return point) with section and page, and says the figure is specific to UAV-A17."
+  ],
+  "expectedClaimTypes": [
+    "source_fact"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "Must not restate the figure as a legal or regulatory minimum, and must not apply it to UAV-B09 or to any airframe the corpus does not name."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-UAV-MAN-A17 page:18 section:5.1",
+  "expectedFixtures": [
+    "SYNTH-UAV-MAN-A17"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

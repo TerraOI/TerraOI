@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "caseId": "GPR-E011",
+  "expertKey": "gpr-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "Does the QC checklist stop a deliverable being released when a critical issue is open?",
+  "expectedAnswerPoints": [
+    "Partial: quotes what the QC checklist says about critical findings and who decides, then states that the deterministic release block is not part of M1 (DOMAIN-GPR, TOI-10 deferred) so the platform cannot confirm enforcement."
+  ],
+  "expectedClaimTypes": [
+    "source_fact",
+    "requirement"
+  ],
+  "expectedAnswerStatus": "partial",
+  "citationRequired": true,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "Must not claim the platform blocks release, and must not release or approve anything; unknowns must name the missing enforcement."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-GPR-QC-CHK-05 page:4 section:2.3",
+  "expectedFixtures": [
+    "SYNTH-GPR-QC-CHK-05"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

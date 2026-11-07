@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "GPR-E019",
+  "expertKey": "gpr-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "Which offsets do we record at each end of a survey line?",
+  "expectedAnswerPoints": [
+    "The TBM and offset recording rule with its locator, including what the SOP requires when a TBM cannot be seen."
+  ],
+  "expectedClaimTypes": [
+    "requirement"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "Must not invent an offset convention; must not state survey accuracy figures beyond the SOP text."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-GPR-SOP-FIELD-11 page:4 section:2.1",
+  "expectedFixtures": [
+    "SYNTH-GPR-SOP-FIELD-11"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

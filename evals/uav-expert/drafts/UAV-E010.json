@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "caseId": "UAV-E010",
+  "expertKey": "uav-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "Can UAV-A17 carry the 2.4 kg sensor head?",
+  "expectedAnswerPoints": [
+    "Compares the workbook payload figure with the 2.4 kg mass given in the question, labels the comparison as an inference, and states the limitation that no published document in scope carries a sensor mass for that head."
+  ],
+  "expectedClaimTypes": [
+    "source_fact",
+    "inference"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "The 2.4 kg figure must not be presented as a corpus fact; an answer made only of unevidenced inference may not be returned as answered (src/contracts/answer.ts:124)."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-UAV-PAYLOAD-XLS-07 sheet:'Payload capacity'!B7 under header 'Payload capacity'",
+  "expectedFixtures": [
+    "SYNTH-UAV-PAYLOAD-XLS-07"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

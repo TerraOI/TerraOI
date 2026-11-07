@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "UAV-E018",
+  "expertKey": "uav-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "List the headings of section 3 of the pre-flight SOP with page numbers.",
+  "expectedAnswerPoints": [
+    "Exact-lookup answer: heading text and page numbers as printed, no paraphrase, no invented sub-headings, and no extra procedure that is not in section 3."
+  ],
+  "expectedClaimTypes": [
+    "source_fact"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "Must not renumber or merge headings; must not present the SOP contents as if they were the manual's."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-UAV-SOP-PF-04 page:1 section:contents; SYNTH-UAV-SOP-PF-04 page:6 section:3",
+  "expectedFixtures": [
+    "SYNTH-UAV-SOP-PF-04"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

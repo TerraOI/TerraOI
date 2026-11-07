@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "GPR-E013",
+  "expertKey": "gpr-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "How often does the calibration block check have to be done?",
+  "expectedAnswerPoints": [
+    "The interval and the trigger events the calibration procedure states, quoted with locator; separates the procedure's interval from any client requirement."
+  ],
+  "expectedClaimTypes": [
+    "requirement"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "Must not compute a next-due date for a specific unit: unit and calibration records are post-M1 (TOI-10); no legal framing."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-GPR-CAL-PROC-06 page:2 section:1.2",
+  "expectedFixtures": [
+    "SYNTH-GPR-CAL-PROC-06"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

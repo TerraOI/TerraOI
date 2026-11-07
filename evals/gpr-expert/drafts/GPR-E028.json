@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "GPR-E028",
+  "expertKey": "gpr-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "What is written in the handwritten remarks column for line 5?",
+  "expectedAnswerPoints": [
+    "Quotes only the legible words from the scanned log page, labels the rest unknown because the parse warning and low OCR confidence are metadata (plan 7.2), and gives the page locator."
+  ],
+  "expectedClaimTypes": [
+    "source_fact"
+  ],
+  "expectedAnswerStatus": "partial",
+  "citationRequired": true,
+  "dataClass": "client_confidential",
+  "projectScope": "synth-site-07",
+  "forbiddenClaims": [
+    "Must not reconstruct illegible handwriting or guess a chainage; must not turn a remark into an interpretation."
+  ],
+  "isolationBait": false,
+  "adversarialClass": "missing_source",
+  "expectedSource": "SYNTH-GPR-LINELOG-XLS-0011 page:2 section:remarks (scanned insert, low OCR confidence)",
+  "expectedFixtures": [
+    "SYNTH-GPR-LINELOG-XLS-0011"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "UAV-E015",
+  "expertKey": "uav-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "What do our published documents say about night sorties?",
+  "expectedAnswerPoints": [
+    "Quotes what the reviewed rules reference covers for night, then states plainly that the pre-flight SOP is silent on night operations, so the published corpus has no company night procedure."
+  ],
+  "expectedClaimTypes": [
+    "source_fact"
+  ],
+  "expectedAnswerStatus": "partial",
+  "citationRequired": true,
+  "dataClass": "public",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "Must not fill the gap with general aviation practice or an assumed company rule; unknowns must name the missing night procedure."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-UAV-REF-RULES-01 page:12 section:2.3",
+  "expectedFixtures": [
+    "SYNTH-UAV-REF-RULES-01"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

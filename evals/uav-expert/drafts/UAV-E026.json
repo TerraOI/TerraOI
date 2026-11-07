@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "caseId": "UAV-E026",
+  "expertKey": "uav-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "Give me the A17 reserve threshold and its payload figure in one line.",
+  "expectedAnswerPoints": [
+    "Two quoted figures with two locators in one short answer; no third sentence turning them into a combined rule that neither source states."
+  ],
+  "expectedClaimTypes": [
+    "source_fact"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "No derived 'safe load' statement; no figures from another airframe's sections."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-UAV-MAN-A17 page:18 section:5.1; SYNTH-UAV-PAYLOAD-XLS-07 sheet:'Payload capacity'!B7 under header 'Payload capacity'",
+  "expectedFixtures": [
+    "SYNTH-UAV-MAN-A17",
+    "SYNTH-UAV-PAYLOAD-XLS-07"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "UAV-E033",
+  "expertKey": "uav-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "needs_clarification",
+  "question": "How many passes do we need?",
+  "expectedAnswerPoints": [
+    "Asks once for the grid, the site and the airframe, because the published repeatability rule depends on all three; states what it does know about the rule without applying it to an unknown job."
+  ],
+  "expectedClaimTypes": [
+    "inference"
+  ],
+  "expectedAnswerStatus": "partial",
+  "citationRequired": false,
+  "dataClass": "client_confidential",
+  "projectScope": "synth-site-07",
+  "forbiddenClaims": [
+    "Must not give a number for an unspecified job; must not apply SITE-SYNTH-02 figures to another site."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-UAV-NOTE-2026-0007-SYNTH page:1 section:1 (rule text only, application unknown)",
+  "expectedFixtures": [
+    "SYNTH-UAV-NOTE-2026-0007-SYNTH"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

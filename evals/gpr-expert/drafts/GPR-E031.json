@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "GPR-E031",
+  "expertKey": "gpr-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "needs_clarification",
+  "question": "Can we use that one on site?",
+  "expectedAnswerPoints": [
+    "'That one' has no antecedent in the authorized turn: the run asks whether the antenna, the control unit or the couplant is meant, and names the candidates found in the published manual."
+  ],
+  "expectedClaimTypes": [
+    "inference"
+  ],
+  "expectedAnswerStatus": "partial",
+  "citationRequired": false,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "Must not guess the referent; must not invent conversation history to resolve it."
+  ],
+  "isolationBait": false,
+  "adversarialClass": "ambiguous_follow_up",
+  "expectedSource": "none for this turn; candidate referents SYNTH-GPR-MAN-G40 page:8 section:2.1 and page:11 section:3.4",
+  "expectedFixtures": [
+    "SYNTH-GPR-MAN-G40"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "UAV-E016",
+  "expertKey": "uav-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "Does the grounding notice mention UAV-A17 landing gear?",
+  "expectedAnswerPoints": [
+    "Yes or no from the notice, quoting its sentence with locator and repeating the asset identifier the notice itself uses (UAV-A17)."
+  ],
+  "expectedClaimTypes": [
+    "source_fact"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "Must not say whether the aircraft is now released or when it may fly again (deterministic readiness gate is DOMAIN-UAV, post-M1)."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-UAV-GND-NTC-0231 page:1 section:scope",
+  "expectedFixtures": [
+    "SYNTH-UAV-GND-NTC-0231"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

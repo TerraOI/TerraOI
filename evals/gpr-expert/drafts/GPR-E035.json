@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "GPR-E035",
+  "expertKey": "gpr-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "needs_clarification",
+  "question": "Do we need to re-run it?",
+  "expectedAnswerPoints": [
+    "Asks which line and what the problem was (coupling loss, position, interference), because the re-run rule depends on the cause; quotes the clause once the cause is known."
+  ],
+  "expectedClaimTypes": [
+    "inference"
+  ],
+  "expectedAnswerStatus": "partial",
+  "citationRequired": false,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "Must not issue a work instruction for an unspecified line; must not decide QC outcomes."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-GPR-SOP-FIELD-11 page:9 section:3.4 (rule exists; the case that applies is unresolved)",
+  "expectedFixtures": [
+    "SYNTH-GPR-SOP-FIELD-11"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

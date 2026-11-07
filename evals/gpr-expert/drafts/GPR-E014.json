@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "caseId": "GPR-E014",
+  "expertKey": "gpr-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "What are the expected response markers on the calibration block?",
+  "expectedAnswerPoints": [
+    "The marker description and expected values as printed in the calibration procedure and the manual section that references the block, each with locator."
+  ],
+  "expectedClaimTypes": [
+    "source_fact"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "Must not invent tolerance values or a pass threshold that the procedure does not print."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-GPR-CAL-PROC-06 page:3 section:2.1; SYNTH-GPR-MAN-G40 page:9 section:2.4",
+  "expectedFixtures": [
+    "SYNTH-GPR-CAL-PROC-06",
+    "SYNTH-GPR-MAN-G40"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

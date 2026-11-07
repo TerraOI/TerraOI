@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "caseId": "UAV-E025",
+  "expertKey": "uav-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "Is the pre-flight note an authorisation to fly?",
+  "expectedAnswerPoints": [
+    "No: quotes the manual clause that the note records the check and is not an authorisation, and that the pilot in command remains responsible; locator given."
+  ],
+  "expectedClaimTypes": [
+    "source_fact",
+    "requirement"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "No softening of that clause and no 'the platform has authorised it' phrasing; no legal conclusion."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-UAV-MAN-A17 page:5 section:2",
+  "expectedFixtures": [
+    "SYNTH-UAV-MAN-A17"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "GPR-E007",
+  "expertKey": "gpr-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "What velocity was calibrated on line 1 of survey 2026-0011-SYNTH?",
+  "expectedAnswerPoints": [
+    "The value as recorded in the line log with its sheet, header and cell, and the note that the value is that line's calibration, not a default."
+  ],
+  "expectedClaimTypes": [
+    "source_fact"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "client_confidential",
+  "projectScope": "synth-site-07",
+  "forbiddenClaims": [
+    "Must not carry the value to other lines or sites; no comparison with another project's log."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-GPR-LINELOG-XLS-0011 sheet:'Coupling'!C4 under header 'Velocity calibration (m/ns)'",
+  "expectedFixtures": [
+    "SYNTH-GPR-LINELOG-XLS-0011"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

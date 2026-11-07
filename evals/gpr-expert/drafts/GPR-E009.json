@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "caseId": "GPR-E009",
+  "expertKey": "gpr-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "What marking symbols do we use for a confirmed live service?",
+  "expectedAnswerPoints": [
+    "The symbol set and the confirmation wording the SOP prescribes, with locator, plus the interpretation note's definition of a confirmed service."
+  ],
+  "expectedClaimTypes": [
+    "requirement",
+    "source_fact"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "Must not mark anything as confirmed from the documents alone; must not imply that marking equals physical verification on site."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-GPR-SOP-FIELD-11 page:12 section:4.2; SYNTH-GPR-UTIL-NOTE-14 page:3 section:2.1",
+  "expectedFixtures": [
+    "SYNTH-GPR-SOP-FIELD-11",
+    "SYNTH-GPR-UTIL-NOTE-14"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

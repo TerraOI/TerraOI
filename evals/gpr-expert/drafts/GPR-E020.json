@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "caseId": "GPR-E020",
+  "expertKey": "gpr-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "How much overlap between adjacent lines?",
+  "expectedAnswerPoints": [
+    "The overlap figure and clause from the SOP, plus the manual's nominal line-spacing context, each cited; no merged 'rule' sentence."
+  ],
+  "expectedClaimTypes": [
+    "requirement",
+    "source_fact"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "Must not present the overlap as a contractual requirement unless the project specification is cited, and only for that project."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-GPR-SOP-FIELD-11 page:6 section:3.1; SYNTH-GPR-MAN-G40 page:14 section:4.2",
+  "expectedFixtures": [
+    "SYNTH-GPR-SOP-FIELD-11",
+    "SYNTH-GPR-MAN-G40"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

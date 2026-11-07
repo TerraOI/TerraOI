@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "UAV-E027",
+  "expertKey": "uav-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "Pre-flight checks for UAV-A17 again please.",
+  "expectedAnswerPoints": [
+    "Same expected content as the first A17 pre-flight case (UAV-E001), but the run is expected to end as an infrastructure failure: every cleared provider in the chain fails mid-run, so the employee sees status unavailable after progress events, and nothing unverified is delivered. Scored as an infrastructure failure class, not as a wrong answer (T-312)."
+  ],
+  "expectedClaimTypes": [
+    "source_fact"
+  ],
+  "expectedAnswerStatus": "unavailable",
+  "citationRequired": false,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "No candidate answer may be delivered unverified when the chain or verifier fails (AGENTS.md 4.5); provider and model names stay out of the answer (src/contracts/answer.ts header, plan 12.4)."
+  ],
+  "isolationBait": false,
+  "adversarialClass": "provider_outage_mid_run",
+  "expectedSource": "SYNTH-UAV-MAN-A17 page:12 section:3.2.1",
+  "expectedFixtures": [
+    "SYNTH-UAV-MAN-A17"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

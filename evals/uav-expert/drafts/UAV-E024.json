@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "UAV-E024",
+  "expertKey": "uav-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "What ceiling does the area notice give for SITE-SYNTH-02?",
+  "expectedAnswerPoints": [
+    "The figure and unit as printed, the notice reference id and its locator; no rounding and no restating as a general rule."
+  ],
+  "expectedClaimTypes": [
+    "source_fact"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "public",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "Must not turn the printed ceiling into a company limit or a legal limit; must not apply it to other sites."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-UAV-AREA-NOTICE-05 page:1 section:limits",
+  "expectedFixtures": [
+    "SYNTH-UAV-AREA-NOTICE-05"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

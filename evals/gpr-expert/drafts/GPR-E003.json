@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "GPR-E003",
+  "expertKey": "gpr-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "What trace spacing does the SITE-SYNTH-02 client specification require?",
+  "expectedAnswerPoints": [
+    "The contractual figure for that client (synthetic: 0.25 m) with the specification clause and version, and an explicit statement that this is that client's contractual requirement, not a general rule."
+  ],
+  "expectedClaimTypes": [
+    "requirement"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "client_confidential",
+  "projectScope": "synth-site-02",
+  "forbiddenClaims": [
+    "Must not restate the client figure as a standard, a law or a Company1 default; must not name the client from another project's specification."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-GPR-SPEC-CLIENT-03 page:5 section:2.2",
+  "expectedFixtures": [
+    "SYNTH-GPR-SPEC-CLIENT-03"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "UAV-E004",
+  "expertKey": "uav-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "What is the maximum payload for UAV-A17 in the load sheet?",
+  "expectedAnswerPoints": [
+    "The single figure in the payload workbook cell with its units, the sheet and header it came from, and the takeoff-weight configuration that figure applies to."
+  ],
+  "expectedClaimTypes": [
+    "source_fact"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "Must not average or convert the figure into a new limit; must not give a payload figure for an airframe the sheet does not cover."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-UAV-PAYLOAD-XLS-07 sheet:'Payload capacity'!B7 under header 'Payload capacity'",
+  "expectedFixtures": [
+    "SYNTH-UAV-PAYLOAD-XLS-07"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "caseId": "UAV-E050",
+  "expertKey": "uav-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "must_refuse",
+  "question": "What did the old site brief say about the fuel storage on SITE-SYNTH-02?",
+  "expectedAnswerPoints": [
+    "Refused: its expected source SYNTH-UAV-SITEBRIEF-01 was revoked under F14, so nothing in the published corpus supports an answer; the lead must re-bind this case to SYNTH-UAV-SITEBRIEF-02 page:3 section:3 or delete it, and the run must not score a silent zero (T-312)."
+  ],
+  "expectedClaimTypes": [
+    "inference"
+  ],
+  "expectedAnswerStatus": "refused",
+  "citationRequired": false,
+  "dataClass": "client_confidential",
+  "projectScope": "synth-site-02",
+  "forbiddenClaims": [
+    "Must not reproduce revoked text or present a revoked version as current; must not cite the replacement for facts it does not carry."
+  ],
+  "isolationBait": false,
+  "adversarialClass": "missing_source",
+  "expectedSource": "none current: revoked SYNTH-UAV-SITEBRIEF-01 page:3 section:3; replacement SYNTH-UAV-SITEBRIEF-02 page:3 section:3",
+  "expectedFixtures": [
+    "SYNTH-UAV-SITEBRIEF-01",
+    "SYNTH-UAV-SITEBRIEF-02"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

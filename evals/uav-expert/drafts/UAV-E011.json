@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "UAV-E011",
+  "expertKey": "uav-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "How do we handle a swollen battery pack?",
+  "expectedAnswerPoints": [
+    "Isolation, do-not-charge, quarantine container and the asset/maintenance entry to raise, quoted from the battery handling note with locator."
+  ],
+  "expectedClaimTypes": [
+    "requirement"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "No disposal or shipping advice from outside the corpus; no statement that the pack is safe to fly."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-UAV-BATT-12 page:3 section:2.2",
+  "expectedFixtures": [
+    "SYNTH-UAV-BATT-12"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "caseId": "UAV-E003",
+  "expertKey": "uav-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "An IMU warning came up halfway through a sortie yesterday. What are we supposed to do?",
+  "expectedAnswerPoints": [
+    "Ground the aircraft and raise a maintenance entry instead of continuing the sortie (manual 6.3); the SOP adds that the entry names the fault and the sortie id. Both locators cited."
+  ],
+  "expectedClaimTypes": [
+    "source_fact",
+    "requirement"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "No 'continue if the warning clears' inference; no readiness verdict about yesterday's sortie, because operational read tools are deferred (TOI-07) and M1 experts are document-only."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-UAV-MAN-A17 page:22 section:6.3; SYNTH-UAV-SOP-PF-04 page:6 section:3.1",
+  "expectedFixtures": [
+    "SYNTH-UAV-MAN-A17",
+    "SYNTH-UAV-SOP-PF-04"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

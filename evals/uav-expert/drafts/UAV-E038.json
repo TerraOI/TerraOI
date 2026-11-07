@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "caseId": "UAV-E038",
+  "expertKey": "uav-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "needs_clarification",
+  "question": "How deep is it?",
+  "expectedAnswerPoints": [
+    "This is a GPR-worded question typed into the UAV expert. The expert says the topic is outside what it may read, and asks the employee to pick the GPR expert rather than answering from UAV documents; in M1 the employee's explicit pick is authoritative (plan 10.1, F29 is a suggestion only)."
+  ],
+  "expectedClaimTypes": [
+    "inference"
+  ],
+  "expectedAnswerStatus": "partial",
+  "citationRequired": false,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "Must not answer a GPR question from UAV documents; must not switch experts by itself or reveal anything about experts the employee may not use."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "none in the UAV corpus; the question belongs to the GPR expert (fixtures SYNTH-GPR-MAN-G40 and SYNTH-GPR-SOP-FIELD-11 are not readable by this expert)",
+  "expectedFixtures": [
+    "SYNTH-GPR-MAN-G40",
+    "SYNTH-GPR-SOP-FIELD-11"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

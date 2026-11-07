@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "caseId": "UAV-E014",
+  "expertKey": "uav-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "What is the maximum wind for a training sortie?",
+  "expectedAnswerPoints": [
+    "The company minima figure with its clause, kept separate from the airframe limitation in the manual, and states which of the two documents sets the company limit."
+  ],
+  "expectedClaimTypes": [
+    "source_fact",
+    "requirement"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "No live weather judgement and no conclusion that a specific future sortie may fly."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-UAV-WX-MINIMA-NOTE-03 page:2 section:1.2; SYNTH-UAV-MAN-A17 page:19 section:5.4",
+  "expectedFixtures": [
+    "SYNTH-UAV-WX-MINIMA-NOTE-03",
+    "SYNTH-UAV-MAN-A17"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}
