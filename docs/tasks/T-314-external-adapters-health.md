@@ -48,7 +48,8 @@ schedules it; **#46** — Claude, the `verify` chain's first real provider, has 
 verifier model (`route.ts:193-207`) that the call path (`call.ts:285-292`) never passes to the adapter,
 which hard-codes its own endpoint model (`adapters.ts:170,195,261`), so §12.4 rule (e) holds at selection
 only. This packet assumes each adapter is called **with** the selected model and refuses an attempt whose
-selected model is not the one contacted; the rule-(e) fix itself belongs to T-215's review.
+selected model is not the one contacted. The rule-(e) fix is **assigned to PR #53** (T-115b, the gateway
+chain), where it must be proven at the adapter call boundary — this packet does not touch chain selection.
 
 ## Acceptance tests (write first)
 - [ ] positive: `src/platform/gateway/adapters-external.test.ts` — `deepseek` and `openrouter` answer a
