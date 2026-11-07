@@ -22,9 +22,15 @@
 --   * no role is created by this migration, and nothing is granted to a role;
 --   * every function below is owner-only until #75 names the caller, because a grant to a role that
 --     does not exist yet is a decision dressed as plumbing;
---   * the Worker half therefore stays `unresolvedSessionStore()` in
---     `src/platform/identity/adapters.ts`, which refuses to issue or read a session, and sign-in
---     answers "unavailable" rather than falling back to a self-contained cookie.
+--   * the Worker half therefore stays unwired, and the code that is here refuses to paper over it:
+--     the login-view port's `sessionStore()` returns null, and `issueSession()` in
+--     `src/platform/identity/session.ts` throws when the store or the token cipher is missing
+--     rather than minting a cookie with no row behind it — asserted by `session.test.ts` ("refuses
+--     to issue without a session store or a cipher…") and `login-view.test.ts` ("with no session
+--     store wired, a presented session cookie signs nobody in"), and the login surface answers
+--     "unavailable" instead of falling back to a self-contained cookie. The
+--     `unresolvedSessionStore()` adapter itself is on branch `t-102g-flow-and-routes`, not in this
+--     PR.
 -- The role creation, the connection config, its binding and the `SESSION_TOKEN_KEY` secret are
 -- §20.8 human steps whoever wins that decision.
 --

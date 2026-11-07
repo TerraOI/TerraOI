@@ -13,8 +13,8 @@ import {
  * (`SESSION_TOKEN_KEY`, named in the code, value never in the repo — AGENTS.md §4.6).
  *
  * These tests inject a synthetic keyring; nothing here touches a database (the store itself is
- * pgTAP's job in supabase/tests/database/050_session_store.test.sql, and CI's `database` job is the
- * authority for the SQL).
+ * pgTAP's job in supabase/tests/database/014_identity_session.test.sql, and CI's `database` job
+ * is the authority for the SQL).
  */
 
 // Synthetic, not a real key. Same convention as the rest of src/platform/identity/.

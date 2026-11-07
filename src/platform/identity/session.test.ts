@@ -29,8 +29,9 @@ import { signToken } from "./signed-token";
  * never close.
  *
  * The cookie envelope from #30 (`signed-token.ts`) stays for CSRF and login state — those keep their
- * own tests. Nothing here touches a database: the store is a port and these tests use an in-memory
- * fake; the SQL side is pgTAP (050_session_store.test.sql), whose authority is CI's `database` job.
+ * own tests. Nothing here touches a database: the store is a port and these tests use an
+ * in-memory fake; the SQL side is pgTAP (014_identity_session.test.sql), whose authority is CI's
+ * `database` job.
  */
 
 const USER = "00000000-0000-4000-8000-0000000000a1";
