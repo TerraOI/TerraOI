@@ -9,6 +9,7 @@ import {
 import { issueCsrfToken } from "./csrf";
 import { safeOutcome, type SigninOutcome } from "./outcomes";
 import { readSession } from "./session";
+import type { SessionStore } from "./session-store";
 import { hasUsableSecret } from "./signed-token";
 
 /**
@@ -26,6 +27,12 @@ export interface LoginViewPorts {
   now(): number;
   /** The `IDENTITY_SESSION_KEY` binding; null means sign-in is unavailable on this deployment. */
   signingSecret(): string | null;
+  /**
+   * The server-side session store (#37 option b). Null on a deployment where the row is not
+   * reachable yet, which is the honest state until #75 settles the carrier: nobody is signed in,
+   * rather than a cookie being trusted on its own.
+   */
+  sessionStore(): SessionStore | null;
   findHost(host: string): Promise<HostRecord | null>;
   findMembership(organisationId: string, userId: string): Promise<MembershipRecord | null>;
   policyRevision(organisationId: string): Promise<number>;
@@ -60,15 +67,18 @@ export async function buildLoginView(input: BuildLoginViewInput): Promise<LoginV
   const configured = ports.signingSecret();
   const secret = hasUsableSecret(configured) ? configured : null;
 
-  // A session is only a user id, and only when it was issued for this exact host. `host === null`
-  // or a missing binding means "not signed in", never "signed in with an unknown tenant".
+  // A session is only a user id, and only when the row behind it is live on this exact host
+  // (#37: the cookie is an opaque id, so without a store to look it up there is no session to have).
+  // `host === null`, `secret === null` or `store === null` means "not signed in", never
+  // "signed in with an unknown tenant".
   let userId: string | null = null;
-  if (host !== null && secret !== null) {
+  const sessionStore = ports.sessionStore();
+  if (host !== null && sessionStore !== null) {
     const session = await readSession({
       cookieHeader: input.request.headers.get("cookie"),
       host,
-      secret,
       now: ports.now(),
+      store: sessionStore,
     });
     userId = session.ok ? session.userId : null;
   }
