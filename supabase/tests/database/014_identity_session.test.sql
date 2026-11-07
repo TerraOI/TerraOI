@@ -180,7 +180,7 @@ select 'a1live' || repeat('A', 37), '00000000-0000-4000-8000-0000000000a1', 'com
 
 insert into toi_identity.sessions
   (session_key, user_id, host, created_at, expires_at, key_version, access_token_ciphertext, refresh_token_ciphertext, token_expires_at)
-select 'a1host2x' || repeat('A', 36), '00000000-0000-4000-8000-0000000000a1', 'company2.terraoi.app',
+select 'a1host2x' || repeat('A', 35), '00000000-0000-4000-8000-0000000000a1', 'company2.terraoi.app',
        t0, t0 + interval '8 hours', 'v1',
        'v1.AAAAAAAAAAAAAAAA.EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE',
        'v1.CCCCCCCCCCCCCCCC.FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF',
@@ -198,7 +198,7 @@ select is(
 -- row that matches the key but not the host exists, so this is the cross-host case, not a typo.
 select is(pg_temp.auth_count('a1live' || repeat('A', 37), 'company2.terraoi.app', (select t0 from t_clock)), 0,
   '21 the same session key does not authenticate on company2');
-select is(pg_temp.auth_count('a1host2x' || repeat('A', 36), 'company1.terraoi.app', (select t0 from t_clock)), 0,
+select is(pg_temp.auth_count('a1host2x' || repeat('A', 35), 'company1.terraoi.app', (select t0 from t_clock)), 0,
   '22 nor a company2-issued session on company1 (the guard is symmetric)');
 select is(pg_temp.auth_count('a1live' || repeat('A', 37), 'company1.terraoi.app.evil.test', (select t0 from t_clock)), 0,
   '23 a look-alike host grants nothing: the comparison is exact, not a suffix test');
@@ -214,14 +214,14 @@ select is(pg_temp.auth_count('a1live' || repeat('A', 37), 'company1.terraoi.app'
   '27 nor after it');
 
 -- ---------------------------------------------------------------- 30–33 revocation
-select is(toi_identity.revoke_session_v1('a1host2x' || repeat('A', 36), (select t0 from t_clock)), true,
+select is(toi_identity.revoke_session_v1('a1host2x' || repeat('A', 35), (select t0 from t_clock)), true,
   '28 sign-out sets revoked_at and reports that it did');
-select is(pg_temp.auth_count('a1host2x' || repeat('A', 36), 'company2.terraoi.app', (select t0 from t_clock)), 0,
+select is(pg_temp.auth_count('a1host2x' || repeat('A', 35), 'company2.terraoi.app', (select t0 from t_clock)), 0,
   '29 a revoked session does not authenticate, well inside its 8-hour lifetime (the #37 case)');
-select is(toi_identity.revoke_session_v1('a1host2x' || repeat('A', 36), (select t0 from t_clock)), false,
+select is(toi_identity.revoke_session_v1('a1host2x' || repeat('A', 35), (select t0 from t_clock)), false,
   '30 revoking twice reports the second attempt: revoked_at is not rewritten');
 select is(
-  (select count(*)::int from toi_identity.sessions where session_key = 'a1host2x' || repeat('A', 36) and revoked_at is not null),
+  (select count(*)::int from toi_identity.sessions where session_key = 'a1host2x' || repeat('A', 35) and revoked_at is not null),
   1::int, '31 and the row records when the revocation happened');
 
 -- ---------------------------------------------------------------- 34–36 rotation
@@ -243,7 +243,7 @@ select is(
   (select refresh_token_ciphertext from toi_identity.sessions where session_key = 'a1rotate' || repeat('A', 35)),
   'v2.CCCCCCCCCCCCCCCC.JJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJ',
   '33 and the old refresh token is overwritten, not kept alongside it (Supabase rotates on use)');
-select is(toi_identity.rotate_session_tokens_v1('a1host2x' || repeat('A', 36), 'v2',
+select is(toi_identity.rotate_session_tokens_v1('a1host2x' || repeat('A', 35), 'v2',
          'v2.AAAAAAAAAAAAAAAA.KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK',
          'v2.CCCCCCCCCCCCCCCC.LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL',
          (select t0 from t_clock) + interval '2 hours', (select t0 from t_clock)),
