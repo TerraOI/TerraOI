@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import { completeMagicLink, type MagicLinkCallbackPorts } from "./complete-magic-link";
 import { createLoginState, LOGIN_STATE_COOKIE_BASE } from "./login-state";
-import { SESSION_COOKIE_BASE } from "./session";
+import { SESSION_COOKIE_BASE, readSession } from "./session";
+import { createTokenCipher, type SessionStore, type StoredSession } from "./session-store";
 
 const SECRET = "synthetic-test-secret-not-a-real-key-0000000000";
+// A synthetic keyring for the at-rest sealing; the real value is the `SESSION_TOKEN_KEY` Worker
+// secret and never appears in this repo (AGENTS.md §4.6).
+const CIPHER = { currentVersion: "v1", keys: { v1: "synthetic-keyring-v1-not-a-real-key-000000000" } };
 const NOW = 1_800_000_000;
 const HOST_A = "company1.terraoi.app";
 const HOST_B = "company2.terraoi.app";
@@ -15,17 +19,74 @@ const INVITED = "00000000-0000-4000-8000-0000000000c1";
 const LEFT = "00000000-0000-4000-8000-0000000000a3";
 const MEMBERSHIP = "55555555-5555-4555-8555-555555555555";
 
+/**
+ * Pattern-shaped Supabase material: three base64url segments whose first two decode to JSON, exactly
+ * like a real access or refresh token. Nothing here is a credential — but a leak test that used a
+ * short placeholder would not catch a real token, so the shape has to match (#37's hard condition).
+ */
+function fakeJwt(what: string): string {
+  const b64 = (value: string) => Buffer.from(value, "utf8").toString("base64url");
+  return `${b64('{"alg":"ES256","typ":"JWT"}')}.${b64(`{"sub":"${OWNER1}","email":"owner1@company1.test"}`)}.${b64(`synthetic-signature-${what}`)}`;
+}
+const ACCESS_TOKEN = fakeJwt("access");
+const REFRESH_TOKEN = fakeJwt("refresh");
+
+/** An exchange result carrying the pair #37 option (b) needs; the fixtures differ only in identity. */
+function identityOf(userId: string, email: string, emailVerified: boolean) {
+  return {
+    ok: true as const,
+    userId,
+    email,
+    emailVerified,
+    accessToken: ACCESS_TOKEN,
+    refreshToken: REFRESH_TOKEN,
+    tokenExpiresAt: NOW + 3600,
+  };
+}
+/** `eyJ…`.`eyJ…`.`…` — a Supabase JWT in any text the browser can read. */
+const JWT_IN_TEXT = /eyJ[A-Za-z0-9_-]{4,}\.eyJ[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}/;
+
+/** The in-memory stand-in for the session row; the SQL half is pgTAP's 014_identity_session. */
+function memoryStore(): SessionStore & { rows: Map<string, StoredSession> } {
+  const rows = new Map<string, StoredSession>();
+  return {
+    rows,
+    async insert({ sessionKey, session }) {
+      rows.set(sessionKey, session);
+    },
+    async find(sessionKey) {
+      return rows.get(sessionKey) ?? null;
+    },
+    async revoke(sessionKey, at) {
+      const row = rows.get(sessionKey);
+      if (row) rows.set(sessionKey, { ...row, revokedAt: at });
+    },
+    async replaceTokens(sessionKey, replacement) {
+      const row = rows.get(sessionKey);
+      if (!row || row.revokedAt !== null) return false;
+      rows.set(sessionKey, { ...row, ...replacement });
+      return true;
+    },
+  };
+}
+
 type Membership = { membershipId: string; status: "invited" | "active" | "suspended" | "removed"; roles: string[]; permittedServiceKeys: string[]; permittedProjectIds: string[] };
 
 interface Harness {
   ports: MagicLinkCallbackPorts;
+  store: SessionStore & { rows: Map<string, StoredSession> };
   exchanges: Array<{ code: string; state: string; host: string; codeVerifier: string }>;
   memberships: string[];
   redeemed: Array<{ organisationId: string; userId: string; email: string }>;
-  identity: { ok: true; userId: string; email: string; emailVerified: boolean } | { ok: false; reason: "invalid_or_expired" };
+  identity:
+    | { ok: true; userId: string; email: string; emailVerified: boolean; accessToken: string; refreshToken: string; tokenExpiresAt: number }
+    | { ok: false; reason: "invalid_or_expired" };
   membershipFor: (organisationId: string, userId: string, callIndex: number) => Membership | null;
   redeemResult: "redeemed" | "not_found" | "email_mismatch";
   boom: boolean;
+  /** Overridden by the cases that want to test the unwired deployment (#75). */
+  sessionStore: () => SessionStore | null;
+  tokenCipher: () => ReturnType<typeof createTokenCipher> | null;
 }
 
 function harness(overrides: Partial<Harness> = {}): Harness {
@@ -33,7 +94,15 @@ function harness(overrides: Partial<Harness> = {}): Harness {
     exchanges: [],
     memberships: [],
     redeemed: [],
-    identity: { ok: true, userId: OWNER1, email: "owner1@company1.test", emailVerified: true },
+    identity: {
+      ok: true,
+      userId: OWNER1,
+      email: "owner1@company1.test",
+      emailVerified: true,
+      accessToken: ACCESS_TOKEN,
+      refreshToken: REFRESH_TOKEN,
+      tokenExpiresAt: NOW + 3600,
+    },
     membershipFor: (organisationId, userId) =>
       organisationId === C1 && userId === OWNER1
         ? { membershipId: MEMBERSHIP, status: "active", roles: ["member"], permittedServiceKeys: [], permittedProjectIds: [] }
@@ -45,11 +114,17 @@ function harness(overrides: Partial<Harness> = {}): Harness {
     redeemResult: "redeemed",
     boom: false,
     ports: {} as MagicLinkCallbackPorts,
+    // Defaults a case may replace: an unwired deployment returns null from either (#75).
+    store: memoryStore(),
+    sessionStore: () => state.store,
+    tokenCipher: () => createTokenCipher(CIPHER),
   };
   Object.assign(state, overrides);
   state.ports = {
     now: () => NOW,
     signingSecret: () => SECRET,
+    sessionStore: () => state.sessionStore(),
+    tokenCipher: () => state.tokenCipher(),
     findHost: async (host) =>
       host === HOST_A ? { organisationId: C1, organisationStatus: "active" } : host === HOST_B ? { organisationId: C2, organisationStatus: "active" } : null,
     exchangeLoginCode: async (input) => {
@@ -211,7 +286,7 @@ describe("completeMagicLink (GET /auth/callback)", () => {
   it("refuses an identity whose email the provider did not verify", async () => {
     const { response, h } = await callback({
       configure: (state) => {
-        state.identity = { ok: true, userId: INVITED, email: "user@example.test", emailVerified: false };
+        state.identity = identityOf(INVITED, "user@example.test", false);
       },
     });
     expect(locationOf(response).searchParams.get("outcome")).toBe("unavailable");
@@ -223,7 +298,7 @@ describe("completeMagicLink (GET /auth/callback)", () => {
   it("claims an invited membership with the canonical address, never the raw one", async () => {
     const { response, h } = await callback({
       configure: (state) => {
-        state.identity = { ok: true, userId: INVITED, email: " User@Example.test ", emailVerified: true };
+        state.identity = identityOf(INVITED, " User@Example.test ", true);
         state.membershipFor = (organisationId, userId, callIndex) =>
           organisationId === C1 && userId === INVITED
             ? { membershipId: MEMBERSHIP, status: callIndex > 1 ? "active" : "invited", roles: ["member"], permittedServiceKeys: [], permittedProjectIds: [] }
@@ -246,7 +321,7 @@ describe("completeMagicLink (GET /auth/callback)", () => {
     const { response, h } = await callback({
       host: HOST_B,
       configure: (state) => {
-        state.identity = { ok: true, userId: INVITED, email: "user@example.test", emailVerified: true };
+        state.identity = identityOf(INVITED, "user@example.test", true);
       },
     });
     expect(locationOf(response).searchParams.get("outcome")).toBe("not_a_member");
@@ -260,7 +335,7 @@ describe("completeMagicLink (GET /auth/callback)", () => {
   it("a failed invite claim still grants only a session, never access", async () => {
     const { response, h } = await callback({
       configure: (state) => {
-        state.identity = { ok: true, userId: INVITED, email: "someone@example.test", emailVerified: true };
+        state.identity = identityOf(INVITED, "someone@example.test", true);
         state.redeemResult = "email_mismatch";
       },
     });
@@ -273,7 +348,7 @@ describe("completeMagicLink (GET /auth/callback)", () => {
   it("a suspended membership gets the no-access outcome and no redemption attempt", async () => {
     const { response, h } = await callback({
       configure: (state) => {
-        state.identity = { ok: true, userId: LEFT, email: "left@company1.test", emailVerified: true };
+        state.identity = identityOf(LEFT, "left@company1.test", true);
       },
     });
     expect(locationOf(response).searchParams.get("outcome")).toBe("not_a_member");
@@ -326,13 +401,96 @@ describe("completeMagicLink (GET /auth/callback)", () => {
   });
 
   it("the session it issues is scoped to the host that was routed, not to the parent domain", async () => {
-    const { response } = await callback({});
+    const { response, h } = await callback({});
     const setCookies = cookies(response).join("\n");
     expect(setCookies).not.toMatch(/domain=/i);
     expect(setCookies).toContain("__Host-");
     const session = sessionCookie(response).split(";")[0] as string;
-    const read = await import("./session");
-    const outcome = await read.readSession({ cookieHeader: session, host: HOST_B, secret: SECRET, now: NOW });
-    expect(outcome).toEqual({ ok: false, reason: "host_mismatch" });
+    expect(await readSession({ cookieHeader: session, host: HOST_B, now: NOW, store: h.store })).toEqual({
+      ok: false,
+      reason: "host_mismatch",
+    });
+    expect(await readSession({ cookieHeader: session, host: HOST_A, now: NOW, store: h.store })).toEqual({
+      ok: true,
+      userId: OWNER1,
+      sessionId: session.split("=")[1] as string,
+      expiresAt: NOW + 28800,
+    });
+  });
+
+  // ---- #37 option (b): the callback writes a row, and the browser gets an opaque id only --------
+
+  it("the session is a server-side row: user, issuing host and the token pair sealed, keyed by a hash", async () => {
+    const { response, h } = await callback({});
+    const sessionValue = (sessionCookie(response).split(";")[0] as string).split("=")[1] as string;
+    expect(h.store.rows.size).toBe(1);
+    const [sessionKey, row] = [...h.store.rows.entries()][0] as [string, StoredSession];
+    expect(sessionKey).not.toBe(sessionValue);
+    expect(row.userId).toBe(OWNER1);
+    expect(row.host).toBe(HOST_A);
+    expect(row.revokedAt).toBeNull();
+    // Encrypted at rest: the plaintext pair from the exchange is nowhere in the row.
+    expect(row.accessCiphertext).not.toContain(ACCESS_TOKEN);
+    expect(row.refreshCiphertext).not.toContain(REFRESH_TOKEN);
+    expect(JSON.stringify(row)).not.toMatch(JWT_IN_TEXT);
+  });
+
+  it("no Supabase JWT reaches the browser: not in a Set-Cookie value, not in the body, not in the location", async () => {
+    const { response } = await callback({});
+    const setCookies = response.headers.getSetCookie();
+    expect(setCookies.length).toBeGreaterThan(0);
+    for (const cookie of setCookies) expect(cookie).not.toMatch(JWT_IN_TEXT);
+    const body = await response.text();
+    expect(body).not.toMatch(JWT_IN_TEXT);
+    const location = response.headers.get("location") as string;
+    expect(location).not.toMatch(JWT_IN_TEXT);
+    // The whole wire, in one assertion: every header this response sends.
+    const everyHeader = [...response.headers.entries()].map(([name, value]) => `${name}: ${value}`).join("\n");
+    expect(`${everyHeader}\n${body}`).not.toMatch(JWT_IN_TEXT);
+    expect(`${everyHeader}\n${body}`).not.toContain(ACCESS_TOKEN);
+    expect(`${everyHeader}\n${body}`).not.toContain(REFRESH_TOKEN);
+  });
+
+  it("with no session store wired, no session is minted: the callback refuses instead of falling back to a self-contained cookie (#75)", async () => {
+    const { response, h } = await callback({ configure: (state) => { state.sessionStore = () => null; } });
+    expect(sessionCookie(response)).toBe("");
+    expect(locationOf(response).searchParams.get("outcome")).toBe("unavailable");
+    expect(h.store.rows.size).toBe(0);
+    // The guard runs before the provider is contacted, so an unwired deployment never burns a code.
+    expect(h.exchanges).toHaveLength(0);
+  });
+
+  it("with no token cipher wired, no session is minted either: tokens are never stored in the clear", async () => {
+    const { response, h } = await callback({ configure: (state) => { state.tokenCipher = () => null; } });
+    expect(sessionCookie(response)).toBe("");
+    expect(locationOf(response).searchParams.get("outcome")).toBe("unavailable");
+    expect(h.store.rows.size).toBe(0);
+    expect(h.exchanges).toHaveLength(0);
+  });
+
+  it("an exchange that returns no token pair grants no session", async () => {
+    const { response, h } = await callback({
+      configure: (state) => {
+        state.identity = { ok: true, userId: OWNER1, email: "owner1@company1.test", emailVerified: true, accessToken: "", refreshToken: "", tokenExpiresAt: 0 };
+      },
+    });
+    expect(sessionCookie(response)).toBe("");
+    expect(locationOf(response).searchParams.get("outcome")).toBe("unavailable");
+    expect(h.store.rows.size).toBe(0);
+  });
+
+  it("a stranger with a live identity still gets a session row, and still gets the no-access outcome", async () => {
+    const { response, h } = await callback({
+      configure: (state) => {
+        state.identity = {
+          ok: true, userId: INVITED, email: "nobody@example.test", emailVerified: true,
+          accessToken: ACCESS_TOKEN, refreshToken: REFRESH_TOKEN, tokenExpiresAt: NOW + 3600,
+        };
+        state.membershipFor = () => null;
+      },
+    });
+    expect(locationOf(response).searchParams.get("outcome")).toBe("not_a_member");
+    expect(h.store.rows.size).toBe(1);
+    expect([...h.store.rows.values()][0]?.userId).toBe(INVITED);
   });
 });
