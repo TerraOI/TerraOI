@@ -41,9 +41,9 @@ Field list fixed by §5.1 line 269 and [T-204](../tasks/T-204-brand-modes.md) ("
 | `supportLabel` | yes ("Contact your workspace administrator") | kit constant / tenant row |
 | `supportUrl` | **no** — the kit has a label, no URL | tenant row; https-only (T-103 negative test) |
 | `locale`, `timezone` | **no** — the kit has no locale field | **already on the organisation row**: `organisations.locale` / `.timezone` ([`20261105060000_tenancy_core.sql:25-26`](../../supabase/migrations/20261105060000_tenancy_core.sql)), which §6.1 line 321 also claims. Do not copy them into a brand row: that would create the two sources of truth AGENTS.md §4 and COORDINATION §6 exist to prevent. Format is open in #67 |
-| `configVersion` | no | tenant row; the invalidation key §4.4 and F04 both read (§6) |
+| `configVersion` | no | tenant row; the invalidation key §4.4 and F04 both read (§4, §5) |
 
-So the kit is the **platform** brand and a **shape**, not a tenant's data. The five fields it does not supply — legalName, a sender address, supportUrl, locale, timezone — are exactly the ones with no design source, and three of them (sender, reply-to, legal name) carry rules rather than cosmetics.
+So the kit is the **platform** brand and a **shape**, not a tenant's data. The five fields it does not supply — legalName, a sender address, supportUrl, locale, timezone — are exactly the ones with no design source, and none is cosmetic: a sender address implies domain verification (#64), `locale` has an unresolved database CHECK (#67), and `legalName` is the value a legal disclosure names (§7).
 
 ## 3. Where the contract lives, and how it maps onto `SignInBrand`
 
@@ -64,7 +64,7 @@ Fields the component does not use (`legalName`, sender fields, `documentPrefix`,
 
 ## 4. Candidate schema — a sketch in this ADR, not a migration
 
-No file under `supabase/migrations/`: a timestamp is the daily sync's to claim ([COORDINATION.md §3](../COORDINATION.md): one migration per PR, rename to a fresh timestamp on rebase), and #62 has not yet said which packet owns the table. The sketch below is what that PR would start from, following the merged tenancy and knowledge patterns: `unique (id, organisation_id)` plus composite FKs ([`20261105070000_knowledge_core.sql:91-109`](../../supabase/migrations/20261105070000_knowledge_core.sql)), and `config_version` with the same meaning as `organisations.policy_revision` ([`…tenancy_core.sql:27-29`](../../supabase/migrations/20261105060000_tenancy_core.sql)) — bumped by the write path, deliberately, not by a trigger default.
+No file under `supabase/migrations/`: a timestamp is the daily sync's to claim ([COORDINATION.md §3](../COORDINATION.md): one migration per PR, rename to a fresh timestamp on rebase), and #62 has not yet said which packet owns the table. The sketch below is what that PR would start from, following the merged patterns: `unique (id, organisation_id)` on the parent so a child table's composite FK can never cross tenants ([`20261105070000_knowledge_core.sql:91-109`](../../supabase/migrations/20261105070000_knowledge_core.sql); `projects` does the same at [`20261105060000_tenancy_core.sql:130-134`](../../supabase/migrations/20261105060000_tenancy_core.sql)), and `config_version` with the same meaning as `organisations.policy_revision` (`…tenancy_core.sql:27-29`) — bumped by the write path, deliberately, not by a trigger default.
 
 ```sql
 -- SKETCH ONLY. Not a migration; no timestamp claimed; blocked on #62.
@@ -122,15 +122,43 @@ create policy tenant_brands_member_read on public.tenant_brands
 -- Pre-sign-in presentation comes from one narrow SECURITY DEFINER function, the same shape as
 -- resolve_tenant_host (tenancy_core.sql:234-249): the host argument is normalized inside, and it
 -- returns a projection, never the row. Pinned search_path is required by 000_guardrails.test.sql.
+-- legal_name, config_version and any sender column are deliberately absent from this projection.
+create or replace function public.load_public_brand(p_host text)
+returns table (mode text, display_name text, descriptor text, tagline text,
+               primary_color text, on_primary_color text, accent_color text,
+               logo_asset text, favicon_asset text, support_label text, support_url text)
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+begin
+  if p_host is null or p_host <> lower(btrim(p_host)) or p_host ~ '[[:space:]:/]' then
+    raise exception 'host must be a normalized bare hostname' using errcode = '22023';
+  end if;
+  return query
+    select b.mode, b.display_name, b.descriptor, b.tagline, b.primary_color,
+           b.on_primary_color, b.accent_color, b.logo_asset, b.favicon_asset,
+           b.support_label, b.support_url
+      from public.tenant_domains d
+      join public.organisations o on o.id = d.organisation_id
+      join public.tenant_brands b on b.organisation_id = d.organisation_id
+     where d.host = p_host                      -- exact host only; no suffix or alias matching
+       and d.status = 'active'
+       and d.kind = 'tenant'                    -- 'staging' aliases: open, see the notes below
+       and o.status = 'active';                 -- suspended tenants get no brand (F28)
+end;
+$$;
+
+-- The merged blanket revoke (tenancy_core.sql:335) does not reach a new table, so this migration
+-- carries its own: revoke all on public.tenant_brands from anon, authenticated;
+-- grant select on public.tenant_brands to authenticated;
 -- grant execute on function public.load_public_brand(text) to anon, authenticated;
 ```
 
 pgTAP negatives: AGENTS.md §4.2 asks for another tenant, another project and a deactivated member. Two of those fit directly — a member of tenant B sees no row for tenant A, and a deactivated member of A sees none — but **there is no project axis on a tenant-level row**, so the honest substitute is the host-negative pair: an unknown, reserved or suspended host gets no row from the public function, and tenant A's row is never returned for tenant B's host. Say that in the PR rather than shipping a fake "another project" test.
 
-Two structural notes the supervisor should see before choosing (#62):
+Three structural notes the supervisor should see before choosing (#62):
 
 - **The `terraoi`-mode rule cannot be a CHECK.** A CHECK cannot contain a subquery, so "a `terraoi`-mode row may only exist for platform/admin hosts" (#62's comment) needs either (a) `check (mode in ('powered','customer'))` plus platform identity that is a **kit constant with no row at all**, or (b) a trigger that inspects `tenant_domains`, or (c) writes confined to a definer RPC that validates. Which one depends on how #62 answers "who owns platform mode".
 - **A brand row needs an organisation, and the platform has none.** `organisation_id` is `not null`; `terraoi.app` / `admin.terraoi.app` are a **code constant** in [`src/platform/tenancy/host.ts:29-30`](../../src/platform/tenancy/host.ts), not rows in `tenant_domains` ([`supabase/seed.sql:47-50`](../../supabase/seed.sql) registers only company1/company2), and `tenant_domains.kind` allows `'platform'`/`'admin'` but no merged row uses them. So option (a) above matches the merged schema; (b)/(c) need a platform organisation and seeded platform domain rows first.
+- **Alias hosts have no answer yet.** `supabase/seed.sql:49` registers `company1-staging.terraoi.app` (`kind = 'staging'`) against the same organisation, so the sketch above deliberately filters `kind = 'tenant'`: whether a staging alias reads the same brand row, and under which cache key (§5), is undecided and should not be settled inside a brand PR by accident.
 
 **Columns readable before sign-in, on the tenant's own host only** (proposal; the cut itself is #62's "who may read it unauthenticated" sub-question): `mode`, `displayName`, `descriptor`, `tagline`, the three colours, logo/favicon references, `supportLabel`/`supportUrl`. **Never** pre-sign-in: `legalName` unless a disclosure rule requires it (see §7), the sender/reply-to set, `configVersion` (a cache key, not a page fact), and anything membership-derived or user-derived. The F04 result cached per §4.4 must carry none of the "never" columns.
 
