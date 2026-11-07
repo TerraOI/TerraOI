@@ -19,7 +19,7 @@ import { hasUsableSecret } from "./signed-token";
  *
  * No database is touched here: this is the port. `session.ts` consumes it, the deployment adapter
  * implements it, and the SQL half is `supabase/migrations/*_session_store.sql` plus
- * `supabase/tests/database/050_session_store.test.sql` (CI's `database` job runs pgTAP).
+ * `supabase/tests/database/014_identity_session.test.sql` (CI's `database` job runs pgTAP).
  */
 
 /** A keyring version label: short, lowercase, and the first field of a sealed value. */
