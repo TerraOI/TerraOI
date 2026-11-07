@@ -33,7 +33,7 @@ begin
       p_session_key, p_user_id, p_host, p_created, p_expires, 'v1', p_access, p_refresh, p_expires);
     return 'ok';
   exception when others then
-    return sqlstate::text;
+    return sqlstate::text || ' ' || sqlerrm;
   end;
 end;
 $fn$;
