@@ -150,7 +150,7 @@ sources disagree about:
 
 | Source | Value |
 |---|---|
-| plan §5.2 / §12.1 examples — `docs/plan/TerraOI-plan-v1.3.md:282` (`key: string; // e.g. 'uav-expert' or 'gpr-expert'`), `:502` (`"expertKey": "gpr-expert"`) | `uav-expert`, `gpr-expert` |
+| plan §5.2 and §9.2 examples — `docs/plan/TerraOI-plan-v1.3.md:282` (`key: string; // e.g. 'uav-expert' or 'gpr-expert'`), `:502` (`"expertKey": "gpr-expert"`) | `uav-expert`, `gpr-expert` |
 | contract tests — [`expert-definition.test.ts:12`](../../src/contracts/expert-definition.test.ts) `key: "gpr-expert"`, [`chat.test.ts:11`](../../src/contracts/chat.test.ts) `expertKey: "gpr-expert"` | `…-expert` |
 | [`supabase/seed.sql:118`](../../supabase/seed.sql), [`:122`](../../supabase/seed.sql) — `service_key` `'uav-compliance'`, `'gpr'` | service keys, no `-expert` suffix |
 | week-3 packets (PR #72) — `docs/tasks/T-315-staging-corpora-eval-cases.md:15` Owns `evals/uav-expert/` and `evals/gpr-expert/`; `docs/tasks/T-311-expert-definitions.md:54-55` routes to `uav-compliance` and `gpr` | both, in the same packet set |
