@@ -257,14 +257,21 @@ function readFilterValue(text: string, at: number): string[] {
  * real chain, so `[/FlateDecode /ASCII85Decode]` read as `[/FlateDecode]`: the extractor inflated one
  * hop, published the bytes of a chain it never finished decoding as `extracted` text with no note,
  * and capture stopped metering a zlib stream. Only a key at this dictionary's own level counts.
+ *
+ * And a dictionary that never closes is *unreadable*, not *unfiltered*: `[]` tells every caller
+ * "there is no `/Filter`, the payload is stored as written", which is how an unclosed `<<` would hand
+ * the extractor a payload to publish as the document's text layer. Only a balanced scan may answer
+ * that way.
  */
 export function parseFilterChain(dict: string): string[] {
   // Consume the dictionary's own `<<` when it is there, so "level 1" means the dictionary these
   // keys belong to. A fragment without it is scanned as if already inside it.
   let i = 0;
   while (isPdfWhitespace(dict, i)) i += 1;
-  if (dict.startsWith("<<", i)) i += 2;
+  const rooted = dict.startsWith("<<", i);
+  if (rooted) i += 2;
   let depth = 1;
+  let closed = false;
   while (i < dict.length) {
     const ch = dict[i] as string;
     if (ch === "(") {
@@ -289,7 +296,10 @@ export function parseFilterChain(dict: string): string[] {
     if (ch === ">" && dict[i + 1] === ">") {
       depth -= 1;
       i += 2;
-      if (depth < 1) break; // this dictionary is closed; what follows is not its keys
+      if (depth < 1) {
+        closed = true; // this dictionary is closed; what follows is not its keys
+        break;
+      }
       continue;
     }
     if (ch === "/" && depth === 1 && dict.startsWith("Filter", i + 1) && isDelimiterAt(dict, i + 7)) {
@@ -297,7 +307,7 @@ export function parseFilterChain(dict: string): string[] {
     }
     i += 1;
   }
-  return [];
+  return rooted && !closed ? [UNREADABLE_FILTER] : [];
 }
 
 /** The only chain this codebase can fully decode today: exactly one filter, FlateDecode. */
