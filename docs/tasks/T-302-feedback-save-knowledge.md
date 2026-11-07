@@ -36,8 +36,8 @@ answer it cites ([`maxDataClass`](../../src/contracts/data-class.ts), §6.2) and
 reviewer but never lowered. Approval reuses T-213's `review_decision_v1` and the publication rules in
 [docs/contracts/knowledge-and-jobs.md](../../docs/contracts/knowledge-and-jobs.md); independence is
 compared against the server-set author, never a client-supplied one (#8).
-**Split assumed, decision owed:** §20.2 assigns F15 to Lane 2 while §20.3 lists T-302 in the Lane 1
-column, and no packet lists `knowledge_submissions` or its RPC in "Owns" — the same class of gap as
+**Split assumed, decision owed ([#73](https://github.com/TerraOI/TerraOI/issues/73)):** §20.2 assigns F15 to Lane 2 while §20.3 lists T-302 in
+the Lane 1 column, and no packet lists `knowledge_submissions` or its RPC in "Owns" — the same class of gap as
 [#41](https://github.com/TerraOI/TerraOI/issues/41). This packet assumes Lane 1 owns the pages and the
 rating rows and **calls** a Lane 2 `submit_employee_knowledge_v1`, and it needs the supervisor to
 confirm that split (and answer #39, who may publish, and #21, whether a class raise cascades). Nothing

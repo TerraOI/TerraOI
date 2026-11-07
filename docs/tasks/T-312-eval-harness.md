@@ -22,7 +22,8 @@ selectable for rollback. A fast subset runs on PRs; the full set runs nightly on
   script entries in `package.json` (shared root config — coordinate the change in the daily sync)
 
 ## Must not edit
-`.github/` — the **scheduled nightly workflow is a supervisor PR**, this packet only ships the command it
+`.github/` — the **scheduled nightly workflow is a supervisor PR** ([#74](https://github.com/TerraOI/TerraOI/issues/74)
+asks who schedules it), this packet only ships the command it
 calls (AGENTS.md §6: `.github/` is protected and no packet owns it); `src/contracts/`; merged migrations;
 `src/app/` and `src/components/` (the review page is [T-303](./T-303-eval-review-view.md));
 `supabase/seed.sql` with anything other than synthetic cases (AGENTS.md §4.7).

@@ -40,7 +40,8 @@ provider/model identity and the matrix revision used go to the audit and **never
 [docs/contracts/model-chain.md](../../docs/contracts/model-chain.md) ("Cost control (F19)").
 **Owed, not decided:** #45 — a per-tenant budget account and the unowned provider-configuration tables are
 one question, and the quota-window decision depends on it; the ceiling **numbers** are a Company1 input
-(§18.3, §20.8). A doc defect to note rather than fix here: that audit requirement is labelled **F40** in
+(§18.3, §20.8). **[#70](https://github.com/TerraOI/TerraOI/issues/70)** records, rather than fixes, a doc defect: that audit
+requirement is labelled **F40** in
 [model-chain.md:62](../../docs/contracts/model-chain.md) and in
 [`provider-route.ts`](../../src/contracts/provider-route.ts), while plan §11 stops at F38. And on PR #53
 `attemptIdOf` (`call.ts:178-181`) collides for per-claim verify and the compose retry, so an attempt key of
