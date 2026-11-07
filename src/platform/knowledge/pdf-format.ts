@@ -183,6 +183,13 @@ function skipLiteralString(text: string, at: number): number {
   return text.length;
 }
 
+/** PDF 32000-1 §7.2.2: `%` starts a comment that runs to the end of the line. Index at the break. */
+function skipPdfComment(text: string, at: number): number {
+  let i = at + 1;
+  while (i < text.length && text[i] !== "\n" && text[i] !== "\r") i += 1;
+  return i;
+}
+
 /**
  * The value part of a `/Filter` entry: one name, or a bracketed list of names with any amount of
  * whitespace inside. An empty bracket list is reported as unreadable rather than as "no filters",
@@ -193,7 +200,7 @@ function readFilterValue(text: string, at: number): string[] {
   let i = at;
   while (isPdfWhitespace(text, i)) i += 1;
   if (text[i] === "%") {
-    while (i < text.length && text[i] !== "\n" && text[i] !== "\r") i += 1;
+    i = skipPdfComment(text, i);
     while (isPdfWhitespace(text, i)) i += 1;
   }
   if (text[i] === "[") {
@@ -202,6 +209,13 @@ function readFilterValue(text: string, at: number): string[] {
     for (;;) {
       while (isPdfWhitespace(text, i)) i += 1;
       if (i >= text.length || text[i] === "]") break;
+      if (text[i] === "%") {
+        // A comment inside the array is not part of the chain: `/Filter [/FlateDecode % /LZWDecode]`
+        // names one filter, and reading the commented-out name would invent a chain the writer did
+        // not write — which changes both the refusal note and what capture meters.
+        i = skipPdfComment(text, i);
+        continue;
+      }
       if (text[i] !== "/") {
         i += 1; // an array of names holds names; anything else inside it is junk, skip and keep going
         continue;
@@ -236,19 +250,35 @@ function readFilterValue(text: string, at: number): string[] {
  * skip the stream (plan §7.2 step 2). Both were fail-open.
  *
  * Strings are skipped while scanning: a `/Filter` inside a literal or hex string is data, not
- * structure (AGENTS.md §4.8).
+ * structure (AGENTS.md §4.8). A `%` comment is skipped for the same reason (§7.2.2) — its text is
+ * not tokens — and `<<`/`>>` are counted, because a parameter dictionary may carry a `/Filter` of
+ * its own: `DecodeParms << /Filter /Crypt >>` (§7.4.4) says how the *parameters* are stored, not how
+ * this stream is. Taking the first `/Filter` in text order let that nested name replace the stream's
+ * real chain, so `[/FlateDecode /ASCII85Decode]` read as `[/FlateDecode]`: the extractor inflated one
+ * hop, published the bytes of a chain it never finished decoding as `extracted` text with no note,
+ * and capture stopped metering a zlib stream. Only a key at this dictionary's own level counts.
  */
 export function parseFilterChain(dict: string): string[] {
+  // Consume the dictionary's own `<<` when it is there, so "level 1" means the dictionary these
+  // keys belong to. A fragment without it is scanned as if already inside it.
   let i = 0;
+  while (isPdfWhitespace(dict, i)) i += 1;
+  if (dict.startsWith("<<", i)) i += 2;
+  let depth = 1;
   while (i < dict.length) {
     const ch = dict[i] as string;
     if (ch === "(") {
       i = skipLiteralString(dict, i);
       continue;
     }
+    if (ch === "%") {
+      i = skipPdfComment(dict, i);
+      continue;
+    }
     if (ch === "<") {
-      // `<<` opens a nested dictionary (DecodeParms) and is scanned through; `<…>` is a hex string.
+      // `<<` opens a nested dictionary (DecodeParms): scanned, but its keys are not this stream's.
       if (dict[i + 1] === "<") {
+        depth += 1;
         i += 2;
       } else {
         const close = dict.indexOf(">", i + 1);
@@ -256,7 +286,13 @@ export function parseFilterChain(dict: string): string[] {
       }
       continue;
     }
-    if (ch === "/" && dict.startsWith("Filter", i + 1) && isDelimiterAt(dict, i + 7)) {
+    if (ch === ">" && dict[i + 1] === ">") {
+      depth -= 1;
+      i += 2;
+      if (depth < 1) break; // this dictionary is closed; what follows is not its keys
+      continue;
+    }
+    if (ch === "/" && depth === 1 && dict.startsWith("Filter", i + 1) && isDelimiterAt(dict, i + 7)) {
       return readFilterValue(dict, i + 7);
     }
     i += 1;
