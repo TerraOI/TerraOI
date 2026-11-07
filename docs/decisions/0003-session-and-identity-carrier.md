@@ -74,12 +74,19 @@ in `20261105210000_intake_service_role.sql` and [#60](https://github.com/TerraOI
 **How the Worker reaches it is not decided here.** That is
 [#75](https://github.com/TerraOI/TerraOI/issues/75), and this ADR deliberately leaves it blank: the decision
 refused a service-role key for this path, and a schema PostgREST does not expose is unreachable through
-PostgREST with any key. So the migration creates **no role and grants nothing**, and the Worker half is
-`unresolvedSessionStore()` in `src/platform/identity/adapters.ts`, which refuses to issue, read, revoke or
-rotate, asserted by tests. The consequence is visible on staging: sign-in answers the `unavailable` outcome
-and sets no session cookie, rather than quietly reverting to the self-contained cookie #37 rejected. Whoever
-wins #75 also owns the §20.8 human steps (role, connection config, its binding, and the secret below) — the
-same shape as ADR-0002's `inquiry_writer` / `INQUIRY_DB`, which is itself still unprovisioned.
+PostgREST with any key. So the migration creates **no role and grants nothing**. What this branch
+does is leave the store **unwired**: the login-view port declares `sessionStore(): SessionStore |
+null` (`src/platform/identity/login-view.ts`), and `issueSession()` in
+`src/platform/identity/session.ts` throws rather than mint a cookie with no row behind it when the
+store or the cipher is missing — asserted by `session.test.ts`. An `unresolvedSessionStore()` that
+refuses to issue, read, revoke or rotate, and the `src/platform/identity/adapters.ts` that would
+install it, live on `t-102g-flow-and-routes` and are **not in this PR**. The consequence on staging
+is the same either way: with no store wired, `buildLoginView` counts a presented cookie as nobody
+signed in, and a backend failure reports the `unavailable` outcome
+(`src/platform/identity/outcomes.ts`) rather than quietly reverting to the self-contained cookie
+#37 rejected. Whoever wins #75 also owns the §20.8 human steps (role, connection config, its
+binding, and the secret below) — the same shape as ADR-0002's `inquiry_writer` / `INQUIRY_DB`,
+which is itself still unprovisioned.
 
 ### 4. Revocation and sign-out
 
@@ -134,11 +141,22 @@ connection.
 ### 8. The hard condition, pinned by a test
 
 No Set-Cookie value, no redirect target, no response body and no login-surface data contains a
-Supabase-shaped JWT (`eyJ…`.`eyJ…`.`…`). Two layers: `http-response.ts` — the only way the sign-in endpoints
-answer — refuses to emit a JWT-shaped cookie value or path, so the rule is structural; and
-`src/platform/identity/browser-leak.test.ts` scans every byte of a *successful* sign-in (provider stub returns
-real-shaped tokens) plus the view a tenant page would render. Put the token in the cookie value instead of the
-opaque id and 23 named tests fail across 6 files.
+Supabase-shaped JWT (`eyJ…`.`eyJ…`.`…`). In this PR that is pinned in two places. `session.ts`
+issues a 32-byte opaque id and nothing else, and `src/platform/identity/session.test.ts` runs a
+`eyJ….….…` pattern over the cookie value, its serialized `Set-Cookie` header, the stored row
+(`JSON.stringify(row)`) and the rotation result — with the provider stub handing it real-shaped
+tokens. The migration then makes a plaintext JWT **unwritable** in the token columns, and pgTAP
+assertions 40–41 in the slot-014 suite prove that CHECK has teeth: drop it, and the same JWT writes
+cleanly.
+
+What is **not in this PR**: `http-response.ts`, which refuses to emit a JWT-shaped cookie value or
+path so the rule is structural at the only sign-in response path, and
+`src/platform/identity/browser-leak.test.ts`, which scans every byte of a *successful* sign-in plus
+the view a tenant page would render. Both of those layers, and the "put the token in the cookie
+value and 23 named tests fail across 6 files" property, belong to `t-102g-flow-and-routes` — the
+flow-and-routes branch, which has no PR yet. Landing this migration without them is safe, because a
+plaintext JWT cannot enter the table at all; that second layer is defence in depth for the HTTP
+surface, and it arrives with that PR.
 
 ### 9. #38, the upload credential — the claim does not fully hold, so #38 must come back
 
@@ -176,9 +194,13 @@ against Supabase's Storage documentation. Checked on 2026-11-06:
 - T-102b/c/d are changed, not finished: `session.ts` is an opaque id plus a store port
   (`src/platform/identity/session.ts`, `session-store.ts`), the callback writes a row, sign-out revokes one,
   and the Supabase PKCE exchange now returns the token pair it used to discard.
-- **Nothing about sign-in works end to end until #75 lands**, and the code says so: `unresolvedSessionStore()`
-  and `unresolvedTenancyStore()` both throw, with tests asserting they do. Green unit suites here mean the
-  guards are right, not that a user can sign in. The lead's daily sync should treat #75 as the critical path.
+-   **Nothing about sign-in works end to end until #75 lands**, and the code says so:
+  `issueSession()` throws when the session store or the token cipher is missing, and
+  `buildLoginView` treats "no store wired" as "nobody is signed in" — both asserted, in
+  `session.test.ts` and `login-view.test.ts`. `unresolvedSessionStore()` and
+  `unresolvedTenancyStore()`, and the adapters that would install them, are on
+  `t-102g-flow-and-routes` and are not part of this PR. Green unit suites here mean the guards are
+  right, not that a user can sign in. The lead's daily sync should treat #75 as the critical path.
 - Two Worker secrets instead of one (`IDENTITY_SESSION_KEY`, `SESSION_TOKEN_KEY`), both §20.8 human steps.
   More bindings to mint is the cost of storing credentials at all; the benefit is that a leaked signing key no
   longer yields user tokens.
@@ -187,8 +209,10 @@ against Supabase's Storage documentation. Checked on 2026-11-06:
   leak, which is why the retention prune and the key-retirement rule are part of the decision, not follow-ups.
 - The 8-hour session and the per-request membership re-read together mean "revoked" has two meanings: revoked
   session (immediate) and revoked membership (next request). Both are needed and neither is a substitute.
-- pgTAP cannot run on the builder machines (no Docker), so CI's `database` job is the authority for the SQL in
-  this ADR. The suite is written in the established 010/011/030 idiom and pins 43 assertions.
+-   pgTAP cannot run on the builder machines (no Docker), so CI's `database` job is the authority
+  for the SQL in this ADR. The suite is written in the established 010/011/030 idiom and pins 44
+  assertions, including a count of the `SECURITY DEFINER` functions so the `search_path` check
+  cannot pass by there being none.
 
 ## Alternatives considered
 
