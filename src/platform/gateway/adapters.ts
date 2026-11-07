@@ -36,8 +36,16 @@ export interface ModelMessage {
 }
 
 export interface AdapterCallRequest {
-  /** Stable per (run, chain position): the metering idempotency key (§12.3). */
+  /** Stable per (run, chain position, call): the metering idempotency key (§12.3). */
   attemptId: string;
+  /**
+   * The model this call must ask the provider for. The route layer resolves it per task: for a
+   * `verify` task it is the **evaluated verifier model**, deliberately not the endpoint's composing
+   * model (plan §12.4 rule (e)). An adapter that ignored this and sent `options.endpoint.model` would
+   * ask the model that wrote the answer to verify it, and the audit row would then report the
+   * composer — so a request naming no model is refused here rather than defaulted.
+   */
+  model: string;
   task: TaskClass;
   /** Informational: clearance is decided *before* the call, and the adapter must not branch on it. */
   dataClass: DataClass;
@@ -64,6 +72,14 @@ export interface ProviderAdapter {
 }
 
 export type FetchImpl = (input: string, init?: RequestInit) => Promise<Response>;
+
+/**
+ * A request that names no model is a wiring bug, not a default: falling back to the endpoint's
+ * composing model is exactly how rule (e) gets silently undone, so the adapter sends nothing.
+ */
+function modelOf(request: AdapterCallRequest): string | undefined {
+  return typeof request.model === "string" && request.model.length > 0 ? request.model : undefined;
+}
 
 const CONTEXT_OVERFLOW_MARKERS = [
   "context",
@@ -160,6 +176,8 @@ export function createLocalBoxAdapter(options: LocalBoxAdapterOptions): Provider
     async complete(request) {
       const headers = headersOf();
       if (headers === undefined) return { ok: false, kind: "provider_denied", possiblyBilled: false };
+      const model = modelOf(request);
+      if (model === undefined) return { ok: false, kind: "provider_denied", possiblyBilled: false };
 
       const response = await post(
         `${base}/v1/chat/completions`,
@@ -167,7 +185,7 @@ export function createLocalBoxAdapter(options: LocalBoxAdapterOptions): Provider
           method: "POST",
           headers,
           body: JSON.stringify({
-            model: options.endpoint.model,
+            model,
             max_tokens: request.maxOutputUnits,
             messages: request.messages.map((message) => ({ role: message.role, content: message.text })),
           }),
@@ -192,7 +210,7 @@ export function createLocalBoxAdapter(options: LocalBoxAdapterOptions): Provider
       return {
         ok: true,
         text,
-        model: options.endpoint.model,
+        model,
         finishReason: choice?.["finish_reason"] === "length" ? "length" : "stop",
         ...(usage === undefined ? {} : { usage }),
       };
@@ -217,7 +235,8 @@ export interface WorkersAiAdapterOptions {
 
 export function createWorkersAiAdapter(options: WorkersAiAdapterOptions): ProviderAdapter {
   const fetchImpl = options.fetchImpl ?? globalThis.fetch;
-  const url = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(options.accountId)}/ai/run/${encodeURIComponent(options.endpoint.model)}`;
+  const runUrl = (model: string) =>
+    `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(options.accountId)}/ai/run/${encodeURIComponent(model)}`;
   const token = options.apiToken();
 
   return {
@@ -226,12 +245,15 @@ export function createWorkersAiAdapter(options: WorkersAiAdapterOptions): Provid
       if (token === undefined || token.length === 0) {
         return { ok: false, kind: "provider_denied", possiblyBilled: false };
       }
+      const model = modelOf(request);
+      if (model === undefined) return { ok: false, kind: "provider_denied", possiblyBilled: false };
       const response = await post(
-        url,
+        runUrl(model),
         {
           method: "POST",
           headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
           body: JSON.stringify({
+            model,
             messages: request.messages.map((message) => ({ role: message.role, content: message.text })),
             max_tokens: request.maxOutputUnits,
           }),
@@ -258,7 +280,7 @@ export function createWorkersAiAdapter(options: WorkersAiAdapterOptions): Provid
       return {
         ok: true,
         text,
-        model: options.endpoint.model,
+        model,
         finishReason: "stop",
         ...(usage === undefined ? {} : { usage }),
       };

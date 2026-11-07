@@ -95,6 +95,9 @@ export interface VerifierCallInput<T> extends GatewayCallInputBase<T> {
   task: "verify";
   composedWith: { providerKey: ProviderKey; model: string };
   minTier: CapabilityTier;
+  /** Which verification this is — a claim index or pass id. Two verifies at one chain position must
+   *  not share an attempt id, and a replay of one must keep it (§12.3). */
+  passTag?: string;
 }
 
 export type GatewayCallInput<T> = ModelCallInput<T> | VerifierCallInput<T>;
@@ -175,9 +178,13 @@ function extractStructured(text: string): unknown {
   }
 }
 
-function attemptIdOf(runId: string, chainPosition: number): string {
-  // Stable for a (run, chain position) pair, so a retried position deduplicates (§12.3).
-  return `${runId}:${chainPosition}`;
+function attemptIdOf(runId: string, chainPosition: number, task: string, passTag: string | undefined): string {
+  // A (run, chain position) pair is not a call. One position can hold a compose **and** a per-claim
+  // verify, and their reservations must not satisfy or double-book each other (§12.3), so the id names
+  // the call. A replay of the same call still deduplicates, which is the property the pair alone
+  // appeared to provide.
+  const role = task === "verify" ? `verify:${passTag ?? "single"}` : task;
+  return `${runId}:${chainPosition}:${role}`;
 }
 
 function parseWith<T>(schema: OutputSchema<T> | undefined, text: string): T | undefined {
@@ -262,7 +269,12 @@ export async function callModelGateway<T>(
       continue;
     }
 
-    const attemptId = attemptIdOf(input.runId, entry.chainPosition);
+    const attemptId = attemptIdOf(
+      input.runId,
+      entry.chainPosition,
+      input.task,
+      input.task === "verify" ? input.passTag : undefined,
+    );
     let reservationId: string;
     try {
       // §12.3: reserve before the call, per chain attempt.
@@ -284,6 +296,10 @@ export async function callModelGateway<T>(
     const remainingMs = Math.max(1, deadlineAtMs - clock());
     const outcome = await adapter.complete({
       attemptId,
+      // Rule (e) is only real if the selected model is the one the provider is asked for: the route
+      // layer resolved it (the evaluated verifier model for a `verify` task), and the adapter is
+      // forbidden from substituting its endpoint default.
+      model: entry.model,
       task: input.task,
       dataClass: input.dataClass,
       messages: input.messages,
