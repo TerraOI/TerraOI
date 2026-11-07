@@ -6,20 +6,36 @@ import type { IdentityExchange, MagicLinkCallbackPorts } from "./complete-magic-
 import type { LoginViewPorts } from "./login-view";
 import type { MagicLinkRequestPorts } from "./request-magic-link";
 import type { SignOutPorts } from "./sign-out";
-import { bytesToBase64Url, hmacBytes } from "./signed-token";
+import type { SessionStore } from "./session-store";
+import { createTokenCipher } from "./session-store";
+import type { TokenCipher } from "./session-store";
+import { bytesToBase64Url, hasUsableSecret, hmacBytes } from "./signed-token";
 
 /**
  * Deployment wiring for the sign-in endpoints (the `src/platform/site/adapters.ts` pattern: real
  * implementations behind the ports, every binding optional in the type, a missing one failing
  * closed). Only the **anon / publishable** key is used, and only from a server path: a service-role
  * or admin key appears nowhere in this module, and nothing here would work if one were passed —
- * AGENTS.md §4.2 allows such a key only with a comment and an ADR, and #37 is where that decision
- * would come from.
+ * AGENTS.md §4.2 allows such a key only with a comment and an ADR, and #37 explicitly refused one
+ * for this path ("No service-role key in the Worker for this path").
  */
 
 export type IdentityEnv = {
-  /** HMAC key for the session, CSRF and login-state tokens. Minted as a T-004 human action. */
+  /** HMAC key for the CSRF and login-state envelopes (#30's signed token). T-004 human action. */
   IDENTITY_SESSION_KEY?: string;
+  /**
+   * The AES-GCM key that seals the user's Supabase tokens at rest in `toi_identity.sessions`
+   * (#37: "encrypted at rest with a Worker secret"). A **second** secret on purpose: one key that
+   * both signs cookies and encrypts credentials means a bug in either is a total compromise.
+   * Minted with `wrangler secret put SESSION_TOKEN_KEY`; its value never enters the repo.
+   */
+  SESSION_TOKEN_KEY?: string;
+  /**
+   * The previous `SESSION_TOKEN_KEY`, kept only for the rotation window: rows sealed under the old key
+   * stay readable while it is bound, and dropping this binding makes them undecryptable (ADR-0003).
+   * Binding it advances the keyring version from `v1` to `v2`.
+   */
+  SESSION_TOKEN_KEY_PREVIOUS?: string;
   SUPABASE_URL?: string;
   SUPABASE_ANON_KEY?: string;
   /** The same Durable-Object shape the pilot-intake limiter uses. */
@@ -71,6 +87,55 @@ async function unresolvedRedeemInvitation(): Promise<"not_found"> {
   throw new Error("invite redemption RPC not landed (t-102e-identity-invites-sql, shape pending on #37)");
 }
 
+/**
+ * The second #37 seam, and the one #75 opened: the session **row**.
+ *
+ * #37 put the row in a schema the Data API does not expose ("reachable only by the session code
+ * path"), and refused a service-role key for this path — so no PostgREST call, with any key, can
+ * reach it, and this repo does not get to invent the alternative. The connection, the login role and
+ * its grants are the three options on #75, and the role creation, the connection config, its binding
+ * and the encryption secret are §20.8 human steps whoever wins.
+ *
+ * So this refuses, in the same shape as `unresolvedTenancyStore()`. The consequence is visible and
+ * deliberate: with no store, `issueSession` throws and the callback answers "unavailable" with no
+ * cookie — a deployment can never quietly fall back to the self-contained cookie #37 rejected.
+ */
+export function unresolvedSessionStore(): SessionStore {
+  const refuse = (): never => {
+    throw new Error("session store carrier unresolved (#75): refusing to guess how the session row is reached");
+  };
+  return {
+    insert: async () => refuse(),
+    find: async () => refuse(),
+    revoke: async () => refuse(),
+    replaceTokens: async () => refuse(),
+  };
+}
+
+/**
+ * The at-rest keyring for the token pair. No binding, no cipher — and `issueSession` then refuses to
+ * mint a session rather than storing a credential in the clear.
+ */
+function sessionTokenCipher(env: Partial<IdentityEnv>): TokenCipher | null {
+  const current = env.SESSION_TOKEN_KEY;
+  if (!hasUsableSecret(current)) return null;
+  const previous = env.SESSION_TOKEN_KEY_PREVIOUS;
+  // The version label advances when a previous key is bound: rows written under `v1` stay readable
+  // during the rotation, and unbinding the old key retires them.
+  const keys: Record<string, string> = { v1: current };
+  let currentVersion = "v1";
+  if (hasUsableSecret(previous)) {
+    keys.v1 = previous;
+    keys.v2 = current;
+    currentVersion = "v2";
+  }
+  try {
+    return createTokenCipher({ currentVersion, keys });
+  } catch {
+    return null;
+  }
+}
+
 function sha256Base64Url(verifier: string): Promise<string> {
   return crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)).then((digest) => bytesToBase64Url(new Uint8Array(digest)));
 }
@@ -92,6 +157,8 @@ export function buildIdentityPorts(env: Partial<IdentityEnv>, options: { fetchIm
   return {
     ...unresolvedTenancyStore(),
     redeemInvitation: async () => unresolvedRedeemInvitation(),
+    sessionStore: () => unresolvedSessionStore(),
+    tokenCipher: () => sessionTokenCipher(env),
 
     now: () => Math.floor(Date.now() / 1000),
     signingSecret: () => env.IDENTITY_SESSION_KEY ?? null,
@@ -152,7 +219,27 @@ export function buildIdentityPorts(env: Partial<IdentityEnv>, options: { fetchIm
         return { ok: false, reason: "invalid_or_expired" };
       }
       if (typeof user.email !== "string") return { ok: false, reason: "invalid_or_expired" };
-      return { ok: true, userId: user.id, email: user.email, emailVerified: typeof user.email_confirmed_at === "string" };
+      // #37 option (b): the pair is part of the result, and it stops here. It is what the session row
+      // stores (sealed) and what later server calls use; it is never handed to a response, a cookie or
+      // a page. An exchange that returns an identity without a complete pair is not a signed-in
+      // session, so it collapses into the same safe reason as every other failure.
+      const accessToken = (payload as { access_token?: unknown } | null)?.access_token;
+      const refreshToken = (payload as { refresh_token?: unknown } | null)?.refresh_token;
+      const expiresIn = (payload as { expires_in?: unknown } | null)?.expires_in;
+      if (typeof accessToken !== "string" || accessToken.length === 0) return { ok: false, reason: "invalid_or_expired" };
+      if (typeof refreshToken !== "string" || refreshToken.length === 0) return { ok: false, reason: "invalid_or_expired" };
+      if (typeof expiresIn !== "number" || !Number.isSafeInteger(expiresIn) || expiresIn <= 0) {
+        return { ok: false, reason: "invalid_or_expired" };
+      }
+      return {
+        ok: true,
+        userId: user.id,
+        email: user.email,
+        emailVerified: typeof user.email_confirmed_at === "string",
+        accessToken,
+        refreshToken,
+        tokenExpiresAt: Math.floor(Date.now() / 1000) + expiresIn,
+      };
     },
   };
 }

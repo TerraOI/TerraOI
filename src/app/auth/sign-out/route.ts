@@ -3,9 +3,9 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { buildIdentityPorts, type IdentityEnv } from "@/platform/identity/adapters";
 import { handleSignOut } from "@/platform/identity/sign-out";
 
-// POST /auth/sign-out — clears this browser's host-only cookies. The handler documents plainly that
-// a self-contained cookie cannot be revoked server-side: the mitigation is the short TTL plus the
-// per-request membership re-check, and real revocation arrives if #37 lands on a session store.
+// POST /auth/sign-out — a real revocation since #37 option (b): the session row's revoked_at is set
+// and this browser's host-only cookies are cleared. The route stays thin; the guards, the revocation
+// and the reporting of a failed server half live in src/platform/identity/sign-out.ts.
 export const dynamic = "force-dynamic";
 
 function identityEnv(): Partial<IdentityEnv> {
