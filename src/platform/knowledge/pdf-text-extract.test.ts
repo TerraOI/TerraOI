@@ -75,6 +75,19 @@ describe("extractPdfTextLayer", () => {
     expect(result.notes).toContain("unsupported_filter_lzwdecode");
   });
 
+  it("refuses a `/Filter` entry with no readable name instead of reading it as uncompressed", async () => {
+    // A broken writer, and a hostile one: `/Filter /` with nothing after it. The old name-only
+    // pattern saw no filter at all, so the page's bytes were treated as stored-as-written content —
+    // the fail-open this whole path exists to close.
+    const bytes = await buildSyntheticPdf({
+      pages: [{ filters: [""], lines: ["Synthetic page behind a malformed filter entry."] }],
+    });
+    const result = await extractPdfTextLayer(bytes);
+    expect(result.outcome).toBe("no_text_layer");
+    expect(result.text).toBe("");
+    expect(result.notes).toContain("unsupported_filter_unparsed");
+  });
+
   it("refuses a multi-filter chain instead of publishing its stored bytes as text", async () => {
     const bytes = await buildSyntheticPdf({
       pages: [{ compressed: true, filters: ["ASCII85Decode", "FlateDecode"], lines: ["Chain-encoded page."] }],

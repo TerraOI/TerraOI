@@ -301,7 +301,7 @@ export function readStream(bytes: Uint8Array, span: PdfObjectSpan): PdfStreamDat
       : indexOfAscii(bytes, "endstream", dataStart);
   if (dataEnd < 0 || dataEnd < dataStart) return null;
   const filters = parseFilterChain(dict);
-  const single = filters.length === 1 ? (filters[0] as string) : null;
+  const single = filters.length === 1 && filters[0] !== UNREADABLE_FILTER ? (filters[0] as string) : null;
   return { dict, data: bytes.subarray(dataStart, dataEnd), filter: single, filters };
 }
 
