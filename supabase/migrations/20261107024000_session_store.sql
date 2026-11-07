@@ -141,11 +141,14 @@ $$;
 -- Sign-out (#37): idempotent, and it never touches a row that is already revoked.
 create or replace function toi_identity.revoke_session_v1(p_session_key text, p_now timestamptz)
 returns boolean language sql security definer set search_path = toi_identity, pg_temp as $$
-  update toi_identity.sessions
-     set revoked_at = p_now
-   where session_key = p_session_key
-     and revoked_at is null
-   returning true;
+  with done as (
+      update toi_identity.sessions
+       set revoked_at = p_now
+     where session_key = p_session_key
+       and revoked_at is null
+    returning 1
+  )
+  select exists (select 1 from done);
 $$;
 
 -- The sign-in write. Kept as a function so the eventual caller needs `execute` only — never
@@ -181,15 +184,18 @@ create or replace function toi_identity.rotate_session_tokens_v1(
   p_token_expires_at timestamptz,
   p_now timestamptz
 ) returns boolean language sql security definer set search_path = toi_identity, pg_temp as $$
-  update toi_identity.sessions
-     set key_version = p_key_version,
-         access_token_ciphertext = p_access_token_ciphertext,
-         refresh_token_ciphertext = p_refresh_token_ciphertext,
-         token_expires_at = p_token_expires_at
-   where session_key = p_session_key
-     and revoked_at is null
-     and expires_at > p_now
-   returning true;
+  with done as (
+      update toi_identity.sessions
+       set key_version = p_key_version,
+           access_token_ciphertext = p_access_token_ciphertext,
+           refresh_token_ciphertext = p_refresh_token_ciphertext,
+           token_expires_at = p_token_expires_at
+     where session_key = p_session_key
+       and revoked_at is null
+       and expires_at > p_now
+    returning 1
+  )
+  select exists (select 1 from done);
 $$;
 
 -- Retention (ADR-0003): expired or revoked-and-aged rows are deleted, never left to accumulate.

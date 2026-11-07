@@ -293,7 +293,7 @@ insert into t_out
   select 'jwt_after_drop', pg_temp.try_insert('a1jwt001' || repeat('A', 35), '00000000-0000-4000-8000-0000000000a1', 'company1.terraoi.app',
       'eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJvd25lcjEiLCJyb2xlIjoiYXV0aGVudGljYXRlZCJ9.ZmFrZS1zaWduYXR1cmU',
       'v1.CCCCCCCCCCCCCCCC.VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV',
-      (select t0 from t_clock), (select t0 from t_clock) + interval '8 hours'));
+      (select t0 from t_clock), (select t0 from t_clock) + interval '8 hours');
 select is((select result from t_out where case_name = 'jwt_after_drop'), 'ok',
   '40 drop the CHECK and the plaintext JWT writes: the guard is the CHECK, not the insert statement');
 rollback to savepoint sp_cipher_check;
