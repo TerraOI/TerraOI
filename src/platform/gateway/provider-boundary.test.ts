@@ -113,37 +113,79 @@ describe("the gateway is the only place a provider is reached (AGENTS.md §4.3)"
   });
 
   it("no module outside the gateway imports the adapter factories (AGENTS.md §4.3)", () => {
-    // **What this guard enforces:** no file outside `src/platform/gateway/` may import
-    // `…/gateway/adapters` or name `createLocalBoxAdapter` / `createWorkersAiAdapter`. Those factories
-    // are the only place a provider URL, a secret header and a bare `fetch` meet; importing them from
-    // a route or an agent would reach a provider without clearance, without a reservation and without
-    // an attempt record, and no other test in this repo would notice.
+    // **What this guard enforces:** no file outside `src/platform/gateway/` may obtain a *value* from
+    // `…/gateway/adapters`, or name `createLocalBoxAdapter` / `createWorkersAiAdapter` at all. Those
+    // factories are the only place a provider URL, a secret header and a bare `fetch` meet; importing
+    // them from a route or an agent would reach a provider without clearance, without a reservation and
+    // without an attempt record, and no other test in this repo would notice.
     //
-    // **What it does not cover, stated so nobody over-trusts it:** it does not stop a caller from
-    // writing its own `fetch` to a provider. That case is only caught by the endpoint-marker scan
-    // above, which is a string match and is evaded by a URL built at runtime. Turning this into a
-    // structural rule (a call-graph or import-graph check in `scripts/check-structure.mjs`) is a
-    // bigger decision than this slice, and no packet owns `scripts/` — so the boundary enforced here is
-    // the import rule, and it is written as what it is.
+    // **What it deliberately allows:** a type-only import from that module. `AdapterCallOutcome`,
+    // `AdapterCallRequest` and `ProviderFailureKind` are the shapes a caller receives from
+    // `callModelGateway`; they cannot construct a request, cannot open a connection and cannot be
+    // called. Forbidding them would force a third module for no safety gain, and it would have failed
+    // T-115d's test suite for importing a result union — the first thing this guard caught, in a
+    // legitimate caller.
+    //
+    // **What it does not cover, stated so nobody over-trusts it:** it does not stop a caller writing
+    // its own `fetch` to a provider. That case is caught only by the endpoint-marker scan above, which
+    // is a string match and is evaded by a URL built at runtime. Making this a structural rule (an
+    // import-graph check in `scripts/check-structure.mjs`) is a bigger decision than this slice, and no
+    // packet owns `scripts/` — so the boundary enforced here is the value-import rule, written as what
+    // it is.
     const offenders: string[] = [];
     for (const file of repoSource) {
       const repoPath = relative(ROOT, file).replaceAll("\\", "/");
       if (repoPath.startsWith(GATEWAY)) continue;
       const text = readFileSync(file, "utf8");
-      for (const marker of ["gateway/adapters", "createLocalBoxAdapter", "createWorkersAiAdapter"]) {
-        if (text.includes(marker)) offenders.push(`${repoPath} mentions ${marker}`);
-      }
+      for (const found of adapterModuleRefs(text)) offenders.push(`${repoPath} ${found}`);
     }
     expect(offenders).toEqual([]);
   });
 
+  it("the guard separates a value import from a type-only import, and catches the factory either way", () => {
+    // The rule is about capability, not about naming a path. Each line below is a form a real caller
+    // could write; the first group must pass, the second must be reported.
+    const allowed = [
+      'import type { AdapterCallOutcome } from "@/platform/gateway/adapters";',
+      'import type { AdapterCallOutcome, ProviderFailureKind } from "@/platform/gateway/adapters";',
+      'import type {\n  AdapterCallOutcome,\n} from "@/platform/gateway/adapters";',
+      'export type Outcome = import("@/platform/gateway/adapters").AdapterCallOutcome;',
+      'type Outcome = import("@/platform/gateway/adapters").AdapterCallOutcome;',
+      'import { callModelGateway } from "@/platform/gateway/call";',
+      // A whole file, not a snippet: the scan is fed complete files, so a legitimate
+      // type-only import next to unrelated imports and a relative re-export must still pass.
+      'import { describe, expect, it } from "vitest";\nimport { composeAnswer, type ComposeDeps } from "./compose";\nimport type { AdapterCallOutcome } from "@/platform/gateway/adapters";\nimport { callModelGateway } from "@/platform/gateway/call";\n\ndescribe("compose", () => { it("runs", () => expect(1).toBe(1)); });',
+    ];
+    for (const source of allowed) {
+      expect(adapterModuleRefs(source), `must be allowed: ${source.replace(/\s+/g, " ")}`).toEqual([]);
+    }
+    const forbidden = [
+      'import { createWorkersAiAdapter } from "@/platform/gateway/adapters";',
+      'import * as adapters from "@/platform/gateway/adapters";',
+      'import { type AdapterCallOutcome, createLocalBoxAdapter } from "@/platform/gateway/adapters";',
+      'const adapter = require("@/platform/gateway/adapters").createLocalBoxAdapter;',
+      "const factory = adapters.createWorkersAiAdapter;",
+      // The dangerous pair: one allowed-looking type import must not make the rest of the
+      // file innocent. A classifier that returns [] because it saw a type-only import first
+      // would silently open the hole this guard exists to close.
+      'import type { AdapterCallOutcome } from "@/platform/gateway/adapters";\nimport { createLocalBoxAdapter } from "@/platform/gateway/adapters";',
+      // A value loaded at runtime is a value, with or without a factory name in the text.
+      'const adapterModule = await import("@/platform/gateway/adapters");',
+    ];
+    for (const source of forbidden) {
+      expect(adapterModuleRefs(source), `must be reported: ${source.replace(/\s+/g, " ")}`).not.toEqual([]);
+    }
+  });
+
   it("the import guard is looking at real text: the factories exist and are named inside the gateway", () => {
-    // A guard that matches nothing passes for the wrong reason. These files *do* contain the markers,
-    // and the scan above still returns clean — proof that the pass comes from the boundary, not from a
-    // pattern that never matches anything.
+    // A guard that matches nothing passes for the wrong reason. These files *do* contain the factory
+    // names, and the scan above still returns clean — proof that the pass comes from the boundary, not
+    // from a pattern that never matches anything.
     const factories = readFileSync(join(ROOT, GATEWAY, "adapters.ts"), "utf8");
     expect(factories).toContain("createLocalBoxAdapter");
     expect(factories).toContain("createWorkersAiAdapter");
+    // And the classifier is not vacuous: it reports the factory names where they appear.
+    expect(adapterModuleRefs(factories).length).toBeGreaterThan(0);
     const tests = readFileSync(join(ROOT, GATEWAY, "adapters.test.ts"), "utf8");
     expect(tests).toContain("createWorkersAiAdapter");
   });
