@@ -21,7 +21,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(43);
+select plan(44);
 
 -- Helpers report an error as its SQLSTATE instead of aborting the test transaction, and run as the
 -- role under test (SECURITY INVOKER): the pattern 010_tenancy.test.sql established.
@@ -313,7 +313,22 @@ select 'a1aged00' || repeat('A', 35), '00000000-0000-4000-8000-0000000000a1', 'c
 select is(toi_identity.prune_expired_sessions_v1((select t0 from t_clock), interval '7 days'), 1,
   '42 the prune deletes the long-expired row and nothing that is still live');
 select is(pg_temp.auth_count('a1live' || repeat('A', 37), 'company1.terraoi.app', (select t0 from t_clock)), 1,
-  '43 (final) the live session is untouched by the prune');
+  '43 the live session is untouched by the prune');
+
+-- ---------------------------------------------------------------- 44 non-vacuity of assertion 5
+-- Assertion 5 passes vacuously when the schema holds no SECURITY DEFINER function at all: an empty
+-- result is "no violation", exactly the trap 030_pilot_inquiries.test.sql:47-52 guards against
+-- with its positive control. This counts them, so a rewrite of the store that dropped SECURITY
+-- DEFINER (and with it the pinned search_path) fails here instead of quietly satisfying 5.
+select is(
+  (select count(*)::int
+     from pg_proc p
+     join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'toi_identity'
+      and p.prosecdef),
+  5::int,
+  '44 (final) the five session functions really are SECURITY DEFINER, so assertion 5 is not vacuous'
+);
 
 select * from finish();
 rollback;
