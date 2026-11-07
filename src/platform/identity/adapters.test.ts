@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { buildIdentityPorts, unresolvedTenancyStore, type FetchImpl, type IdentityEnv } from "./adapters";
+import { buildIdentityPorts, unresolvedSessionStore, unresolvedTenancyStore, type FetchImpl, type IdentityEnv } from "./adapters";
+import type { SessionStore } from "./session-store";
 import { bytesToBase64Url } from "./signed-token";
 
 const SECRET = "synthetic-test-secret-not-a-real-key-0000000000";
+// Synthetic keyrings for the at-rest sealing. The real values are the `SESSION_TOKEN_KEY` (and, during
+// a rotation, `SESSION_TOKEN_KEY_PREVIOUS`) Worker secrets; no value like this may ever be committed
+// or pasted into an agent chat (AGENTS.md §4.6).
+const TOKEN_KEY = "synthetic-session-token-key-not-a-real-key-0000000";
+const TOKEN_KEY_V2 = "synthetic-session-token-key-v2-not-a-real-key-000";
 const BASE = "https://synthetic.supabase.co";
 const ANON = "synthetic-anon-publishable-key";
 const SERVICE_ROLE_POISON = "poison-service-role-key-never-used";
@@ -32,6 +38,12 @@ async function sha256Url(value: string): Promise<string> {
 }
 
 const VERIFIER = "synthetic-verifier-AAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+/** Pattern-shaped Supabase material (three base64url segments); never a usable credential. */
+function fakeJwt(what: string): string {
+  const b64 = (value: string) => Buffer.from(value, "utf8").toString("base64url");
+  return `${b64('{"alg":"ES256","typ":"JWT","role":"authenticated"}')}.${b64(`{"sub":"00000000-0000-4000-8000-0000000000a1"}`)}.${b64(`synthetic-signature-${what}`)}`;
+}
 
 // The only Auth key this repo may use is the publishable/anon one; these tests keep that honest by
 // putting a poisoned service-role value in the environment and proving it never reaches a request.
@@ -67,21 +79,61 @@ describe("buildIdentityPorts — Supabase magic link (PKCE, anon key only)", () 
     expect((calls[0] as Call).init.headers.authorization).toBe(`Bearer ${ANON}`);
   });
 
-  it("exchanges the code with the verifier from the login-state cookie", async () => {
+  it("exchanges the code with the verifier from the login-state cookie and keeps the token pair", async () => {
     const user = { id: "00000000-0000-4000-8000-0000000000a1", email: "Owner1@Company1.TEST", email_confirmed_at: "2026-11-05T00:00:00Z" };
-    const { calls, fetchImpl } = recorder({ ok: true, status: 200, json: async () => ({ access_token: "synthetic", user }) });
+    const tokens = {
+      // JWT-shaped on purpose: this is the material #37 says must never reach the browser, and the
+      // adapter is where it enters the Worker.
+      access_token: fakeJwt("access"),
+      token_type: "bearer",
+      expires_in: 3600,
+      refresh_token: fakeJwt("refresh"),
+      user,
+    };
+    const { calls, fetchImpl } = recorder({ ok: true, status: 200, json: async () => tokens });
     const ports = buildIdentityPorts(env, { fetchImpl });
     const exchanged = await ports.exchangeLoginCode({ code: "auth-code", state: "state", host: "company1.terraoi.app", codeVerifier: VERIFIER });
     const call = calls[0] as Call;
     expect(call.url).toBe(`${BASE}/auth/v1/token?grant_type=pkce`);
     expect(JSON.parse(call.init.body)).toEqual({ auth_code: "auth-code", code_verifier: VERIFIER });
     // The provider's casing is passed through: canonicalization is the email module's job, once.
-    expect(exchanged).toEqual({ ok: true, userId: user.id, email: user.email, emailVerified: true });
+    // The pair is part of the result now (#37 option b): an adapter that drops it cannot mint a session.
+    expect(exchanged.ok).toBe(true);
+    if (!exchanged.ok) return;
+    expect(exchanged.userId).toBe(user.id);
+    expect(exchanged.email).toBe(user.email);
+    expect(exchanged.emailVerified).toBe(true);
+    expect(exchanged.accessToken).toBe(tokens.access_token);
+    expect(exchanged.refreshToken).toBe(tokens.refresh_token);
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    expect(exchanged.tokenExpiresAt).toBeGreaterThan(nowSeconds + 3500);
+    expect(exchanged.tokenExpiresAt).toBeLessThanOrEqual(nowSeconds + 3600);
+  });
+
+  it("an exchange that returns an identity without a usable token pair is one safe refusal", async () => {
+    const user = { id: "00000000-0000-4000-8000-0000000000a1", email: "a@b.test", email_confirmed_at: "x" };
+    for (const payload of [
+      { user },
+      { user, access_token: fakeJwt("access") },
+      { user, access_token: fakeJwt("access"), refresh_token: "" },
+      { user, access_token: fakeJwt("access"), refresh_token: fakeJwt("refresh"), expires_in: 0 },
+      { user, access_token: fakeJwt("access"), refresh_token: fakeJwt("refresh"), expires_in: "3600" },
+    ]) {
+      const ports = buildIdentityPorts(env, { fetchImpl: async () => ({ ok: true, status: 200, json: async () => payload }) });
+      expect(await ports.exchangeLoginCode({ code: "c", state: "s", host: "company1.terraoi.app", codeVerifier: VERIFIER })).toEqual({
+        ok: false,
+        reason: "invalid_or_expired",
+      });
+    }
   });
 
   it("reports an identity the provider did not confirm as unverified", async () => {
     const user = { id: "00000000-0000-4000-8000-0000000000a2", email: "field2@company1.test" };
-    const { fetchImpl } = recorder({ ok: true, status: 200, json: async () => ({ user }) });
+    const { fetchImpl } = recorder({
+      ok: true,
+      status: 200,
+      json: async () => ({ access_token: fakeJwt("access"), refresh_token: fakeJwt("refresh"), expires_in: 3600, user }),
+    });
     const ports = buildIdentityPorts(env, { fetchImpl });
     const exchanged = await ports.exchangeLoginCode({ code: "c", state: "s", host: "company1.terraoi.app", codeVerifier: VERIFIER });
     expect(exchanged.ok).toBe(true);
@@ -159,5 +211,85 @@ describe("buildIdentityPorts — limiter, secrets and the #37 seam", () => {
     await expect(
       ports.redeemInvitation({ organisationId: "11111111-1111-4111-8111-111111111111", userId: "00000000-0000-4000-8000-0000000000a1", email: "user@example.test" }),
     ).rejects.toThrow(/t-102e-identity-invites-sql/);
+  });
+});
+
+// #37 option (b) made the session a row, and #75 is still open on how the Worker reaches a schema the
+// Data API does not expose. So the session store is the same kind of seam as the tenancy store: the
+// shape exists, and the implementation refuses rather than inventing a credential path.
+describe("buildIdentityPorts — the session store seam (#75) and the SESSION_TOKEN_KEY cipher", () => {
+  it("the session store refuses every operation instead of guessing how the row is reached", async () => {
+    const store = unresolvedSessionStore();
+    await expect(store.find("Qh7X3m1pL0aZ8sW2kD5vN9tY4bC6rE0uI1oP3qS7wX2")).rejects.toThrow(/#75/);
+    await expect(
+      store.insert({
+        sessionKey: "Qh7X3m1pL0aZ8sW2kD5vN9tY4bC6rE0uI1oP3qS7wX2",
+        session: {
+          userId: "00000000-0000-4000-8000-0000000000a1",
+          host: "company1.terraoi.app",
+          issuedAt: 1,
+          expiresAt: 100,
+          revokedAt: null,
+          keyVersion: "v1",
+          accessCiphertext: "v1.x.y",
+          refreshCiphertext: "v1.x.y",
+          tokenExpiresAt: 100,
+        },
+      }),
+    ).rejects.toThrow(/#75/);
+    await expect(store.revoke("Qh7X3m1pL0aZ8sW2kD5vN9tY4bC6rE0uI1oP3qS7wX2", 1)).rejects.toThrow(/#75/);
+    await expect(
+      store.replaceTokens("Qh7X3m1pL0aZ8sW2kD5vN9tY4bC6rE0uI1oP3qS7wX2", {
+        keyVersion: "v1",
+        accessCiphertext: "v1.x.y",
+        refreshCiphertext: "v1.x.y",
+        tokenExpiresAt: 100,
+      }),
+    ).rejects.toThrow(/#75/);
+  });
+
+  it("so a deployment with no session store wired cannot mint a session", async () => {
+    const ports = buildIdentityPorts(env);
+    const wired = ports.sessionStore() as SessionStore;
+    await expect(wired.insert({ sessionKey: "k", session: {} as never })).rejects.toThrow(/#75/);
+    // `issueSession` treats a store that throws as a failure, so no cookie is set: the callback answer
+    // is "unavailable", never a self-contained cookie. Pinned in complete-magic-link.test.ts.
+    await expect(wired.find("k")).rejects.toThrow(/#75/);
+    // This env has no `SESSION_TOKEN_KEY`, which is the point: no cipher either.
+    expect(ports.tokenCipher()).toBeNull();
+  });
+
+  it("the cipher is a second, named secret: SESSION_TOKEN_KEY, not IDENTITY_SESSION_KEY", () => {
+    expect(buildIdentityPorts({}).tokenCipher()).toBeNull();
+    expect(buildIdentityPorts({ IDENTITY_SESSION_KEY: SECRET }).tokenCipher()).toBeNull();
+
+    const wired = buildIdentityPorts({ IDENTITY_SESSION_KEY: SECRET, SESSION_TOKEN_KEY: TOKEN_KEY });
+    const cipher = wired.tokenCipher();
+    expect(cipher).not.toBeNull();
+    expect(cipher?.keyVersion).toBe("v1");
+  });
+
+  it("seals under the current key and still opens a value sealed under the previous one", async () => {
+    const ports = buildIdentityPorts({ SESSION_TOKEN_KEY: TOKEN_KEY_V2, SESSION_TOKEN_KEY_PREVIOUS: TOKEN_KEY });
+    const cipher = ports.tokenCipher() as NonNullable<ReturnType<typeof ports.tokenCipher>>;
+    expect(cipher.keyVersion).toBe("v2");
+    const sealed = await cipher.seal(fakeJwt("access"));
+    expect(await cipher.open(sealed)).toBe(fakeJwt("access"));
+    expect(sealed.startsWith("v2.")).toBe(true);
+    expect(sealed).not.toContain(TOKEN_KEY_V2);
+
+    const old = buildIdentityPorts({ SESSION_TOKEN_KEY: TOKEN_KEY }).tokenCipher() as NonNullable<ReturnType<typeof ports.tokenCipher>>;
+    const legacy = await old.seal(fakeJwt("access"));
+    expect(await cipher.open(legacy)).toBe(fakeJwt("access"));
+    // Drop the previous version and its rows become undecryptable rather than readable: that is the
+    // retention lever ADR-0003 writes down.
+    const alone = buildIdentityPorts({ SESSION_TOKEN_KEY: TOKEN_KEY_V2 }).tokenCipher() as NonNullable<ReturnType<typeof ports.tokenCipher>>;
+    expect(await alone.open(legacy)).toBeNull();
+  });
+
+  it("a short or blank SESSION_TOKEN_KEY binding is refused, not used", () => {
+    for (const value of ["", "short"]) {
+      expect(buildIdentityPorts({ SESSION_TOKEN_KEY: value }).tokenCipher()).toBeNull();
+    }
   });
 });
