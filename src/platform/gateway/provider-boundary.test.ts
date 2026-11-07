@@ -71,6 +71,88 @@ const repoSource = [
   ...sourceFiles(join(ROOT, "localbox")),
 ];
 
+/**
+ * Classify every reference in a file to `…/platform/gateway/adapters`. Returns one string per
+ * finding; an empty array means the file is allowed.
+ *
+ * The line is capability, not vocabulary. A **type-only** reference cannot construct a request,
+ * open a connection or be called, so it is not a route to a provider. A **value** reference —
+ * default binding, namespace import, a specifier list with any untyped entry, a re-export, a
+ * side-effect import, `require()`, or a dynamic `import()` in a value position — puts the adapter
+ * factories in reach, and `adapters.ts` is the only place in this repo where a provider URL, a
+ * secret header and a bare `fetch` meet. Naming a factory at all is a finding too: nothing outside
+ * the gateway has a reason to reach for one.
+ *
+ * It is deliberately a text classifier over whole files, not an import-graph pass. The honest
+ * limits are written out in the guard test below.
+ */
+const ADAPTERS_MODULE = /(?:^|\/)gateway\/adapters$/;
+const FACTORY_NAMES = ["createLocalBoxAdapter", "createWorkersAiAdapter"];
+
+function oneLine(source: string): string {
+  return source.replace(/\s+/g, " ").trim();
+}
+
+function isAdaptersSpecifier(specifier: string): boolean {
+  return ADAPTERS_MODULE.test(specifier.replace(/^@\//, "src/"));
+}
+
+/** True when an import/export clause binds no runtime value: `type …`, or every specifier typed. */
+function clauseIsTypesOnly(clause: string): boolean {
+  const trimmed = clause.trim();
+  if (/^type\s/.test(trimmed)) return true;
+  const braces = /\{([\s\S]*)\}/.exec(trimmed);
+  const inside = braces?.[1];
+  if (inside === undefined) return false;
+  const specifiers = inside
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return specifiers.length > 0 && specifiers.every((part) => /^type\s/.test(part));
+}
+
+/** Is the `import("…")` at this offset in a type position (`type X = import("…").T`)? */
+function inTypePosition(text: string, index: number): boolean {
+  const statementStart = text.lastIndexOf(";", index) + 1;
+  return /^\s*(export\s+)?type\s/.test(text.slice(statementStart, index));
+}
+
+function adapterModuleRefs(text: string): string[] {
+  const findings: string[] = [];
+
+  // `import … from "…"` and `export … from "…"`, spanning multi-line specifier lists.
+  for (const match of text.matchAll(/(?:^|[\n;])\s*(import|export)([\s\S]*?)\bfrom\s*["']([^"']+)["']/g)) {
+    const keyword = match[1];
+    const clause = match[2];
+    const specifier = match[3];
+    if (keyword === undefined || clause === undefined || specifier === undefined) continue;
+    if (!isAdaptersSpecifier(specifier)) continue;
+    if (clauseIsTypesOnly(clause)) continue;
+    findings.push(`${keyword}s the adapter module as a value: ${oneLine(match[0])}`);
+  }
+
+  // Loads with no `from` clause: a bare side-effect import, require(), or a dynamic import().
+  const runtimeLoads: Array<[RegExp, string]> = [
+    [/(?:^|[\n;])\s*import\s+["']([^"']+)["']/g, "side-effect imports the adapter module"],
+    [/require\s*\(\s*["']([^"']+)["']\s*\)/g, "require()s the adapter module"],
+    [/import\s*\(\s*["']([^"']+)["']\s*\)/g, "loads the adapter module with a value-position import()"],
+  ];
+  for (const [pattern, label] of runtimeLoads) {
+    for (const match of text.matchAll(pattern)) {
+      const loaded = match[1];
+      if (loaded === undefined || !isAdaptersSpecifier(loaded)) continue;
+      if (label.includes("import()") && inTypePosition(text, match.index ?? 0)) continue;
+      findings.push(`${label}: ${oneLine(match[0])}`);
+    }
+  }
+
+  for (const name of FACTORY_NAMES) {
+    if (new RegExp(`\\b${name}\\b`).test(text)) findings.push(`names the adapter factory ${name}`);
+  }
+
+  return findings;
+}
+
 describe("the gateway is the only place a provider is reached (AGENTS.md §4.3)", () => {
   it("no provider SDK is installed in the manifest", () => {
     const manifest = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as {
