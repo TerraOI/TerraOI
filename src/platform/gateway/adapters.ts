@@ -244,11 +244,16 @@ export function createWorkersAiAdapter(options: WorkersAiAdapterOptions): Provid
   const fetchImpl = options.fetchImpl ?? globalThis.fetch;
   const runUrl = (model: string) =>
     `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(options.accountId)}/ai/run/${encodeURIComponent(model)}`;
-  const token = options.apiToken();
 
   return {
     providerKey: options.endpoint.providerKey,
     async complete(request) {
+      // Read the binding when the call is made, not when the adapter is built. Workers resolves secret
+      // bindings per request, so a factory-time read is wrong in both directions: a rotated token is
+      // never seen, and an adapter built at a cold start that raced the binding would answer
+      // `provider_denied` for the whole life of the isolate. The local box already reads its Access
+      // headers per call for the same reason.
+      const token = options.apiToken();
       if (token === undefined || token.length === 0) {
         return { ok: false, kind: "provider_denied", possiblyBilled: false };
       }
