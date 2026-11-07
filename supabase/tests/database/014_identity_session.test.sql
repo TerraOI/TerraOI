@@ -29,11 +29,11 @@ create function pg_temp.try_insert(p_session_key text, p_user_id uuid, p_host te
 returns text language plpgsql security invoker as $fn$
 begin
   begin
-    select toi_identity.insert_session_v1(
+    perform toi_identity.insert_session_v1(
       p_session_key, p_user_id, p_host, p_created, p_expires, 'v1', p_access, p_refresh, p_expires);
     return 'ok';
   exception when others then
-    return sqlstate::text || ' ' || sqlerrm;
+    return sqlstate::text;
   end;
 end;
 $fn$;
