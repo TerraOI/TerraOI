@@ -43,7 +43,14 @@ an ambiguous follow-up. Locators must be expressible as
 **#6** with `cleared_for` at `public` + `internal`, a `client_confidential` corpus is searchable only in
 the labelled `lexical_only` lane, so an eval over it measures degraded retrieval — this packet loads
 `public`/`internal` first and says so; **#66** capture queues `'extract', 'cloud_worker'` unconditionally
-(that file, `:474`), so scans and images cannot reach the box yet; **#51** `body_text`, `payload` and
+(that file, `:474`), and the stage key at `knowledge_core.sql:398` **excludes `executor`** while the enqueue
+uses `on conflict … do nothing` (`knowledge_uploads.sql:477-478`) — so inserting a `local_box` row
+afterwards is **discarded
+silently, not refused**. Re-targeting has to be a guarded `UPDATE` through an RPC (only `select` is granted
+to `authenticated` at `knowledge_core.sql:890-894`), the schema already expects exactly that with
+`ingestion_jobs_local_box_runs_only_extract` (`:390-391`), and the status CHECK at `:363` has no
+queued-for-OCR value, so §7.2's visible-queue wording needs a CHECK widening too. Until that lands, scans
+and images in the corpus cannot reach the box; **#51** `body_text`, `payload` and
 `parser_generation` are immutable for the row's life
 ([`20261105070000_knowledge_core.sql:573-577`](../../supabase/migrations/20261105070000_knowledge_core.sql))
 and `unique (collection_id, content_hash)` at `:220` blocks a second version of the same bytes, so a

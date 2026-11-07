@@ -62,7 +62,13 @@ one question, and the quota-window decision depends on it; the ceiling **numbers
 - [ ] negative: a retry after an ambiguous timeout keeps the first reservation billed and books the retry as its
       own attempt, and duplicate outbox events do not double-book — the live stage key is `ingestion_jobs`'
       unique key at [`20261105070000_knowledge_core.sql:398`](../../supabase/migrations/20261105070000_knowledge_core.sql),
-      not the `ingestion_stage_runs` constraint [#68](https://github.com/TerraOI/TerraOI/issues/68) cites
+      not the `ingestion_stage_runs` constraint [#68](https://github.com/TerraOI/TerraOI/issues/68) cites.
+      That key is **unnamed**, so a pgTAP assertion matches `unique_violation` with its column list, or writes
+      `on conflict (organisation_id, source_version_id, stage, parser_generation, index_generation)` — the
+      form the merged enqueue uses at `20261106100000_knowledge_uploads.sql:477` — and never a constraint name.
+      Retry and lease state already live on the job row: `attempt` (`:373`), `lease_token` (`:374`),
+      `lease_expires_at` (`:375`) and the `ingestion_jobs_lease_pair` CHECK (`:392-393`), so attempt
+      accounting reads those instead of opening a second place for the same fact
 - [ ] failure: no reservation authority → `unavailable`, fail closed; a failed audit write after a provider call
       retains the reservation, recovers the run and delivers nothing unaudited; a crashed worker's reservation
       expires per the documented rule

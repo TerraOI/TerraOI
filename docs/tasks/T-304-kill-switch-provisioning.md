@@ -46,7 +46,12 @@ merged, this packet lands platform, tenant and provider switches only and says s
 **#62** — provisioning seeds brand defaults, but no packet owns `tenant_brands` (plan §6.1 names it;
 `git grep -i brand` over `supabase/` on `main` is empty), so this packet creates nothing brand-shaped.
 **#67** — `organisations.locale` checks `^[a-z]{2}(-[A-Z][a-z]{2})?$` (that file, `:25`), which rejects
-`en-GB`; the script passes a locale the current CHECK accepts and never works around the constraint.
+`en-GB`; and the adjacent timezone CHECK (`:26`) allows **exactly one slash**, so
+`America/Argentina/Buenos_Aires` and `America/Indiana/Indianapolis` are rejected while malformed shapes like
+`en-Gbr` pass. Provisioning seeds locale and timezone as one unit, so a fix that widens only `:25` leaves
+half the bug — and **neither CHECK has ever run in CI**: the only `insert` into `organisations` on `main` is
+`supabase/seed.sql:42`, and `locale` appears nowhere in `src/` or `supabase/tests/`. The script passes values
+the current CHECKs accept and never works around a constraint.
 
 ## Acceptance tests (write first)
 - [ ] positive: `supabase/tests/database/100_lifecycle_switches.test.sql` — one provisioning call creates the
