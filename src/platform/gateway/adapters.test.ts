@@ -319,6 +319,49 @@ describe("workers_ai adapter (Cloudflare Workers AI REST)", () => {
     expect(capture.requests).toHaveLength(0);
   });
 
+  it("reads the account token per call, so a rotated secret is used and a cold start is not permanent (plan §12.4 Workers AI contract)", async () => {
+    // Secret bindings on Workers are per-request. A token captured when the adapter is *built* freezes
+    // both halves of the deployment story: a rotation is never seen, and a cold start that raced the
+    // binding leaves the provider permanently `provider_denied` for the life of the isolate.
+    let token: string | undefined = undefined;
+    const capture = capturingFetch([
+      () => Response.json({ success: true, result: { response: "answered after the binding landed", usage: { prompt_tokens: 9, completion_tokens: 3 } } }),
+    ]);
+    const adapter = createWorkersAiAdapter({
+      endpoint: WORKERS_ENDPOINT,
+      accountId: "synthetic-account",
+      apiToken: () => token,
+      fetchImpl: capture.fetch,
+    });
+
+    const cold = await adapter.complete({
+      attemptId: "attempt-cold",
+      model: "hosted-beta",
+      task: "condense",
+      dataClass: "public",
+      messages: [{ role: "user", text: "Summarise." }],
+      maxOutputUnits: 200,
+      timeoutMs: 5_000,
+    });
+    expect(cold).toMatchObject({ ok: false, kind: "provider_denied", possiblyBilled: false });
+    expect(capture.requests).toHaveLength(0);
+
+    // The binding lands after the adapter exists — the case a construction-time read cannot recover from.
+    token = "synthetic-token-rotated";
+    const warm = await adapter.complete({
+      attemptId: "attempt-warm",
+      model: "hosted-beta",
+      task: "condense",
+      dataClass: "public",
+      messages: [{ role: "user", text: "Summarise again." }],
+      maxOutputUnits: 200,
+      timeoutMs: 5_000,
+    });
+    expect(warm).toMatchObject({ ok: true, text: "answered after the binding landed", model: "hosted-beta" });
+    const [request] = capture.requests;
+    expect((request?.init.headers as Record<string, string>)?.["authorization"]).toBe("Bearer synthetic-token-rotated");
+  });
+
   it("no token means no request (fail closed)", async () => {
     const capture = capturingFetch([() => Response.json({ ok: true })]);
     const adapter = createWorkersAiAdapter({

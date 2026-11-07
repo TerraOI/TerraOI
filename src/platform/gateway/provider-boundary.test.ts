@@ -112,6 +112,42 @@ describe("the gateway is the only place a provider is reached (AGENTS.md §4.3)"
     expect(offenders).toEqual([]);
   });
 
+  it("no module outside the gateway imports the adapter factories (AGENTS.md §4.3)", () => {
+    // **What this guard enforces:** no file outside `src/platform/gateway/` may import
+    // `…/gateway/adapters` or name `createLocalBoxAdapter` / `createWorkersAiAdapter`. Those factories
+    // are the only place a provider URL, a secret header and a bare `fetch` meet; importing them from
+    // a route or an agent would reach a provider without clearance, without a reservation and without
+    // an attempt record, and no other test in this repo would notice.
+    //
+    // **What it does not cover, stated so nobody over-trusts it:** it does not stop a caller from
+    // writing its own `fetch` to a provider. That case is only caught by the endpoint-marker scan
+    // above, which is a string match and is evaded by a URL built at runtime. Turning this into a
+    // structural rule (a call-graph or import-graph check in `scripts/check-structure.mjs`) is a
+    // bigger decision than this slice, and no packet owns `scripts/` — so the boundary enforced here is
+    // the import rule, and it is written as what it is.
+    const offenders: string[] = [];
+    for (const file of repoSource) {
+      const repoPath = relative(ROOT, file).replaceAll("\\", "/");
+      if (repoPath.startsWith(GATEWAY)) continue;
+      const text = readFileSync(file, "utf8");
+      for (const marker of ["gateway/adapters", "createLocalBoxAdapter", "createWorkersAiAdapter"]) {
+        if (text.includes(marker)) offenders.push(`${repoPath} mentions ${marker}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("the import guard is looking at real text: the factories exist and are named inside the gateway", () => {
+    // A guard that matches nothing passes for the wrong reason. These files *do* contain the markers,
+    // and the scan above still returns clean — proof that the pass comes from the boundary, not from a
+    // pattern that never matches anything.
+    const factories = readFileSync(join(ROOT, GATEWAY, "adapters.ts"), "utf8");
+    expect(factories).toContain("createLocalBoxAdapter");
+    expect(factories).toContain("createWorkersAiAdapter");
+    const tests = readFileSync(join(ROOT, GATEWAY, "adapters.test.ts"), "utf8");
+    expect(tests).toContain("createWorkersAiAdapter");
+  });
+
   it("the scan actually looks at the gateway modules of this slice (a guard that saw nothing is not a guard)", () => {
     const gatewayFiles = repoSource
       .map((file) => relative(ROOT, file).replaceAll("\\", "/"))

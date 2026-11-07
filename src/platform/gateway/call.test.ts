@@ -469,6 +469,28 @@ describe("a call that is the gateway's own bug is refused, not charged to the pr
     expect(h.meter.events).toContain(`reconcile:released:${attemptId}`);
     expect(h.meter.byAttempt.get(String(attemptId))?.reconciled).toBe("released");
   });
+  it("a success that reports no usage still keeps its reservation settled — pinned behaviour, not an improvement (§12.3)", async () => {
+    // Some routes answer without a usage block. The ledger then has no measured amount, and this is the
+    // decision this test pins: the model demonstrably ran, so the reservation is `settled` and never
+    // `released`, and the record shape is identical to a usage-known settle. Changing that to
+    // `ambiguous` — or to a release when a provider starts reporting nothing — must come with this
+    // test being edited on purpose, not by accident in a PR about something else.
+    const h = harness({
+      claude: [
+        { ok: true, text: JSON.stringify({ answer: "No usage block came back." }), model: "hosted-gamma", finishReason: "stop" },
+      ],
+    });
+    const result = await callModelGateway(baseInput({ chain: ["claude"], runId: "run-unmeasured", dataClass: "internal" }), h.deps);
+    if (!result.ok) throw new Error(`expected an answer, got ${result.reason}`);
+    const attemptId = result.attempts[0]?.attemptId;
+    expect(result.usage).toBeNull();
+    expect(h.meter.events).toContain(`reserve:claude:${attemptId}`);
+    expect(h.meter.events).toContain(`reconcile:settled:${attemptId}`);
+    expect(h.meter.byAttempt.get(String(attemptId))?.reconciled).toBe("settled");
+    // And the ledger cannot tell this apart from a measured settle: the reconcile record carries no
+    // usage field at all. That is the finding, recorded here so a later F19 slice changes it on purpose.
+    expect(h.meter.events.filter((event) => event.startsWith("reconcile:"))).toEqual([`reconcile:settled:${attemptId}`]);
+  });
 });
 
 describe("configuration error and deployment gap are different findings (F40 replay)", () => {
