@@ -147,6 +147,92 @@ describe("verifyCapturedObject", () => {
     expect(outcome).toBe("quarantined");
   });
 
+  // T-112 follow-up, found in lead review of #54: the budget loop only recognised `/Filter` written
+  // as a name, so `/Filter [/FlateDecode]` — legal, and emitted by real writers — escaped the
+  // decompression budget entirely (plan §7.2 step 2, the ZIP-bomb bound).
+
+  it("a bomb in an array-form FlateDecode stream is quarantined too", async () => {
+    const bytes = await buildSyntheticPdf({
+      pages: [
+        { lines: ["Synthetic ordinary page."] },
+        { compressed: true, filterSyntax: "array", lines: ["Synthetic exploding page."] },
+      ],
+      expandContentToBytes: 2_000_000,
+    });
+    expect(bytes.byteLength).toBeLessThan(200_000);
+    const { reason, outcome } = await expectRefusal({
+      read: { status: "ok", bytes },
+      maxBytes: MAX_UPLOAD_BYTES,
+      expectedSha256: await sha256Hex(bytes),
+      limits: { maxDecompressedBytes: 200_000 },
+    });
+    expect(reason).toBe("decompression_bomb");
+    expect(outcome).toBe("quarantined");
+  });
+
+  it("a multi-filter chain whose outermost filter is FlateDecode is metered as well", async () => {
+    // The first name in a `/Filter` array is the outermost filter, i.e. the one applied first when
+    // decoding, so these bytes really are a zlib stream and really can explode — whether or not the
+    // rest of the chain is ever decoded.
+    const bytes = await buildSyntheticPdf({
+      pages: [
+        { lines: ["Synthetic ordinary page."] },
+        { compressed: true, filters: ["FlateDecode", "ASCII85Decode"], lines: ["Synthetic exploding page."] },
+      ],
+      expandContentToBytes: 2_000_000,
+    });
+    const { reason, outcome } = await expectRefusal({
+      read: { status: "ok", bytes },
+      maxBytes: MAX_UPLOAD_BYTES,
+      expectedSha256: await sha256Hex(bytes),
+      limits: { maxDecompressedBytes: 200_000 },
+    });
+    expect(reason).toBe("decompression_bomb");
+    expect(outcome).toBe("quarantined");
+  });
+
+  it("an array-form FlateDecode stream within the budget still verifies", async () => {
+    const bytes = await buildSyntheticPdf({
+      pages: [{ compressed: true, filterSyntax: "array_spaced", lines: ["Synthetic compressed page."] }],
+    });
+    const result = await verifyCapturedObject({
+      read: { status: "ok", bytes },
+      maxBytes: MAX_UPLOAD_BYTES,
+      expectedSha256: await sha256Hex(bytes),
+    });
+    expect(result.ok).toBe(true);
+    expect(result.notes.filter((note) => note.startsWith("unsupported_filter_"))).toEqual([]);
+  });
+
+  it("a filter chain nothing here can inflate is named, never silently uncounted", async () => {
+    // `/Filter [/ASCII85Decode /FlateDecode]`: the stored bytes are ASCII85 text of a zlib stream, so
+    // no inflation is possible at capture and the volume cannot be metered. The object is still an
+    // ordinary PDF, so it is accepted — but with a note that says which part was never measured.
+    const bytes = await buildSyntheticPdf({
+      pages: [{ compressed: true, filters: ["ASCII85Decode", "FlateDecode"], lines: ["Synthetic chain-encoded page."] }],
+    });
+    const result = await verifyCapturedObject({
+      read: { status: "ok", bytes },
+      maxBytes: MAX_UPLOAD_BYTES,
+      expectedSha256: await sha256Hex(bytes),
+    });
+    expect(result.ok).toBe(true);
+    expect(result.notes).toContain("unsupported_filter_chain_ascii85decode_flatedecode");
+  });
+
+  it("a single filter this parser does not implement is named in the notes too", async () => {
+    const bytes = await buildSyntheticPdf({
+      pages: [{ filters: ["LZWDecode"], lines: ["Synthetic page with an LZW content stream."] }],
+    });
+    const result = await verifyCapturedObject({
+      read: { status: "ok", bytes },
+      maxBytes: MAX_UPLOAD_BYTES,
+      expectedSha256: await sha256Hex(bytes),
+    });
+    expect(result.ok).toBe(true);
+    expect(result.notes).toContain("unsupported_filter_lzwdecode");
+  });
+
   it("a bomb placed past the structural scan cap is refused, not half-checked (fail-closed scan)", async () => {
     // The budget here is *larger* than the payload, so the byte budget alone would pass this file:
     // the only thing that can refuse it is knowing that the scan stopped before the last object.

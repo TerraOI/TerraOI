@@ -29,6 +29,83 @@ describe("extractPdfTextLayer", () => {
     expect(result.pages[0]?.text).toContain("Synthetic compressed text.");
   });
 
+  // T-112 follow-up, found in lead review of #54: ISO 32000-1 §7.4 (Table 6) spells `/Filter` as a
+  // name *or* as an array of names. Reading only the name form reported an array-declared FlateDecode
+  // stream as unfiltered, and the extractor then appended still-deflated bytes as text — unverified
+  // junk with no feature note at all (AGENTS.md §4.5, §4.8).
+
+  it("inflates a FlateDecode stream spelled as /Filter [/FlateDecode]", async () => {
+    const bytes = await buildSyntheticPdf({
+      pages: [{ compressed: true, filterSyntax: "array", lines: ["Array-form compressed text."] }],
+    });
+    const result = await extractPdfTextLayer(bytes);
+    expect(result.outcome).toBe("extracted");
+    expect(result.pages[0]?.text).toContain("Array-form compressed text.");
+    expect(result.notes.filter((note) => note.startsWith("unsupported_filter_"))).toEqual([]);
+  });
+
+  it("inflates it too when the brackets are padded: /Filter [ /FlateDecode ]", async () => {
+    const bytes = await buildSyntheticPdf({
+      pages: [{ compressed: true, filterSyntax: "array_spaced", lines: ["Padded array-form text."] }],
+    });
+    const result = await extractPdfTextLayer(bytes);
+    expect(result.outcome).toBe("extracted");
+    expect(result.pages[0]?.text).toContain("Padded array-form text.");
+  });
+
+  it("the decompression budget covers an array-form FlateDecode stream as well", async () => {
+    const bytes = await buildSyntheticPdf({
+      pages: [{ compressed: true, filterSyntax: "array", lines: ["x"] }],
+      expandContentToBytes: 400_000,
+    });
+    const result = await extractPdfTextLayer(bytes, { maxDecompressedBytes: 100_000 });
+    expect(result.outcome).toBe("parse_failed");
+    expect(result.notes).toContain("decompression_budget_exceeded");
+    expect(result.text).toBe("");
+  });
+
+  it("names a single unsupported filter and never appends its undecoded bytes as text", async () => {
+    const bytes = await buildSyntheticPdf({
+      pages: [{ filters: ["LZWDecode"], lines: ["Synthetic page this parser cannot decode."] }],
+    });
+    const result = await extractPdfTextLayer(bytes);
+    expect(result.outcome).toBe("no_text_layer");
+    expect(result.pages[0]?.text).toBe("");
+    expect(result.text).toBe("");
+    expect(result.notes).toContain("unsupported_filter_lzwdecode");
+  });
+
+  it("refuses a multi-filter chain instead of publishing its stored bytes as text", async () => {
+    const bytes = await buildSyntheticPdf({
+      pages: [{ compressed: true, filters: ["ASCII85Decode", "FlateDecode"], lines: ["Chain-encoded page."] }],
+    });
+    const result = await extractPdfTextLayer(bytes);
+    // The chain is refused whole: only FlateDecode, alone, is decoded here.
+    expect(result.notes).toContain("unsupported_filter_chain_ascii85decode_flatedecode");
+    expect(result.outcome).toBe("no_text_layer");
+    expect(result.text).toBe("");
+    // …and the still-deflated payload never leaks in as latin1 control-character garbage.
+    expect(result.text).not.toMatch(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/);
+  });
+
+  it("keeps page numbering and a visible note when one page's only stream is skipped", async () => {
+    const bytes = await buildSyntheticPdf({
+      pages: [
+        { lines: ["Page one is ordinary."] },
+        { compressed: true, filters: ["FlateDecode", "DCTDecode"], lines: ["Page two is a chain."] },
+        { lines: ["Page three is ordinary."] },
+      ],
+    });
+    const result = await extractPdfTextLayer(bytes);
+    expect(result.outcome).toBe("extracted");
+    expect(result.pages.map((page) => page.page)).toEqual([1, 2, 3]);
+    expect(result.pages[1]?.text).toBe("");
+    expect(result.notes).toContain("unsupported_filter_chain_flatedecode_dctdecode");
+    expect(result.text).toContain("Page one is ordinary.");
+    expect(result.text).toContain("Page three is ordinary.");
+    expect(result.text).not.toContain("Page two is a chain.");
+  });
+
   it("numbers pages from the page tree, not from object order", async () => {
     const bytes = await buildSyntheticPdf({
       pages: [{ lines: ["Cover."], compressed: true }, { lines: ["Section one."], compressed: true }, { lines: ["Section two."] }],

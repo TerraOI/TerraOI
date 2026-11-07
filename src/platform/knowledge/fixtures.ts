@@ -74,13 +74,34 @@ export function syntheticPngBytes(): Uint8Array {
   return header;
 }
 
+/**
+ * How the `/Filter` entry of a content stream is spelled. ISO 32000-1 §7.4 (Table 6) allows a name
+ * *or* an array of names, and real writers emit both, so every spelling has to be testable without
+ * hand-writing PDF bytes in the test file.
+ */
+export type PdfFilterSyntax = "name" | "array" | "array_spaced";
+
 export interface PdfPageSpec {
   /** Text lines shown with `Tj`; each line is escaped for a PDF literal string. */
   lines?: string[];
   /** Raw content-stream operators, for tokenizing and adversarial cases. */
   content?: string;
-  /** Store this page's content stream with /Filter /FlateDecode. */
+  /** Store this page's content stream with /Filter /FlateDecode, spelled per `filterSyntax`. */
   compressed?: boolean;
+  /**
+   * The spelling of the `/Filter` entry: `/Filter /FlateDecode` (the default, and the only spelling
+   * this builder emitted before the option existed), `/Filter [/FlateDecode]`, or
+   * `/Filter [ /FlateDecode ]`.
+   */
+  filterSyntax?: PdfFilterSyntax;
+  /**
+   * The whole filter chain to write instead of the single FlateDecode entry, in the order the spec
+   * decodes it — e.g. `["ASCII85Decode", "FlateDecode"]`. One name is written as a name, several as
+   * an array (spaced per `filterSyntax`). The payload is zlib-deflated when `compressed` is set or
+   * when the chain starts with FlateDecode: the fixture emits what a real writer *claims* in the
+   * dictionary, which is exactly what a parser that cannot decode that chain has to cope with.
+   */
+  filters?: readonly string[];
 }
 
 export interface PdfSpec {
@@ -127,6 +148,18 @@ function contentOperators(page: PdfPageSpec): string {
   const lines = page.lines ?? [];
   const shows = lines.map((line) => `${pdfLiteral(line)} Tj T*`).join(" ");
   return `BT /F1 12 Tf 72 720 Td 12 TL ${shows} ET`;
+}
+
+/**
+ * The `/Filter` entry for one content stream, in the spelling the spec allows. An empty chain means
+ * the stream carries no `/Filter` at all (genuinely uncompressed), which is a different case from
+ * "filtered" and must stay distinguishable in tests.
+ */
+function filterEntry(chain: readonly string[], syntax: PdfFilterSyntax = "name"): string {
+  if (chain.length === 0) return "";
+  const names = chain.map((name) => `/${name}`).join(" ");
+  if (chain.length === 1 && syntax === "name") return ` /Filter ${names}`;
+  return syntax === "array_spaced" ? ` /Filter [ ${names} ]` : ` /Filter [${names}]`;
 }
 
 /**
@@ -198,10 +231,10 @@ export async function buildSyntheticPdf(spec: PdfSpec): Promise<Uint8Array> {
           `BT /F1 12 Tf 72 720 Td ${pdfLiteral("A".repeat(spec.expandContentToBytes))} Tj ET`
         : contentOperators(page);
     const raw = ascii(text);
-    const body = page.compressed ? await deflateZlib(raw) : raw;
-    const dict = page.compressed
-      ? `<< /Length ${body.byteLength} /Filter /FlateDecode >>`
-      : `<< /Length ${body.byteLength} >>`;
+    const chain = page.filters ?? (page.compressed === true ? ["FlateDecode"] : []);
+    const packed = page.compressed === true || chain[0] === "FlateDecode";
+    const body = packed ? await deflateZlib(raw) : raw;
+    const dict = `<< /Length ${body.byteLength}${filterEntry(chain, page.filterSyntax)} >>`;
     parts.push(ascii(`${firstContent + i} 0 obj\n${dict}\nstream\n`));
     parts.push(body);
     parts.push(ascii("\nendstream\nendobj\n"));
