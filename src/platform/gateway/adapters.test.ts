@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createLocalBoxAdapter, createWorkersAiAdapter, type FetchImpl } from "./adapters";
+import { createLocalBoxAdapter, createWorkersAiAdapter, type AdapterCallRequest, type FetchImpl } from "./adapters";
 
 /**
  * The two M1 adapters are plain `fetch` calls (AGENTS.md §4.3: no provider SDK anywhere, so the
@@ -44,6 +44,7 @@ describe("local_box adapter (plan §12.4 Local box contract)", () => {
     const adapter = localBox(capture.fetch);
     const outcome = await adapter.complete({
       attemptId: "attempt-1",
+      model: "open-weights-alpha",
       task: "compose",
       dataClass: "internal",
       messages: [{ role: "user", text: "Q?" }],
@@ -68,6 +69,44 @@ describe("local_box adapter (plan §12.4 Local box contract)", () => {
     expect(body.messages).toEqual([{ role: "user", content: "Q?" }]);
   });
 
+  it("posts the model named on the request, which for a verify call is the evaluated verifier model (plan §12.4 rule (e) on the wire)", async () => {
+    const capture = capturingFetch([
+      () =>
+        Response.json({
+          choices: [{ message: { content: "supported" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 30, completion_tokens: 7 },
+        }),
+    ]);
+    const outcome = await localBox(capture.fetch).complete({
+      attemptId: "attempt-verify-1",
+      model: "open-weights-beta",
+      task: "verify",
+      dataClass: "internal",
+      messages: [{ role: "user", text: "Is this supported by the evidence?" }],
+      maxOutputUnits: 400,
+      timeoutMs: 5_000,
+    });
+    // The endpoint's composing model is `open-weights-alpha`; asking it to verify its own answer is
+    // exactly what rule (e) forbids, so the request's model is what must reach the wire.
+    expect(outcome).toMatchObject({ ok: true, model: "open-weights-beta" });
+    const posted = JSON.parse(String(capture.requests[0]?.init.body)) as Record<string, unknown>;
+    expect(posted.model).toBe("open-weights-beta");
+  });
+
+  it("refuses a call that names no model instead of quietly sending the endpoint default", async () => {
+    const capture = capturingFetch([() => Response.json({ ok: true })]);
+    const outcome = await localBox(capture.fetch).complete({
+      attemptId: "attempt-no-model",
+      task: "verify",
+      dataClass: "internal",
+      messages: [{ role: "user", text: "Q?" }],
+      maxOutputUnits: 400,
+      timeoutMs: 5_000,
+    } as unknown as AdapterCallRequest);
+    expect(outcome).toMatchObject({ ok: false, kind: "provider_denied", possiblyBilled: false });
+    expect(capture.requests).toHaveLength(0);
+  });
+
   it("sends no request at all when the Access secret is missing (fail closed, no secret in code)", async () => {
     const capture = capturingFetch([() => Response.json({ ok: true })]);
     const adapter = createLocalBoxAdapter({
@@ -78,6 +117,7 @@ describe("local_box adapter (plan §12.4 Local box contract)", () => {
     });
     const outcome = await adapter.complete({
       attemptId: "attempt-1",
+      model: "open-weights-alpha",
       task: "compose",
       dataClass: "internal",
       messages: [{ role: "user", text: "Q?" }],
@@ -98,6 +138,7 @@ describe("local_box adapter (plan §12.4 Local box contract)", () => {
     ]);
     const outcome = await localBox(capture.fetch).complete({
       attemptId: "attempt-1",
+      model: "open-weights-alpha",
       task: "compose",
       dataClass: "internal",
       messages: [{ role: "user", text: "Q?" }],
@@ -112,6 +153,7 @@ describe("local_box adapter (plan §12.4 Local box contract)", () => {
     const capture = capturingFetch([() => new Response(null, { status: 429 })]);
     const rateLimited = await localBox(capture.fetch).complete({
       attemptId: "attempt-1",
+      model: "open-weights-alpha",
       task: "compose",
       dataClass: "internal",
       messages: [{ role: "user", text: "Q?" }],
@@ -128,6 +170,7 @@ describe("local_box adapter (plan §12.4 Local box contract)", () => {
       });
     const timeout = await localBox(hanging).complete({
       attemptId: "attempt-2",
+      model: "open-weights-alpha",
       task: "compose",
       dataClass: "internal",
       messages: [{ role: "user", text: "Q?" }],
@@ -143,6 +186,7 @@ describe("local_box adapter (plan §12.4 Local box contract)", () => {
     };
     const outcome = await localBox(refusing).complete({
       attemptId: "attempt-1",
+      model: "open-weights-alpha",
       task: "compose",
       dataClass: "internal",
       messages: [{ role: "user", text: "Q?" }],
@@ -181,6 +225,7 @@ describe("workers_ai adapter (Cloudflare Workers AI REST)", () => {
     ]);
     const outcome = await adapterFor(capture.fetch).complete({
       attemptId: "attempt-1",
+      model: "hosted-beta",
       task: "condense",
       dataClass: "public",
       messages: [{ role: "user", text: "Summarise." }],
@@ -207,6 +252,7 @@ describe("workers_ai adapter (Cloudflare Workers AI REST)", () => {
     ]);
     const outcome = await adapterFor(capture.fetch).complete({
       attemptId: "attempt-1",
+      model: "hosted-beta",
       task: "condense",
       dataClass: "public",
       messages: [{ role: "user", text: "Summarise." }],
@@ -221,6 +267,7 @@ describe("workers_ai adapter (Cloudflare Workers AI REST)", () => {
     const capture = capturingFetch([() => Response.json({ success: true, result: { unexpected: 1 } })]);
     const outcome = await adapterFor(capture.fetch).complete({
       attemptId: "attempt-1",
+      model: "hosted-beta",
       task: "condense",
       dataClass: "public",
       messages: [{ role: "user", text: "Summarise." }],
@@ -228,6 +275,30 @@ describe("workers_ai adapter (Cloudflare Workers AI REST)", () => {
       timeoutMs: 5_000,
     });
     expect(outcome).toMatchObject({ ok: false, kind: "invalid_output", possiblyBilled: true });
+  });
+
+  it("runs the model named on the request through the account endpoint, not the pinned composing model", async () => {
+    const capture = capturingFetch([
+      () =>
+        Response.json({
+          success: true,
+          result: { response: "supported", usage: { prompt_tokens: 22, completion_tokens: 5 } },
+        }),
+    ]);
+    const outcome = await adapterFor(capture.fetch).complete({
+      attemptId: "attempt-verify-2",
+      model: "hosted-gamma-verifier",
+      task: "verify",
+      dataClass: "internal",
+      messages: [{ role: "user", text: "Is this supported?" }],
+      maxOutputUnits: 200,
+      timeoutMs: 5_000,
+    });
+    expect(outcome).toMatchObject({ ok: true, model: "hosted-gamma-verifier" });
+    const [request] = capture.requests;
+    expect(request?.url).toBe(
+      "https://api.cloudflare.com/client/v4/accounts/synthetic-account/ai/run/hosted-gamma-verifier",
+    );
   });
 
   it("no token means no request (fail closed)", async () => {
@@ -240,6 +311,7 @@ describe("workers_ai adapter (Cloudflare Workers AI REST)", () => {
     });
     const outcome = await adapter.complete({
       attemptId: "attempt-1",
+      model: "hosted-beta",
       task: "condense",
       dataClass: "public",
       messages: [{ role: "user", text: "Summarise." }],

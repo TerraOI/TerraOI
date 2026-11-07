@@ -318,6 +318,69 @@ describe("verify through the gateway: rule (e) is not the caller's job (plan §1
   });
 });
 
+describe("the selected model reaches the provider, and the attempt identity says which call it was", () => {
+  it("a verify call asks the adapter for the evaluated verifier model, not the endpoint's composing model (plan §12.4 rule (e) on the wire)", async () => {
+    const h = harness(
+      { claude: [answered(JSON.stringify({ answer: "supported" }), "hosted-gamma-verifier")] },
+      {
+        config: testConfiguration({
+          endpoints: M1_ENDPOINTS.map((endpoint) =>
+            endpoint.providerKey === "claude"
+              ? {
+                  ...endpoint,
+                  verifierModel: { model: "hosted-gamma-verifier", evalSetVersion: "ev-0003" },
+                }
+              : endpoint,
+          ),
+        }),
+      },
+    );
+    const result = await callModelGateway(
+      {
+        ...baseInput({ chain: ["claude"], dataClass: "internal" }),
+        task: "verify",
+        minTier: "medium",
+        composedWith: { providerKey: "local_box", model: "open-weights-alpha" },
+      },
+      h.deps,
+    );
+    if (!result.ok) throw new Error(`expected a verifier, got ${result.reason}`);
+    const [request] = adapterFor(h, "claude").calls;
+    // Selecting a verifier is worthless if the call then asks the provider for `endpoint.model`,
+    // which is the model that composed the answer. The request itself is the assertion.
+    expect(request?.model).toBe("hosted-gamma-verifier");
+    expect(result.attempts[0]?.model).toBe(request?.model);
+  });
+
+  it("a compose and a verify at one chain position are separate attempts, and the same call retried keeps one id (§12.3)", async () => {
+    const composeInput = baseInput({ chain: ["claude"], runId: "run-identity" });
+    const verifyInput = {
+      ...baseInput({ chain: ["claude"], runId: "run-identity", dataClass: "internal" }),
+      task: "verify" as const,
+      minTier: "medium" as const,
+      composedWith: { providerKey: "local_box" as const, model: "open-weights-alpha" },
+    };
+
+    const firstCompose = await callModelGateway(composeInput, harness({ claude: [answered(JSON.stringify({ answer: "a" }), "hosted-gamma")] }).deps);
+    const verify = await callModelGateway(verifyInput, harness({ claude: [answered(JSON.stringify({ answer: "supported" }), "hosted-gamma")] }).deps);
+    const retryOfCompose = await callModelGateway(composeInput, harness({ claude: [answered(JSON.stringify({ answer: "a" }), "hosted-gamma")] }).deps);
+
+    for (const outcome of [firstCompose, verify, retryOfCompose]) {
+      if (!outcome.ok) throw new Error(`expected an answer, got ${outcome.reason}`);
+    }
+    const composeId = firstCompose.attempts[0]?.attemptId;
+    const verifyId = verify.attempts[0]?.attemptId;
+    const retryId = retryOfCompose.attempts[0]?.attemptId;
+    // Same run, same chain position, different calls: one id for both would let a verify reservation
+    // satisfy (or double-book) the compose that sits at the same position.
+    expect(composeId).toBeTruthy();
+    expect(verifyId).toBeTruthy();
+    expect(composeId).not.toBe(verifyId);
+    // And the dedupe property the comment on attemptIdOf promises: a replayed call is the same attempt.
+    expect(retryId).toBe(composeId);
+  });
+});
+
 describe("configuration error and deployment gap are different findings (F40 replay)", () => {
   it("no endpoint row in the reviewed configuration skips with no_endpoint, and nothing is called", async () => {
     const h = harness(
