@@ -128,6 +128,20 @@ describe("extractPdfTextLayer", () => {
     expect(result.text).toBe("");
   });
 
+  it("a stream dictionary that never closes yields no text, not its payload", async () => {
+    // `<< /Length N /DecodeParms << /K -1 >>`: the nested dictionary is left open, so the real keys
+    // are unreachable. An answer of "there is no `/Filter`" means "stored as written", and the payload
+    // would be appended as the document's text layer — an attacker controlling text that never existed
+    // (AGENTS.md §4.5, §4.8). An unbalanced dictionary has no readable keys, so it is refused.
+    const bytes = await buildSyntheticPdf({
+      pages: [{ lines: ["PAYLOAD-BEHIND-AN-UNCLOSED-DICTIONARY"], dictExtra: " /DecodeParms << /K -1" }],
+    });
+    const result = await extractPdfTextLayer(bytes);
+    expect(result.text, "an unreadable dictionary must not yield text").not.toContain("PAYLOAD-BEHIND-AN-UNCLOSED-DICTIONARY");
+    expect(result.outcome).toBe("no_text_layer");
+    expect(result.notes).toContain("unsupported_filter_unparsed");
+  });
+
   it("an honest DecodeParms does not cost a page its text either", async () => {
     // The benign direction of the same bug: `/Crypt` in the parameter dictionary is not this stream's
     // filter, so a lone FlateDecode stream must still decode. Depth-blind scanning refused it as

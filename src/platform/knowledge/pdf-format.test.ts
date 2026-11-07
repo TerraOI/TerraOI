@@ -73,6 +73,21 @@ describe("parseFilterChain", () => {
     }
   });
 
+  it("refuses a dictionary that never closes instead of reading it as an unfiltered stream", () => {
+    // The third sibling of the same rule. An unclosed nested dictionary hides the stream's own keys,
+    // and `[]` means "no `/Filter`: stored as written", so the extractor would append whatever the
+    // payload holds as text. A dictionary that does not balance has no readable keys at all, so it
+    // reports the unreadable sentinel and every caller refuses it — fail closed, with a note.
+    expect(parseFilterChain("<< /DecodeParms << /Filter /Crypt")).toEqual([UNREADABLE_FILTER]);
+    expect(parseFilterChain("<< /DecodeParms << /K -1")).toEqual([UNREADABLE_FILTER]);
+    expect(unsupportedFilterNote(parseFilterChain("<< /DecodeParms << /K -1"))).toBe("unsupported_filter_unparsed");
+    expect(hasFlateOutermost(parseFilterChain("<< /DecodeParms << /K -1"))).toBe(false);
+    // Balanced dictionaries keep their old answers: no `/Filter` is genuinely unfiltered, and the
+    // dictionary's own `>>` ends the scan.
+    expect(parseFilterChain("<< /Length 5 >>")).toEqual([]);
+    expect(parseFilterChain("<< /Length 5 >> \n")).toEqual([]);
+  });
+
   it("caps a hostile chain and every name, and meters only the outer hop", () => {
     const nine = ["RunLengthDecode", "LZWDecode", "DCTDecode", "JPXDecode", "CCITTFaxDecode", "JBIG2Decode", "Crypt", "FlateDecode", "Tail"];
     expect(parseFilterChain(`<< /Filter [${nine.map((name) => `/${name}`).join(" ")}] >>`)).toEqual(nine.slice(0, 8));
