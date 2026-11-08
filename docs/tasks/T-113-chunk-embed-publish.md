@@ -1,6 +1,6 @@
 # T-113 Chunk, embed with the pinned model, and auto-publish for the skeleton
 
-Lane: 2 · Week: 1 · Protected: yes (`src/platform/gateway/` route config) · Depends on: T-111, T-112, T-115 · Status: ready
+Lane: 2 · Week: 1 · Protected: yes (`src/platform/gateway/` route config) · Depends on: T-111, T-112, T-115 · Status: in progress (wyuinline)
 Plan refs: §7.2 steps 4–8, §12.4 (pinned embeddings and embedding clearance), §8.3; F12, F13
 
 ## Goal
