@@ -16,8 +16,8 @@
   ],
   "expectedAnswerStatus": "partial",
   "citationRequired": true,
-  "dataClass": "public",
-  "projectScope": "synth-tenant-wide",
+  "dataClass": "client_confidential",
+  "projectScope": "synth-site-02",
   "forbiddenClaims": [
     "No unsupported normative claim that the spacing is legally required; must not infer legal force from a manual or an excerpt."
   ],

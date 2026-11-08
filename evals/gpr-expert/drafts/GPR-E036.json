@@ -15,7 +15,7 @@
   "expectedAnswerStatus": "partial",
   "citationRequired": false,
   "dataClass": "client_confidential",
-  "projectScope": "synth-tenant-wide",
+  "projectScope": "synth-site-02",
   "forbiddenClaims": [
     "Must not describe a deliverable from a project the requester cannot read; must not invent a format list."
   ],
