@@ -1,13 +1,13 @@
 # ADR-0004 Tenant brand contract and `tenant_brands` (T-103 prerequisite)
 
 Status: **proposed / blocked on [#62](https://github.com/TerraOI/TerraOI/issues/62), [#65](https://github.com/TerraOI/TerraOI/issues/65), [#55](https://github.com/TerraOI/TerraOI/issues/55)** — #67 also gates the `locale` field · Date: 2026-11-07 · Deciders: none yet (this ADR decides nothing; see §6)
-Plan refs: §4.4 (public brand cache), §5.1 (lines 191, 261–273), §6.1 (line 321), §11 F04/F05 (lines 694–695), §16 (line 944), §20.5 (line 1234)
+Plan refs: §4.4 (public brand cache), §3.4 lessons register (line 191), §5.1 (lines 261–273), §6.1 (line 321), §11 F04/F05 (lines 694–695), §16 (line 944), §20.5 (line 1234)
 
 This is the T-103 **prerequisite written as a proposal**, not a claim on T-103 and not an answer to any open question. Every place where a decision is owed says so and describes what would change under each option. [T-103](../tasks/T-103-tenant-shell-brand.md) says the contract "lands with this packet in `src/contracts/tenant-brand.ts` — **needs an ADR**"; that is what this file is for ([COORDINATION.md §2](../COORDINATION.md)).
 
 ## 1. Context: why a single validated brand object is the only safe choke point
 
-Identity is already being rendered from values nobody validated. The merged sign-in surfaces take a hand-written prop — [`src/components/auth/types.ts:3-12`](../../src/components/auth/types.ts) (`SignInBrand`) — whose only producers on `main` are inline fixtures in [`src/components/auth/fixtures.ts`](../../src/components/auth/fixtures.ts), including a `data:` URI logo explicitly "for these fixtures only". There is no brand shape in `src/contracts/` (`grep -i brand src/contracts` → nothing) and no brand column anywhere in `supabase/migrations/` — that is the opening fact of #62.
+Identity is already being rendered from values nobody validated. The merged sign-in surfaces take a hand-written prop — [`src/components/auth/types.ts:3-12`](../../src/components/auth/types.ts) (`SignInBrand`) — whose only producers on `main` are a hand-written constant in [`src/components/auth/unknown-address-page.tsx:8-17`](../../src/components/auth/unknown-address-page.tsx) — `TERRAOI_BRAND`, TerraOI-branded by a supervisor ruling recorded in that file's own comment — plus inline fixtures in [`src/components/auth/fixtures.ts`](../../src/components/auth/fixtures.ts), including a `data:` URI logo explicitly "for these fixtures only". There is no brand shape in `src/contracts/` (`grep -i brand src/contracts` → nothing) and no brand column anywhere in `supabase/migrations/` — that is the opening fact of #62.
 
 Four rules in the plan have no place to live except one validated object plus the F04 loader:
 
@@ -16,7 +16,7 @@ Four rules in the plan have no place to live except one validated object plus th
 - a brand row for another tenant is "never served or cached under this host" (T-204), and an unknown or brand-less tenant falls back to the platform brand (T-103);
 - email identity needs a *verified* sender — "a display name does not establish domain authorization" (§5.1 line 271).
 
-The plan's own lessons register already names the shape: the "`branding.ts` and organization settings" row is the "Central validation/choke point", to be "Expand[ed] to the full `TenantBrand` contract and all customer-visible surfaces; preserve kit mode rules" (§5.1 line 191). [FAQ-0001](../FAQ.md) and [brand/README.md](../../brand/README.md) rule 1 make the kit readable only through `src/platform/branding/`. F04 `loadTenantBrand` (§11 line 694) is that loader: "Host-resolved org + config version → safe product identity".
+The plan's own lessons register already names the shape: the "`branding.ts` and organization settings" row is the "Central validation/choke point", to be "Expand[ed] to the full `TenantBrand` contract and all customer-visible surfaces; preserve kit mode rules" (§3.4 line 191, the lessons-register row — not §5.1). [FAQ-0001](../FAQ.md) and [brand/README.md](../../brand/README.md) rule 1 make the kit readable only through `src/platform/branding/`. F04 `loadTenantBrand` (§11 line 694) is that loader: "Host-resolved org + config version → safe product identity".
 
 Without it, every new surface (shell, chat empty/error, browser title, manifest, favicon, notification, email) re-invents what a brand is, and each one is a fresh chance to render the wrong company's name or colour. The kit itself warns that a customer-mode review must "Search visible customer output and metadata for unintended TerraOI references" ([WHITE-LABEL.md](../../brand/terraoi-brand-kit/05-guides/WHITE-LABEL.md), acceptance section) — a manual step TerraOI intends to replace with a validated object.
 
@@ -36,7 +36,7 @@ Field list fixed by §5.1 line 269 and [T-204](../tasks/T-204-brand-modes.md) ("
 | `attribution` (`showPoweredBy`) | yes — kit AGENTS.md: "Optional attribution is controlled exclusively by `showPoweredBy`" | derived from `mode`, never stored independently |
 | `reportOwner` | yes ("TerraOI" / "Customer Brand") | kit constant / tenant row |
 | `emailSenderName` | yes | kit constant / tenant row — a display name only |
-| `verifiedSender`, `replyTo` | **no** — `emailReplyTo` is `""` in all three modes, and WHITE-LABEL.md: "Reply-to is blank until a real customer address is approved; it is never inferred" | outbound sending configuration, not a free-text tenant field: depends on #64 and the human sending-domain step in [T-004](../tasks/T-004-infrastructure.md). No credential field may be representable in the contract |
+| `verifiedSender`, `replyTo` | **no** — `emailReplyTo` is `""` in all three modes, and WHITE-LABEL.md: "Reply-to is blank until a real customer address is approved; it is never inferred" | outbound sending configuration, not a free-text tenant field: depends on #64. One correction while we are writing this down: **no sending-domain step exists in [T-004](../tasks/T-004-infrastructure.md) today** — `git grep -in "sender\|SPF\|DKIM"` over that packet at `467f169` returns nothing — and T-204's line "sending-domain setup is a human step in T-004" points at a step that was never written. That is part of why #64 is open, and a brand PR must not assume the domain is verified. No credential field may be representable in the contract |
 | `documentPrefix` | yes (`"TOI"`, `"CUSTOMER"`) | kit constant / tenant row |
 | `supportLabel` | yes ("Contact your workspace administrator") | kit constant / tenant row |
 | `supportUrl` | **no** — the kit has a label, no URL | tenant row; https-only (T-103 negative test) |
@@ -64,7 +64,7 @@ Fields the component does not use (`legalName`, sender fields, `documentPrefix`,
 
 ## 4. Candidate schema — a sketch in this ADR, not a migration
 
-No file under `supabase/migrations/`: a timestamp is the daily sync's to claim ([COORDINATION.md §3](../COORDINATION.md): one migration per PR, rename to a fresh timestamp on rebase), and #62 has not yet said which packet owns the table. The sketch below is what that PR would start from, following the merged patterns: `unique (id, organisation_id)` on the parent so a child table's composite FK can never cross tenants ([`20261105070000_knowledge_core.sql:91-109`](../../supabase/migrations/20261105070000_knowledge_core.sql); `projects` does the same at [`20261105060000_tenancy_core.sql:130-134`](../../supabase/migrations/20261105060000_tenancy_core.sql)), and `config_version` with the same meaning as `organisations.policy_revision` (`…tenancy_core.sql:27-29`) — bumped by the write path, deliberately, not by a trigger default.
+No file under `supabase/migrations/`: a timestamp is the daily sync's to claim ([COORDINATION.md §3](../COORDINATION.md): one migration per PR, rename to a fresh timestamp on rebase), and #62 has not yet said which packet owns the table. The sketch below is what that PR would start from, following the merged patterns: `unique (id, organisation_id)` on the parent so a child table's composite FK can never cross tenants ([`20261105070000_knowledge_core.sql:91-109`](../../supabase/migrations/20261105070000_knowledge_core.sql); `projects` does the same at [`20261105060000_tenancy_core.sql:130-134`](../../supabase/migrations/20261105060000_tenancy_core.sql)), and `config_version` with the same meaning as `organisations.policy_revision` (`…tenancy_core.sql:27-29`) — bumped by the write path, deliberately, not by a trigger default. **There is no working precedent to copy, and this ADR must not imply one:** `policy_revision` appears exactly twice in the merged schema — the column at `:29` and a table comment at `:34` — no trigger and no RPC writes it, and not one merged pgTAP file mentions it (`git grep -n policy_revision origin/main -- supabase src` → two hits, both in that one migration). So `config_version` inherits an **unimplemented** convention: whichever packet first reads a version column also owns the bump path and the assertion that it moves.
 
 ```sql
 -- SKETCH ONLY. Not a migration; no timestamp claimed; blocked on #62.
@@ -143,12 +143,19 @@ begin
        and d.status = 'active'
        and d.kind = 'tenant'                    -- 'staging' aliases: open, see the notes below
        and o.status = 'active';                 -- suspended tenants get no brand (F28)
+       -- STATED DIVERGENCE, not inherited: the merged model this sketch copies filters
+       -- `o.status in ('provisioning', 'active')` at tenancy_core.sql:247. A provisioning tenant
+       -- has no brand row yet, so this function is narrower on purpose. If #62 wants the same
+       -- filter as the tenancy resolver, say so and change both, not one.
 end;
 $$;
 
--- The merged blanket revoke (tenancy_core.sql:335) does not reach a new table, so this migration
--- carries its own: revoke all on public.tenant_brands from anon, authenticated;
--- grant select on public.tenant_brands to authenticated;
+-- The merged blanket revoke (tenancy_core.sql:335) binds only tables that exist when it runs, and
+-- Supabase auto-exposes new public tables to anon/authenticated, so this migration revokes by name.
+-- The pattern and its warning are written out at 20261106100000_knowledge_uploads.sql:591-596:
+-- "per object, never blanket", because re-running the blanket revoke would strip the tenancy grants.
+-- revoke all on public.tenant_brands from anon, authenticated;
+-- NO table grant to any request role — see the note below the sketch.
 -- grant execute on function public.load_public_brand(text) to anon, authenticated;
 ```
 
@@ -156,11 +163,13 @@ pgTAP negatives: AGENTS.md §4.2 asks for another tenant, another project and a 
 
 Three structural notes the supervisor should see before choosing (#62):
 
-- **The `terraoi`-mode rule cannot be a CHECK.** A CHECK cannot contain a subquery, so "a `terraoi`-mode row may only exist for platform/admin hosts" (#62's comment) needs either (a) `check (mode in ('powered','customer'))` plus platform identity that is a **kit constant with no row at all**, or (b) a trigger that inspects `tenant_domains`, or (c) writes confined to a definer RPC that validates. Which one depends on how #62 answers "who owns platform mode".
+- **The `terraoi`-mode rule cannot be an *inline* CHECK.** A CHECK expression cannot contain a subquery, so "a `terraoi`-mode row may only exist for platform/admin hosts" (#62's comment) needs either (a) `check (mode in ('powered','customer'))` plus platform identity that is a **kit constant with no row at all**, or (b) a trigger that inspects `tenant_domains`, or (c) writes confined to a definer RPC that validates, **or (d) a CHECK calling an immutable helper** — merged migrations already do that (`check (public.data_class_is_valid(data_class))`, [`knowledge_core.sql:101,103`](../../supabase/migrations/20261105070000_knowledge_core.sql)). (d) is narrower than it first looks: a helper that reads `tenant_domains` is not re-validated when *that* table changes, so it constrains the row at write time and nothing else, which is why a cross-table rule still needs (b) or (c). Which one depends on how #62 answers "who owns platform mode".
 - **A brand row needs an organisation, and the platform has none.** `organisation_id` is `not null`; `terraoi.app` / `admin.terraoi.app` are a **code constant** in [`src/platform/tenancy/host.ts:29-30`](../../src/platform/tenancy/host.ts), not rows in `tenant_domains` ([`supabase/seed.sql:47-50`](../../supabase/seed.sql) registers only company1/company2), and `tenant_domains.kind` allows `'platform'`/`'admin'` but no merged row uses them. So option (a) above matches the merged schema; (b)/(c) need a platform organisation and seeded platform domain rows first.
 - **Alias hosts have no answer yet.** `supabase/seed.sql:49` registers `company1-staging.terraoi.app` (`kind = 'staging'`) against the same organisation, so the sketch above deliberately filters `kind = 'tenant'`: whether a staging alias reads the same brand row, and under which cache key (§5), is undecided and should not be settled inside a brand PR by accident.
 
 **Columns readable before sign-in, on the tenant's own host only** (proposal; the cut itself is #62's "who may read it unauthenticated" sub-question): `mode`, `displayName`, `descriptor`, `tagline`, the three colours, logo/favicon references, `supportLabel`/`supportUrl`. **Never** pre-sign-in: `legalName` unless a disclosure rule requires it (see §7), the sender/reply-to set, `configVersion` (a cache key, not a page fact), and anything membership-derived or user-derived. The F04 result cached per §4.4 must carry none of the "never" columns.
+
+**Why the sketch grants no SELECT on the table to any request role:** RLS restricts **rows**, never columns. A table-wide `grant select … to authenticated` combined with a member-scoped policy would still hand every signed-in member `legal_name`, the sender fields and `config_version` — exactly the columns the paragraph above refuses to expose and §5.3 keeps server-side. So the sketch reads the presentation projection through `load_public_brand` (anon), reads the full row through a member-scoped projection function, and writes only through a definer RPC. This makes the rule enforceable rather than a preference: if #62 decides members should hold a table grant, then the "never" list shrinks, and that has to be said out loud rather than left to the policy body.
 
 ## 5. The public brand cache
 
@@ -190,5 +199,5 @@ The merged assertion is [`brand-modes.test.tsx:43-54`](../../src/components/auth
 
 - Nothing here is merged code, a contract file or a migration; the packet work still needs #62 to say who writes them, and `src/contracts/` is a protected path either way.
 - If the packets' shape is adopted, both lanes get one vocabulary and `SignInBrand` stays a projection; if #62 chooses option 3, §4 of this ADR is superseded and §2/§3 largely survive.
-- A brand table adds a new row to the merged grant bookkeeping: the blanket `revoke all on all tables in schema public from anon, authenticated;` at [`tenancy_core.sql:335`](../../supabase/migrations/20261105060000_tenancy_core.sql) covers only tables that exist when it runs, so a brand migration carries its own revoke and a narrow `grant select` / `grant execute`, in the pattern of lines 343–356.
+- A brand table adds a new row to the merged grant bookkeeping: the blanket `revoke all on all tables in schema public from anon, authenticated;` at [`tenancy_core.sql:335`](../../supabase/migrations/20261105060000_tenancy_core.sql) covers only tables that exist when it runs, so a brand migration carries its own revoke **by name** — the merged precedent, and the reason not to re-run the blanket form, is `20261106100000_knowledge_uploads.sql:591-596` — plus a narrow `grant execute`, and for this table **no table grant at all**, for the column reason stated in §4.
 - `T-103`'s packet forbids editing `src/platform/tenancy/`, so the loader cannot extend the merged `TenancyStore` port ([`resolve-tenant-context.ts:37-41`](../../src/platform/tenancy/resolve-tenant-context.ts)); it needs its own query or a new RPC — which is another reason #62, not a builder, decides the storage shape first.
