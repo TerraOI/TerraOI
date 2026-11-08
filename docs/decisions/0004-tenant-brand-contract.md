@@ -26,7 +26,7 @@ Field list fixed by §5.1 line 269 and [T-204](../tasks/T-204-brand-modes.md) ("
 
 | Field | Kit supplies it? | Source once merged (proposal) |
 |---|---|---|
-| `mode` | `defaultMode: "terraoi"` is a **preview control** only — WHITE-LABEL.md: "The selector is a design review control" | tenant configuration row, resolved from the host-resolved organisation; never a query parameter, header or cookie |
+| `mode` | two kit facts, not one: `defaultMode: "terraoi"` is the kit's default (`brand-config.json:3`, set per WHITE-LABEL.md:17), while WHITE-LABEL.md:11 is about the **preview selector** — "The selector is a design review control. Do not expose cross-customer identity switching in a production tenant UI." | tenant configuration row, resolved from the host-resolved organisation; never a query parameter, header or cookie |
 | `displayName` | yes for `terraoi` ("TerraOI"); `powered`/`customer` hold the placeholder `"Customer Brand"` | kit constant (platform mode) / tenant row (all other tenants) |
 | `legalName` | **no** — the kit has one `name`, no legal-name field | tenant row, supplied at provisioning (F05, §11 line 695) |
 | `descriptor` | yes: `"Operational Intelligence"` in all three modes | kit constant default; tenant row if overridden |
@@ -72,6 +72,9 @@ create table public.tenant_brands (
   id uuid primary key default gen_random_uuid(),
   organisation_id uuid not null,
   -- §5.1 line 261. Whether 'terraoi' may appear in a row at all is open: see the note below.
+  -- RECOMMENDED FORM if note 1's option (a) wins: check (mode in ('powered','customer')).
+  -- The permissive list below is written that way only so the sketch compiles under either
+  -- ruling. Lifting it into a migration without resolving #62 silently chooses the loose variant.
   mode text not null check (mode in ('terraoi', 'powered', 'customer')),
   display_name text not null check (display_name ~ '^\S(.*\S)?$'
     and char_length(display_name) between 1 and 200),
@@ -94,13 +97,26 @@ create table public.tenant_brands (
   constraint tenant_brands_no_placeholder check (
     display_name not like '%{{%' and tagline not like '%{{%'
     and report_owner not like '%{{%' and support_label not like '%{{%'),
+  -- The same line 269 also says "Do not permit arbitrary CSS or scripts. Custom names and
+  -- instructions are untrusted content", and that half needs a stated home rather than silence.
+  -- PRIMARY guard is the loader/writer (T-103): these fields are stored as text and rendered as
+  -- text, never interpolated into markup, a stylesheet, a manifest or an href template, and the
+  -- contract keeps no style field at all (§3). The CHECK below is a backstop for a writer that
+  -- forgets, not the mechanism — the same division of labour as the contrast rule under the table.
+  constraint tenant_brands_names_are_plain_text check (
+    display_name !~ '[<>]' and descriptor !~ '[<>]' and tagline !~ '[<>]'
+    and report_owner !~ '[<>]' and support_label !~ '[<>]'
+    and (legal_name is null or legal_name !~ '[<>]')),
   -- Mirrors organisations.policy_revision: bumped on any brand write, read by the cache and F04.
   config_version bigint not null default 1 check (config_version > 0),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint tenant_brands_organisation_fk
     foreign key (organisation_id) references public.organisations (id) on delete cascade,
-  unique (organisation_id),          -- one brand row per tenant
+  unique (organisation_id),          -- ASSUMPTION, not decided here: one row, updated in place.
+                                     -- A versioned/immutable brand history would instead be
+                                     -- unique (organisation_id, config_version), and plan :321's
+                                     -- "validated configuration/version" wording allows either.
   unique (id, organisation_id)       -- so a later child table can never reference another tenant's
 );
 
@@ -185,7 +201,7 @@ Proposal, all of which survives #62's options:
 
 ## 6. Decisions owed — none of these is answered here
 
-1. **#62 — who owns the brand table, the mode column and this contract.** It must settle: option 1 (T-103 owns the migration **and** this ADR — recommended by its author), option 2 (a separate tenant-configuration packet that T-103/T-202/T-204 all depend on), option 3 (seed a static per-tenant brand from deployment config, table later). This ADR's §2/§4 stand as written under 1; under 2 the same shape moves to that packet and T-103 rebases onto it; under 3 there is no table and §4 becomes a deployment-configuration schema — and its author notes T-204's "a brand row for another tenant is never served or cached" test becomes unprovable. Its comment adds three sub-questions this ADR has deliberately left open: unauthenticated readability (the cut in §4), asset serving (public path vs bucket key vs minted URL, and "sanitize **or** reject" SVG/HTML), and contract ordering with T-103 (this ADR + contract first, or a module-local shape with a named rebase). Also from that comment: where a degraded brand's "admin-visible note" appears — no merged surface carries one.
+1. **#62 — who owns the brand table, the mode column and this contract.** It must settle: option 1 (T-103 owns the migration **and** this ADR — recommended by its author), option 2 (a separate tenant-configuration packet that T-103/T-202/T-204 all depend on), option 3 (seed a static per-tenant brand from deployment config, table later). This ADR's §2/§4 stand as written under 1; under 2 the same shape moves to that packet and T-103 rebases onto it; under 3 there is no table and §4 becomes a deployment-configuration schema — and its author notes T-204's "a brand row for another tenant is never served or cached" test becomes unprovable. That comment carries three numbered sub-questions plus a separate earlier bullet, and this ADR leaves all four open: asset serving (public path vs bucket key vs minted URL, and "sanitize **or** reject" SVG/HTML); contract ordering with T-103 (this ADR and the contract first, or a module-local shape with a named rebase); where a degraded brand's "admin-visible note" appears (no merged surface carries one); and — the separate bullet, which §4's readability cut depends on — who may read a brand unauthenticated. The labelling is worth getting right: an answer set read as "three sub-questions" is how the readability ruling gets skipped by the very PR that cannot avoid it.
 2. **#65 — what may contain the string "TerraOI" in customer mode.** See §7. It must settle whether the rule is "no provider *branding*" or "no `terraoi` *substring*", and which of the host string, legal disclosures and report owner count as branding. It changes no field list; it changes which fields a renderer may print and what the merged test asserts.
 3. **#55 — how a Server Component gets the trusted routed host.** Until it is answered, F04 has no legitimate caller for a *page*: the brand is resolved for an organisation, and choosing that organisation from a `Host` header for a tenant surface is the cross-host replay F02 exists to fail. This ADR deliberately does not state a host source; the merged `platformHostFromHeaders` ([`src/platform/site/platform-host.ts:26-30`](../../src/platform/site/platform-host.ts)) returns only platform-class hosts and must not be generalised to tenant selection. Under options 1/2/3/4 of #55, only the **caller** changes; the brand object, its validation and its cache key do not.
 4. **#67 — the `locale` CHECK.** [`tenancy_core.sql:25`](../../supabase/migrations/20261105060000_tenancy_core.sql) accepts `en-Gbr` and rejects `en-GB`. This ADR does not pick a locale validator: `TenantBrand.locale` mirrors whatever the ruling is, and the source of truth (app or database) gets stated once. Until then no UK-locale tenant is claimed anywhere, and the branding plan on file mirrors the merged CHECK as it is.
