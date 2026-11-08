@@ -24,6 +24,16 @@ const NAME_SHAPE = /^[A-Za-z0-9_-]{1,64}$/;
 const VALUE_SHAPE = /^[A-Za-z0-9_.-]{0,1024}$/;
 const HOST_PREFIX = "__Host-";
 
+/**
+ * Fail closed on any unknown environment: only an explicit development runtime may issue a cookie
+ * that a browser would not protect (`http://localhost` in `next dev`). This is the same rule shape
+ * the tenancy adapter uses for its `developmentHost` (PR #18 N1): an escape hatch bound to the
+ * runtime, never one that works because nobody passed `secureTransport: false`.
+ */
+export function isDevelopmentRuntime(): boolean {
+  return typeof process !== "undefined" && process.env.NODE_ENV === "development";
+}
+
 export function serializeSetCookie(spec: CookieSpec): string {
   if (typeof spec.name !== "string" || !NAME_SHAPE.test(spec.name)) {
     throw new Error("cookie name must be a short token character sequence");
@@ -39,6 +49,9 @@ export function serializeSetCookie(spec: CookieSpec): string {
   }
   if (spec.sameSite === "None") {
     throw new Error("SameSite=None is not used for tenant cookies and would require Secure");
+  }
+  if (!spec.secure && !isDevelopmentRuntime()) {
+    throw new Error("a cookie without Secure is only permitted in a development runtime");
   }
   const path = spec.path ?? "/";
   if (spec.name.startsWith(HOST_PREFIX)) {
@@ -73,12 +86,17 @@ export function parseCookieHeader(header: string | null | undefined): Record<str
 }
 
 /**
- * The `__Host-` prefix requires a secure transport and cannot be used on a plain-HTTP development
- * origin, so the adapter says whether this request arrived over https. Nothing may *choose* to drop
- * the prefix on an https request: `cookieName(base, isHttpsUrl(request.url))` is the only call form.
+ * The `__Host-` prefix requires a secure transport, so the adapter says whether this request
+ * arrived over https. Dropping the prefix is not a caller's choice: outside a development runtime
+ * this throws, which is the staging guard against a mis-proxied `http://` request URL silently
+ * issuing an unprefixed, non-Secure session cookie.
  */
 export function cookieName(base: string, secureTransport: boolean): string {
-  return secureTransport ? `${HOST_PREFIX}${base}` : base;
+  if (secureTransport) return `${HOST_PREFIX}${base}`;
+  if (!isDevelopmentRuntime()) {
+    throw new Error(`a cookie name without the ${HOST_PREFIX} prefix is only permitted in a development runtime`);
+  }
+  return base;
 }
 
 export function clearedCookie(base: string, secureTransport: boolean): CookieSpec {
