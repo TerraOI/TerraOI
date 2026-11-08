@@ -1,10 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { issueSession } from "./session";
+import { createTokenCipher, type SessionStore, type StoredSession } from "./session-store";
 import { buildLoginView, type LoginViewPorts } from "./login-view";
 
 const SECRET = "synthetic-test-secret-not-a-real-key-0000000000";
 const NOW = 1_800_000_000;
+// A synthetic keyring, never a real one: the token half is encrypted at rest under the
+// `SESSION_TOKEN_KEY` Worker binding, whose value does not exist in this repo (AGENTS.md §4.6).
+const CIPHER = { currentVersion: "v1", keys: { v1: "synthetic-keyring-v1-not-a-real-key-0000000000" } };
 
 const C1 = "11111111-1111-4111-8111-111111111111";
 const C2 = "22222222-2222-4222-8222-222222222222";
@@ -13,12 +17,36 @@ const LEFT = "00000000-0000-4000-8000-0000000000a3";
 const OUTSIDER = "00000000-0000-4000-8000-0000000000b1";
 const MEMBERSHIP = "55555555-5555-4555-8555-555555555555";
 
+/** The in-memory stand-in for `toi_identity.sessions`; the SQL half is pgTAP's job (014). */
+function memoryStore(rows: Map<string, StoredSession> = new Map()): SessionStore & { rows: Map<string, StoredSession> } {
+  return {
+    rows,
+    async insert({ sessionKey, session }) {
+      rows.set(sessionKey, session);
+    },
+    async find(sessionKey) {
+      return rows.get(sessionKey) ?? null;
+    },
+    async revoke(sessionKey, at) {
+      const row = rows.get(sessionKey);
+      if (row) rows.set(sessionKey, { ...row, revokedAt: at });
+    },
+    async replaceTokens(sessionKey, replacement) {
+      const row = rows.get(sessionKey);
+      if (!row || row.revokedAt !== null) return false;
+      rows.set(sessionKey, { ...row, ...replacement });
+      return true;
+    },
+  };
+}
+
 // The seeded identities and hosts of supabase/seed.sql: the gate is the thing that decides who sees
 // the no-access surface, so the fixtures are the ones the staging demo will use.
 function ports(overrides: Partial<LoginViewPorts> = {}): LoginViewPorts {
   return {
     now: () => NOW,
     signingSecret: () => SECRET,
+    sessionStore: () => null,
     findHost: async (host) =>
       host === "company1.terraoi.app" || host === "company2.terraoi.app"
         ? { organisationId: host === "company1.terraoi.app" ? C1 : C2, organisationStatus: "active" }
@@ -34,8 +62,16 @@ function ports(overrides: Partial<LoginViewPorts> = {}): LoginViewPorts {
   };
 }
 
-async function sessionCookieFor(userId: string, host = "company1.terraoi.app") {
-  const session = await issueSession({ userId, host, secret: SECRET, now: NOW, secureTransport: true });
+async function sessionCookieFor(store: SessionStore, userId: string, host = "company1.terraoi.app") {
+  const session = await issueSession({
+    userId,
+    host,
+    now: NOW,
+    secureTransport: true,
+    store,
+    cipher: createTokenCipher(CIPHER),
+    tokens: { accessToken: "synthetic-access-token", refreshToken: "synthetic-refresh-token", expiresAt: NOW + 3600 },
+  });
   return `${session.cookie.name}=${session.cookie.value}`;
 }
 
@@ -69,9 +105,10 @@ describe("buildLoginView (the surface F02 chooses, plan §4.1 step 4, §4.2)", (
   });
 
   it("a suspended tenant is tenant_not_live whatever the session says", async () => {
+    const store = memoryStore();
     const view = await buildLoginView({
-      request: makeRequest("company1.terraoi.app", null),
-      ports: ports({ findHost: async () => ({ organisationId: C1, organisationStatus: "suspended" }) }),
+      request: makeRequest("company1.terraoi.app", await sessionCookieFor(store, OWNER1)),
+      ports: ports({ sessionStore: () => store, findHost: async () => ({ organisationId: C1, organisationStatus: "suspended" }) }),
     });
     expect(view).toEqual({ kind: "tenant_not_live" });
   });
@@ -79,25 +116,29 @@ describe("buildLoginView (the surface F02 chooses, plan §4.1 step 4, §4.2)", (
   // Acceptance item: a valid identity with no / suspended / invited membership sees the generic
   // no-access page. Identity alone grants nothing (plan §4.2, F02).
   it("a live session for a stranger to this tenant is no_access", async () => {
+    const store = memoryStore();
     const view = await buildLoginView({
-      request: makeRequest("company1.terraoi.app", await sessionCookieFor(OUTSIDER)),
-      ports: ports(),
+      request: makeRequest("company1.terraoi.app", await sessionCookieFor(store, OUTSIDER)),
+      ports: ports({ sessionStore: () => store }),
     });
     expect(view).toEqual({ kind: "no_access", reason: "not_a_member" });
   });
 
-  it("a live session for a suspended member is no_access, whatever the cookie claimed", async () => {
+  it("a live session for a suspended member is no_access, whatever the row said when it was issued", async () => {
+    const store = memoryStore();
     const view = await buildLoginView({
-      request: makeRequest("company1.terraoi.app", await sessionCookieFor(LEFT)),
-      ports: ports(),
+      request: makeRequest("company1.terraoi.app", await sessionCookieFor(store, LEFT)),
+      ports: ports({ sessionStore: () => store }),
     });
     expect(view).toEqual({ kind: "no_access", reason: "membership_not_active" });
   });
 
   it("an invited membership grants no access on its own", async () => {
+    const store = memoryStore();
     const view = await buildLoginView({
-      request: makeRequest("company1.terraoi.app", await sessionCookieFor(OUTSIDER)),
+      request: makeRequest("company1.terraoi.app", await sessionCookieFor(store, OUTSIDER)),
       ports: ports({
+        sessionStore: () => store,
         findMembership: async () => ({
           membershipId: MEMBERSHIP,
           status: "invited",
@@ -111,21 +152,33 @@ describe("buildLoginView (the surface F02 chooses, plan §4.1 step 4, §4.2)", (
   });
 
   it("an active member of this tenant is signed in", async () => {
+    const store = memoryStore();
     const view = await buildLoginView({
-      request: makeRequest("company1.terraoi.app", await sessionCookieFor(OWNER1)),
-      ports: ports(),
+      request: makeRequest("company1.terraoi.app", await sessionCookieFor(store, OWNER1)),
+      ports: ports({ sessionStore: () => store }),
     });
     expect(view).toEqual({ kind: "signed_in" });
+  });
+
+  it("a revoked session is signed out at once, even while the cookie and the membership are valid", async () => {
+    const store = memoryStore();
+    const cookie = await sessionCookieFor(store, OWNER1);
+    const [name, value] = cookie.split("=") as [string, string];
+    for (const row of store.rows.values()) row.revokedAt = NOW + 60;
+    const view = await buildLoginView({ request: makeRequest("company1.terraoi.app", `${name}=${value}`), ports: ports({ sessionStore: () => store }) });
+    expect(view.kind).toBe("sign_in");
   });
 
   // Acceptance item: the session cookie of company1 is not accepted on company2. It is not a
   // weaker company2 session — it is no session at all, so nothing looks a user up in company2 and
   // the visitor is asked to sign in on the host they actually reached (plan §4.2, F02 cross-host replay).
   it("a company1 session on company2 is no session at all: no membership lookup, no tenant data", async () => {
+    const store = memoryStore();
     const lookedUp: string[] = [];
     const view = await buildLoginView({
-      request: makeRequest("company2.terraoi.app", await sessionCookieFor(OWNER1, "company1.terraoi.app")),
+      request: makeRequest("company2.terraoi.app", await sessionCookieFor(store, OWNER1, "company1.terraoi.app")),
       ports: ports({
+        sessionStore: () => store,
         findMembership: async (organisationId) => {
           lookedUp.push(organisationId);
           return null;
@@ -137,12 +190,13 @@ describe("buildLoginView (the surface F02 chooses, plan §4.1 step 4, §4.2)", (
   });
 
   it("no denied surface carries a tenant name, host or id (no branding beyond the public login surface)", async () => {
+    const store = memoryStore();
     for (const [host, cookie] of [
       ["nosuch.terraoi.app", null],
-      ["company1.terraoi.app", await sessionCookieFor(OUTSIDER)],
-      ["company1.terraoi.app", await sessionCookieFor(LEFT)],
+      ["company1.terraoi.app", await sessionCookieFor(store, OUTSIDER)],
+      ["company1.terraoi.app", await sessionCookieFor(store, LEFT)],
     ] as const) {
-      const view = await buildLoginView({ request: makeRequest(host, cookie), ports: ports() });
+      const view = await buildLoginView({ request: makeRequest(host, cookie), ports: ports({ sessionStore: () => store }) });
       const serialized = JSON.stringify(view);
       expect(serialized).not.toContain("company1");
       expect(serialized).not.toContain("Company1");
@@ -151,32 +205,83 @@ describe("buildLoginView (the surface F02 chooses, plan §4.1 step 4, §4.2)", (
     }
   });
 
-  it("a forged or expired cookie is treated as signed out, never as a stranger's session", async () => {
-    const cookie = await sessionCookieFor(OWNER1);
-    const [name, value] = cookie.split("=");
-    const view = await buildLoginView({
+  it("a tampered or never-issued session id is treated as signed out, never as a stranger's session", async () => {
+    const store = memoryStore();
+    const cookie = await sessionCookieFor(store, OWNER1);
+    const [name, value] = cookie.split("=") as [string, string];
+    const tampered = await buildLoginView({
       request: makeRequest("company1.terraoi.app", `${name}=${value}x`),
-      ports: ports(),
+      ports: ports({ sessionStore: () => store }),
     });
-    expect(view.kind).toBe("sign_in");
+    expect(tampered.kind).toBe("sign_in");
+
+    const neverIssued = await buildLoginView({
+      request: makeRequest("company1.terraoi.app", `${name}=Qh7X3m1pL0aZ8sW2kD5vN9tY4bC6rE0uI1oP3qS7wX2`),
+      ports: ports({ sessionStore: () => store }),
+    });
+    expect(neverIssued.kind).toBe("sign_in");
   });
 
   it("a backend failure is a safe sign-in page, never a half-resolved context", async () => {
+    const store = memoryStore();
     const view = await buildLoginView({
-      request: makeRequest("company1.terraoi.app", await sessionCookieFor(OWNER1)),
-      ports: ports({ findMembership: async () => { throw new Error("database down"); } }),
+      request: makeRequest("company1.terraoi.app", await sessionCookieFor(store, OWNER1)),
+      ports: ports({ sessionStore: () => store, findMembership: async () => { throw new Error("database down"); } }),
     });
     expect(view.kind).toBe("sign_in");
     if (view.kind !== "sign_in") return;
     expect(view.outcome).toBe("unavailable");
   });
 
-  it("without a signing secret nobody is treated as signed in", async () => {
+  // #37 option (b) means a session only exists as a row. With no store wired — the state of every
+  // deployment until #75 settles how the row is reached — a presented cookie must not be trusted.
+  it("with no session store wired, a presented session cookie signs nobody in", async () => {
+    const store = memoryStore();
+    const cookie = await sessionCookieFor(store, OWNER1);
     const view = await buildLoginView({
-      request: makeRequest("company1.terraoi.app", await sessionCookieFor(OWNER1)),
-      ports: ports({ signingSecret: () => null }),
+      request: makeRequest("company1.terraoi.app", cookie),
+      ports: ports({ sessionStore: () => null }),
     });
     expect(view.kind).toBe("sign_in");
+  });
+
+  it("a session store that throws is signed out, not signed in", async () => {
+    const store = memoryStore();
+    const cookie = await sessionCookieFor(store, OWNER1);
+    const view = await buildLoginView({
+      request: makeRequest("company1.terraoi.app", cookie),
+      ports: ports({
+        sessionStore: () => ({
+          insert: async () => {},
+          find: async () => {
+            throw new Error("connection lost");
+          },
+          revoke: async () => {},
+          replaceTokens: async () => true,
+        }),
+      }),
+    });
+    expect(view.kind).toBe("sign_in");
+  });
+
+  // After #37 the session and the CSRF token are two different secrets: the session is a row, so a
+  // deployment with no `IDENTITY_SESSION_KEY` still recognizes a live session — and still must not
+  // hand out a CSRF token it cannot verify.
+  it("without a signing secret a live session is still a session, but the form gets no CSRF token", async () => {
+    const store = memoryStore();
+    const withCookie = await buildLoginView({
+      request: makeRequest("company1.terraoi.app", await sessionCookieFor(store, OWNER1)),
+      ports: ports({ sessionStore: () => store, signingSecret: () => null }),
+    });
+    expect(withCookie).toEqual({ kind: "signed_in" });
+
+    const signedOut = await buildLoginView({
+      request: makeRequest("company1.terraoi.app", null),
+      ports: ports({ signingSecret: () => null }),
+    });
+    expect(signedOut.kind).toBe("sign_in");
+    if (signedOut.kind !== "sign_in") return;
+    expect(signedOut.csrfToken).toBeNull();
   });
 
   it("carries a host-bound CSRF token for the form on the sign-in surface", async () => {

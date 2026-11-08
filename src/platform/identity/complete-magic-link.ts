@@ -8,6 +8,7 @@ import { consumeLoginState, verifyLoginState } from "./login-state";
 import { canonicalEmail } from "./email";
 import { statusOnly, redirectSameHost, LOGIN_PATH } from "./http-response";
 import { issueSession } from "./session";
+import { isUsableTokenPair, type SessionStore, type TokenCipher } from "./session-store";
 import { hasUsableSecret } from "./signed-token";
 
 /**
@@ -25,12 +26,26 @@ import { hasUsableSecret } from "./signed-token";
  */
 
 export type IdentityExchange =
-  | { ok: true; userId: string; email: string; emailVerified: boolean }
+  /**
+   * The provider's PKCE exchange result. #37 option (b) needs the **token pair**, not just the
+   * identity: the Worker is the only holder of the user's Supabase tokens, and it stores them (sealed)
+   * in the session row. An adapter that drops them cannot mint a session, which is why they are part
+   * of the type rather than an optional extra.
+   */
+  | { ok: true; userId: string; email: string; emailVerified: boolean; accessToken: string; refreshToken: string; tokenExpiresAt: number }
   | { ok: false; reason: "invalid_or_expired" };
 
 export interface MagicLinkCallbackPorts {
   now(): number;
   signingSecret(): string | null;
+  /**
+   * The server-side session row (#37 option b). Null where the row is not reachable yet — the state of
+   * every deployment until #75 settles the carrier — and the honest answer then is "sign-in is
+   * unavailable", never a self-contained cookie issued in its place.
+   */
+  sessionStore(): SessionStore | null;
+  /** The `SESSION_TOKEN_KEY` cipher. Null means the token pair cannot be sealed, so no session. */
+  tokenCipher(): TokenCipher | null;
   findHost(host: string): Promise<HostRecord | null>;
   /**
    * The provider half (Supabase PKCE code exchange in the real adapter). `invalid_or_expired` covers
@@ -83,6 +98,16 @@ export async function completeMagicLink(input: MagicLinkCallbackInput): Promise<
 
   if (!hasUsableSecret(secret)) return loginRedirect(parsed.host, "unavailable", consumedState);
 
+  const sessionStore = ports.sessionStore();
+  const tokenCipher = ports.tokenCipher();
+  if (sessionStore === null || tokenCipher === null) {
+    // No row, no session. This is checked **before** the provider is contacted so an unwired
+    // deployment neither burns a single-use code nor leaves a browser half-signed-in: the alternative
+    // would be the self-contained cookie #37 rejected. Issue #75 decides how the row is reached; until
+    // then the adapter returns null here and sign-in says "unavailable".
+    return loginRedirect(parsed.host, "unavailable", consumedState);
+  }
+
   const stateCheck = await verifyLoginState({
     cookieHeader: input.request.headers.get("cookie"),
     presentedState: state,
@@ -116,6 +141,19 @@ export async function completeMagicLink(input: MagicLinkCallbackInput): Promise<
     return loginRedirect(parsed.host, "unavailable", consumedState);
   }
 
+  // An exchange that returns an identity but no usable pair cannot produce a session: the row would
+  // hold a credential the server cannot use, and every later call would fail obscurely instead of
+  // here. Checked before any tenant lookup, so a broken exchange never reads membership.
+  const tokens = {
+    accessToken: identity.accessToken,
+    refreshToken: identity.refreshToken,
+    expiresAt: identity.tokenExpiresAt,
+  };
+  if (!isUsableTokenPair(tokens, ports.now())) {
+    console.error("magic-link callback failed", { host: parsed.host, step: "token_pair" });
+    return loginRedirect(parsed.host, "unavailable", consumedState);
+  }
+
   try {
     let membership = await ports.findMembership(organisation.organisationId, identity.userId);
     if (membership !== null && membership.status === "invited") {
@@ -128,13 +166,24 @@ export async function completeMagicLink(input: MagicLinkCallbackInput): Promise<
       if (claim === "redeemed") membership = await ports.findMembership(organisation.organisationId, identity.userId);
     }
 
-    const session = await issueSession({
-      userId: identity.userId,
-      host: parsed.host,
-      secret,
-      now: ports.now(),
-      secureTransport,
-    });
+    let session: Awaited<ReturnType<typeof issueSession>>;
+    try {
+      session = await issueSession({
+        userId: identity.userId,
+        host: parsed.host,
+        tokens,
+        store: sessionStore,
+        cipher: tokenCipher,
+        now: ports.now(),
+        secureTransport,
+      });
+    } catch {
+      // The row could not be written, or the pair could not be sealed: no cookie is set, and the
+      // visitor gets the same generic outcome as any other backend failure. A half-written session is
+      // worse than none, so nothing is emitted on this path.
+      console.error("magic-link callback failed", { host: parsed.host, step: "session_store" });
+      return loginRedirect(parsed.host, "unavailable", consumedState);
+    }
     const cookies: CookieSpec[] = [session.cookie, ...consumedState];
 
     if (membership !== null && membership.status === "active") {
