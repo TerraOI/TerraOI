@@ -3,11 +3,13 @@ import {
   featureNotes,
   hasPdfEof,
   inflateBounded,
+  isFlateOnlyChain,
   looksLikePdf,
   readStream,
   referenceNumbers,
   scanObjects,
   sliceLatin1,
+  unsupportedFilterNote,
   type PdfObjectSpan,
 } from "./pdf-format";
 
@@ -27,6 +29,12 @@ import {
  * instructions"). Metadata (`/Title`, `/Author`, …) is likewise never emitted as document text: a
  * string in a metadata dictionary is data about the file, not content, and treating it as content is
  * how a prompt injection gets a path into retrieval.
+ *
+ * A content stream is decoded only when its whole `/Filter` chain is exactly `FlateDecode`, spelled
+ * as a name or as a single-element array (ISO 32000-1 §7.4, Table 6). Anything else — another
+ * filter, a longer chain, a `/Filter` value that could not be read — is refused with an
+ * `unsupported_filter_*` note. There is no third option, because the alternative is appending bytes
+ * whose encoding was never decoded to the text layer, and that text would be quoted to users.
  */
 
 export interface ExtractionLimits {
@@ -299,19 +307,25 @@ export async function extractPdfTextLayer(
         continue;
       }
       let data = stream.data;
-      if (stream.filter === "FlateDecode") {
+      const chain = stream.filters;
+      if (isFlateOnlyChain(chain)) {
         const inflated = await inflateBounded(data, inflateBudget);
         if (!inflated.ok) {
           return failed([inflated.reason === "budget" ? "decompression_budget_exceeded" : "stream_decode_failed", ...featureNotesList]);
         }
         inflateBudget -= inflated.data.byteLength;
         data = inflated.data;
-      } else if (stream.filter !== null) {
-        // LZW/DCT/JPX and friends: a different decoder budget, and silently skipping a page would
-        // be an empty "successful" source. Say so instead.
-        featureNotesList.push(`unsupported_filter_${stream.filter.toLowerCase()}`);
+      } else if (chain.length > 0) {
+        // LZW/DCT/JPX and friends, a chain of several filters, or a `/Filter` value that could not
+        // be read: a different decoder and a different budget, and silently skipping a page would be
+        // an empty "successful" source — so say so, and *never* fall through to appending the stored
+        // bytes. An array-spelled FlateDecode stream used to land here with `filter === null`, and
+        // still-deflated bytes went out as "extracted" text with no note at all: unverified junk
+        // heading for the knowledge base (AGENTS.md §4.5, §4.8).
+        featureNotesList.push(unsupportedFilterNote(chain));
         continue;
       }
+      // No `/Filter` entry at all: genuinely uncompressed content, read exactly as stored.
       content += sliceLatin1(data, 0, data.length);
     }
 

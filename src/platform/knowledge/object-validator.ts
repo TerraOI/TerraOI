@@ -2,12 +2,15 @@ import type { ObjectReadResult } from "./object-store";
 import {
   detectPdfFeatures,
   featureNotes,
+  hasFlateOutermost,
   hasPdfEof,
   inflateBounded,
   indexOfAscii,
+  isFlateOnlyChain,
   looksLikePdf,
   readStream,
   scanObjects,
+  unsupportedFilterNote,
 } from "./pdf-format";
 
 /**
@@ -168,8 +171,10 @@ export async function verifyCapturedObject(input: VerifyObjectInput): Promise<Ve
     return refusal("quarantined", "encrypted_pdf", { sizeBytes: bytes.length, mediaType: guess.mediaType, notes });
   }
 
-  // Decompression budget across every FlateDecode stream in the file (plan §7.2 step 2). This is
-  // also what makes the extraction stage cheap to bound later: the object is already known to fit.
+  // Decompression budget across every stream this code can inflate — FlateDecode spelled as a name
+  // or as an array, and any chain whose outermost filter is FlateDecode (plan §7.2 step 2). This is
+  // also what makes the extraction stage cheap to bound later: everything the extractor could ever
+  // expand is already known to fit, and everything it cannot expand is named in `notes`.
   //
   // Two limits, deliberately: the byte budget bounds *decompressed volume*, this object cap bounds
   // *parsing time* on a Worker. 64 MB spread over 100,000 tiny streams is still unbounded CPU, so
@@ -181,16 +186,37 @@ export async function verifyCapturedObject(input: VerifyObjectInput): Promise<Ve
   }
   for (const span of scan.spans) {
     const stream = readStream(bytes, span);
-    if (!stream || stream.filter !== "FlateDecode") continue;
-    const inflated = await inflateBounded(stream.data, budget);
-    if (!inflated.ok) {
-      const reason: UploadFailureReason = inflated.reason === "budget" ? "decompression_bomb" : "malformed_pdf";
-      return refusal("quarantined", reason, { sizeBytes: bytes.length, mediaType: guess.mediaType, notes });
+    if (!stream) continue;
+    const chain = stream.filters;
+    if (chain.length === 0) continue; // no `/Filter` entry: stored as written, nothing to inflate
+    if (hasFlateOutermost(chain)) {
+      // The first name in a `/Filter` array is the outermost filter, i.e. the one applied *first*
+      // when decoding (ISO 32000-1 §7.4, Table 6). So `/FlateDecode` and `[/FlateDecode
+      // /ASCII85Decode]` both store zlib bytes, and this first hop is metered either way: the
+      // expansion is real even where the rest of the chain is never decoded. An array-spelled
+      // FlateDecode stream used to be skipped here, which is how a ZIP bomb walked past the budget.
+      const inflated = await inflateBounded(stream.data, budget);
+      if (!inflated.ok) {
+        const reason: UploadFailureReason = inflated.reason === "budget" ? "decompression_bomb" : "malformed_pdf";
+        return refusal("quarantined", reason, { sizeBytes: bytes.length, mediaType: guess.mediaType, notes });
+      }
+      budget -= inflated.data.byteLength;
+      if (budget <= 0) {
+        return refusal("quarantined", "decompression_bomb", { sizeBytes: bytes.length, mediaType: guess.mediaType, notes });
+      }
+      if (!isFlateOnlyChain(chain)) notes.push(unsupportedFilterNote(chain));
+      continue;
     }
-    budget -= inflated.data.byteLength;
-    if (budget <= 0) {
-      return refusal("quarantined", "decompression_bomb", { sizeBytes: bytes.length, mediaType: guess.mediaType, notes });
-    }
+    // A chain whose outermost filter is not FlateDecode (and a `/Filter` value that could not be
+    // read) cannot be inflated here, so its decompressed volume cannot be measured at capture. It
+    // does not escape silently: the note names what was left unmeasured, and it is the same note the
+    // extractor emits when it refuses the same stream, so nothing in this pipeline ever expands
+    // those bytes. Refusing the upload instead would quarantine ordinary PDFs — some real writers
+    // emit `/Filter [/ASCII85Decode /FlateDecode]` — on a document-support-policy call this packet
+    // does not own, and the object's own size is already bounded by `maxBytes`. If the supervisor
+    // decides such documents are unacceptable, this branch is the seam: a note becomes a refusal and
+    // one reason code is added.
+    notes.push(unsupportedFilterNote(chain));
   }
 
   return {

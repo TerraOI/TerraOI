@@ -28,7 +28,19 @@ export interface PdfStreamData {
   /** The object dictionary, as latin1 text (structure only — its content is untrusted data). */
   dict: string;
   data: Uint8Array;
+  /**
+   * The single filter name, in either spelling (a name, or an array holding one name); null when the
+   * dictionary declares no filter, an empty array, a chain of several, or a value that could not be
+   * read. Prefer `filters`: it carries the whole chain.
+   */
   filter: string | null;
+  /**
+   * The whole `/Filter` chain in decoding order (see `parseFilterChain`); `[]` only when the
+   * dictionary has no `/Filter` entry, which means the payload is genuinely uncompressed. A present
+   * but unreadable value yields `[UNREADABLE_FILTER]` instead, so a malformed entry is never
+   * mistaken for "stored as written".
+   */
+  filters: string[];
 }
 
 export function indexOfAscii(haystack: Uint8Array, needle: string, from = 0): number {
@@ -123,6 +135,202 @@ export function scanObjects(bytes: Uint8Array, maxObjects: number): PdfObjectSca
   }
 }
 
+/** The dictionary key every filtered stream carries, and the one filter this codebase decodes. */
+const FLATE_FILTER = "FlateDecode";
+/**
+ * Placeholder for "the `/Filter` key is there but its value could not be read". Deliberately
+ * name-shaped so every caller's chain logic treats it as an unrecognised filter — fail closed —
+ * instead of seeing an empty chain and decoding the payload as if it were uncompressed.
+ */
+export const UNREADABLE_FILTER = "unparsed";
+/** Bounds a hostile dictionary: no real PDF chains more than a handful of filters. */
+const MAX_FILTER_NAMES = 8;
+const MAX_FILTER_NAME_CHARS = 32;
+/** PDF 32000-1 §7.2.2 whitespace (NUL included: damaged writers emit it) and delimiters. */
+const PDF_WHITESPACE = " \t\r\n\f\x00";
+const PDF_DELIMITERS = `${PDF_WHITESPACE}()<>[]{}/%`;
+
+const isDelimiterAt = (text: string, at: number): boolean =>
+  at >= text.length || PDF_DELIMITERS.includes(text[at] as string);
+
+const isPdfWhitespace = (text: string, at: number): boolean =>
+  at < text.length && PDF_WHITESPACE.includes(text[at] as string);
+
+/** A PDF name after its `/`, length-capped: `/FlateDecode` → `FlateDecode`. */
+function readFilterName(text: string, at: number): { name: string; next: number } | null {
+  let end = at;
+  while (end < text.length && !PDF_DELIMITERS.includes(text[end] as string)) end += 1;
+  if (end === at) return null;
+  return { name: text.slice(at, Math.min(end, at + MAX_FILTER_NAME_CHARS)), next: end };
+}
+
+/** A literal string `(...)`, nesting counted the way the spec counts it; returns the index past it. */
+function skipLiteralString(text: string, at: number): number {
+  let depth = 1;
+  let i = at + 1;
+  while (i < text.length) {
+    const ch = text[i] as string;
+    if (ch === "\\") i += 2;
+    else if (ch === "(") {
+      depth += 1;
+      i += 1;
+    } else if (ch === ")") {
+      depth -= 1;
+      i += 1;
+      if (depth === 0) return i;
+    } else i += 1;
+  }
+  return text.length;
+}
+
+/** PDF 32000-1 §7.2.2: `%` starts a comment that runs to the end of the line. Index at the break. */
+function skipPdfComment(text: string, at: number): number {
+  let i = at + 1;
+  while (i < text.length && text[i] !== "\n" && text[i] !== "\r") i += 1;
+  return i;
+}
+
+/**
+ * The value part of a `/Filter` entry: one name, or a bracketed list of names with any amount of
+ * whitespace inside. An empty bracket list is reported as unreadable rather than as "no filters",
+ * because no writer emits it and reading it as uncompressed is the fail-open this whole path exists
+ * to close.
+ */
+function readFilterValue(text: string, at: number): string[] {
+  let i = at;
+  while (isPdfWhitespace(text, i)) i += 1;
+  if (text[i] === "%") {
+    i = skipPdfComment(text, i);
+    while (isPdfWhitespace(text, i)) i += 1;
+  }
+  if (text[i] === "[") {
+    const names: string[] = [];
+    i += 1;
+    for (;;) {
+      while (isPdfWhitespace(text, i)) i += 1;
+      if (i >= text.length || text[i] === "]") break;
+      if (text[i] === "%") {
+        // A comment inside the array is not part of the chain: `/Filter [/FlateDecode % /LZWDecode]`
+        // names one filter, and reading the commented-out name would invent a chain the writer did
+        // not write — which changes both the refusal note and what capture meters.
+        i = skipPdfComment(text, i);
+        continue;
+      }
+      if (text[i] !== "/") {
+        i += 1; // an array of names holds names; anything else inside it is junk, skip and keep going
+        continue;
+      }
+      const read = readFilterName(text, i + 1);
+      if (!read) {
+        i += 1;
+        continue;
+      }
+      if (names.length < MAX_FILTER_NAMES) names.push(read.name);
+      i = read.next;
+    }
+    return names.length > 0 ? names : [UNREADABLE_FILTER];
+  }
+  if (text[i] === "/") {
+    const read = readFilterName(text, i + 1);
+    return read ? [read.name] : [UNREADABLE_FILTER];
+  }
+  return [UNREADABLE_FILTER];
+}
+
+/**
+ * The `/Filter` chain of a stream dictionary, in the order the dictionary writes it.
+ *
+ * ISO 32000-1 §7.4 (Table 6) spells the entry two ways and they mean the same thing: one name
+ * (`/Filter /FlateDecode`) or an array (`/Filter [/ASCII85Decode /FlateDecode]`). The array order is
+ * the **decoding** order — the first name is the outermost filter, applied first to the stored bytes
+ * — so `[/FlateDecode /ASCII85Decode]` holds zlib bytes and `[/ASCII85Decode /FlateDecode]` holds
+ * ASCII85 text of a zlib stream. Every caller therefore decides on the whole chain. A name-only
+ * pattern got this wrong: an array-spelled FlateDecode stream looked *unfiltered*, which let the
+ * extractor append still-deflated bytes as "extracted" text with no note and let the capture budget
+ * skip the stream (plan §7.2 step 2). Both were fail-open.
+ *
+ * Strings are skipped while scanning: a `/Filter` inside a literal or hex string is data, not
+ * structure (AGENTS.md §4.8). A `%` comment is skipped for the same reason (§7.2.2) — its text is
+ * not tokens — and `<<`/`>>` are counted, because a parameter dictionary may carry a `/Filter` of
+ * its own: `DecodeParms << /Filter /Crypt >>` (§7.4.4) says how the *parameters* are stored, not how
+ * this stream is. Taking the first `/Filter` in text order let that nested name replace the stream's
+ * real chain, so `[/FlateDecode /ASCII85Decode]` read as `[/FlateDecode]`: the extractor inflated one
+ * hop, published the bytes of a chain it never finished decoding as `extracted` text with no note,
+ * and capture stopped metering a zlib stream. Only a key at this dictionary's own level counts.
+ *
+ * And a dictionary that never closes is *unreadable*, not *unfiltered*: `[]` tells every caller
+ * "there is no `/Filter`, the payload is stored as written", which is how an unclosed `<<` would hand
+ * the extractor a payload to publish as the document's text layer. Only a balanced scan may answer
+ * that way.
+ */
+export function parseFilterChain(dict: string): string[] {
+  // Consume the dictionary's own `<<` when it is there, so "level 1" means the dictionary these
+  // keys belong to. A fragment without it is scanned as if already inside it.
+  let i = 0;
+  while (isPdfWhitespace(dict, i)) i += 1;
+  const rooted = dict.startsWith("<<", i);
+  if (rooted) i += 2;
+  let depth = 1;
+  let closed = false;
+  while (i < dict.length) {
+    const ch = dict[i] as string;
+    if (ch === "(") {
+      i = skipLiteralString(dict, i);
+      continue;
+    }
+    if (ch === "%") {
+      i = skipPdfComment(dict, i);
+      continue;
+    }
+    if (ch === "<") {
+      // `<<` opens a nested dictionary (DecodeParms): scanned, but its keys are not this stream's.
+      if (dict[i + 1] === "<") {
+        depth += 1;
+        i += 2;
+      } else {
+        const close = dict.indexOf(">", i + 1);
+        i = close < 0 ? dict.length : close + 1;
+      }
+      continue;
+    }
+    if (ch === ">" && dict[i + 1] === ">") {
+      depth -= 1;
+      i += 2;
+      if (depth < 1) {
+        closed = true; // this dictionary is closed; what follows is not its keys
+        break;
+      }
+      continue;
+    }
+    if (ch === "/" && depth === 1 && dict.startsWith("Filter", i + 1) && isDelimiterAt(dict, i + 7)) {
+      return readFilterValue(dict, i + 7);
+    }
+    i += 1;
+  }
+  return rooted && !closed ? [UNREADABLE_FILTER] : [];
+}
+
+/** The only chain this codebase can fully decode today: exactly one filter, FlateDecode. */
+export function isFlateOnlyChain(filters: readonly string[]): boolean {
+  return filters.length === 1 && filters[0] === FLATE_FILTER;
+}
+
+/**
+ * Whether the outermost filter — the first one applied when decoding — is FlateDecode, i.e. whether
+ * the *stored* bytes are a zlib stream that can be inflated at all, however far the chain continues.
+ */
+export function hasFlateOutermost(filters: readonly string[]): boolean {
+  return filters.length > 0 && filters[0] === FLATE_FILTER;
+}
+
+/** The reviewer-visible note that says which filter chain was refused (or, at capture, unmeasured). */
+export function unsupportedFilterNote(filters: readonly string[]): string {
+  const names = filters.slice(0, 3).map((name) => name.toLowerCase());
+  return filters.length > 1
+    ? `unsupported_filter_chain_${names.join("_")}`
+    : `unsupported_filter_${names[0] ?? "unknown"}`;
+}
+
 /** The dictionary + payload of one indirect object, or null when it carries no stream. */
 export function readStream(bytes: Uint8Array, span: PdfObjectSpan): PdfStreamData | null {
   const streamAt = indexOfAscii(bytes, "stream", span.bodyStart);
@@ -138,8 +346,9 @@ export function readStream(bytes: Uint8Array, span: PdfObjectSpan): PdfStreamDat
       ? Math.min(dataStart + declared, span.bodyEnd)
       : indexOfAscii(bytes, "endstream", dataStart);
   if (dataEnd < 0 || dataEnd < dataStart) return null;
-  const filterMatch = /\/Filter\s*\/([A-Za-z0-9._]+)/.exec(dict);
-  return { dict, data: bytes.subarray(dataStart, dataEnd), filter: filterMatch ? (filterMatch[1] as string) : null };
+  const filters = parseFilterChain(dict);
+  const single = filters.length === 1 && filters[0] !== UNREADABLE_FILTER ? (filters[0] as string) : null;
+  return { dict, data: bytes.subarray(dataStart, dataEnd), filter: single, filters };
 }
 
 export type InflateResult = { ok: true; data: Uint8Array } | { ok: false; reason: "budget" | "corrupt" };
