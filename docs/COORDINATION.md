@@ -86,10 +86,13 @@ Every question states **what you will assume until answered** and whether that i
 
 **3. Keep working:**
 - **Clarification, reversible assumption:** continue on it. Add the `provisional` label to your PR and the line `Provisional on: #<issue>` to its description. CI (`provisional`) keeps the PR unmergeable until the question is closed with `answered`.
+  - That line is machine-parsed and the grammar is strict: `Provisional on: none`, or `Provisional on: #12, #15` — and nothing else on the line. Emphasis around the phrase is tolerated (`**Provisional on: #37**`); prose on the same line is not. `Provisional on: none. The ADR is blocked on #62, #65 …` is reported as a **malformed directive** instead of quietly registering #62 and #65 as dependencies, and a directive that cannot be read never passes silently ([#89](https://github.com/TerraOI/TerraOI/issues/89)). Put the explanation on the next line.
 - **Clarification, not reversible, or any decision:** do not pre-empt it. Work on the parts of the packet that don't depend on it, or claim another ready packet (§1).
 
 **4. Pick up answers at the start of every session:**
 `gh issue list --author @me --label answered --state closed --search "updated:>=<last session date>"`. Read each `[Supervisor] Answer`. If it says *adjust*, change the provisional work. Then update the PR: remove `provisional` and change the line to `Provisional on: none` (or keep the answered issue number; the check accepts answered ones). The edit re-runs CI.
+
+**Never clear a body-driven gate with `gh run rerun`.** A re-run replays the event payload captured when the event fired, so the PR body and labels it reads are the ones from that moment — a stale red, and the mirror-image hazard is a stale **green** on a head whose body has since added a dependency. Editing the body re-fires the gate (`edited` is a trigger), and toggling a label re-fires it too; that is the operational rule behind [#89](https://github.com/TerraOI/TerraOI/issues/89), option 3.
 
 **5. Answers become knowledge.** Reusable answers go into [FAQ.md](FAQ.md) (or an ADR for decisions) through the supervisor's `/terraoi-inbox`, so the next agent finds them instead of asking again.
 
