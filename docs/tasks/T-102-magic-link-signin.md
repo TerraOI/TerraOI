@@ -1,6 +1,6 @@
 # T-102 Magic-link sign-in, membership gate and host-only session
 
-Lane: 1 · Week: 1 · Protected: yes (`src/platform/identity/`) · Depends on: T-002, T-003, T-101 · Status: ready
+Lane: 1 · Week: 1 · Protected: yes (`src/platform/identity/`) · Depends on: T-002, T-003, T-101 · Status: in progress (wyuinline)
 Plan refs: §4.2, §4.4; F02, F05 (invite part)
 
 ## Goal
