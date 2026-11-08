@@ -1,6 +1,6 @@
 # T-115 Gateway skeleton: route selection, clearance filter, compose, verifier pass 1
 
-Lane: 2 · Week: 1 · Protected: yes (`src/platform/gateway/`) · Depends on: T-002, T-111 · Status: in progress (wyuinline)
+Lane: 2 · Week: 1 · Protected: yes (`src/platform/gateway/`) · Depends on: T-002, T-111 · Status: in progress (wyuinline) — **a** is merged as [#31](https://github.com/TerraOI/TerraOI/pull/31); **b/c/d** are open as [#53](https://github.com/TerraOI/TerraOI/pull/53), [#56](https://github.com/TerraOI/TerraOI/pull/56) and [#58](https://github.com/TerraOI/TerraOI/pull/58), in that merge order, with the fix [#76](https://github.com/TerraOI/TerraOI/pull/76) between `b` and `c`; the staging Done-evidence below is **not** claimed, which is the question in [#92](https://github.com/TerraOI/TerraOI/issues/92)
 Plan refs: §12.1 (pass 1), §12.3, §12.4 (chain walking), §10.1; F20 (=F31+F38), F31, F38, F19 (reserve only)
 
 ## Goal
