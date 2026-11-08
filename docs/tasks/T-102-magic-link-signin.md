@@ -1,6 +1,6 @@
 # T-102 Magic-link sign-in, membership gate and host-only session
 
-Lane: 1 · Week: 1 · Protected: yes (`src/platform/identity/`) · Depends on: T-002, T-003, T-101 · Status: in progress (wyuinline)
+Lane: 1 · Week: 1 · Protected: yes (`src/platform/identity/`) · Depends on: T-002, T-003, T-101 · Status: in progress (wyuinline) — **a** is merged as [#30](https://github.com/TerraOI/TerraOI/pull/30); **b** is open as [#50](https://github.com/TerraOI/TerraOI/pull/50) and **c+d** as [#90](https://github.com/TerraOI/TerraOI/pull/90) on the [#77](https://github.com/TerraOI/TerraOI/pull/77) carrier (replacing [#52](https://github.com/TerraOI/TerraOI/pull/52) and [#57](https://github.com/TerraOI/TerraOI/pull/57)); the staging demo below is **not** claimed — it waits on [#75](https://github.com/TerraOI/TerraOI/issues/75) and [#64](https://github.com/TerraOI/TerraOI/issues/64), which is the question in [#94](https://github.com/TerraOI/TerraOI/issues/94)
 Plan refs: §4.2, §4.4; F02, F05 (invite part)
 
 ## Goal

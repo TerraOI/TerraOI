@@ -19,6 +19,13 @@ describe("parseHost (F01)", () => {
     expect(parseHost("admin.terraoi.app")).toMatchObject({ class: "admin" });
   });
 
+  it("serves staging's landing page from staging.terraoi.app, never as a tenant (T-004)", () => {
+    expect(parseHost("staging.terraoi.app")).toMatchObject({ class: "platform" });
+    // Staging tenants keep the plan's `<slug>-staging` shape (plan §4.1 table) and stay tenants.
+    expect(parseHost("company1-staging.terraoi.app")).toMatchObject({ class: "tenant" });
+    expect(parseHost("staging.company1.terraoi.app")).toEqual({ ok: false, reason: "too_many_labels" });
+  });
+
   it("rejects malformed hosts instead of normalizing them into a tenant", () => {
     expect(parseHost("Company1.TerraOI.app")).toMatchObject({ ok: false, reason: "malformed_host" });
     expect(parseHost("company1.terraoi.app:8443")).toMatchObject({ ok: false, reason: "malformed_host" });

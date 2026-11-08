@@ -1,20 +1,24 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import Link from "next/link";
+import { UnknownAddressPage } from "@/components/auth/unknown-address-page";
+import { platformHostFromHeaders } from "@/platform/site/platform-host";
 import styles from "@/components/site/site.module.css";
 import { inter } from "@/components/auth/fonts";
 
 export const metadata: Metadata = { title: "Privacy notice · TerraOI" };
 
-// DRAFT (T-130 human step 5): the owner approves this text before the form goes live.
-export default function PrivacyPage() {
+// DRAFT (T-130 human step 5): the owner approves this text before the form goes live. Until then
+// the draft note shows in every build, not only under next dev (builder review of #26, B1).
+// Only terraoi.app serves it; on any other host it would read as that host's notice.
+export default async function PrivacyPage() {
+  if (!platformHostFromHeaders(await headers())) return <UnknownAddressPage />;
   return (
     <div className={`${styles.site} ${inter.variable}`}>
       <main className={styles.prose}>
-        {process.env.NODE_ENV === "development" && (
-          <p className={styles.draftNote} role="note">
-            Draft, awaiting owner approval (T-130). This note only shows under next dev.
-          </p>
-        )}
+        <p className={styles.draftNote} role="note">
+          Draft: this notice is awaiting owner approval and may change before the form goes live.
+        </p>
         <h1>Privacy notice for pilot inquiries</h1>
         <p>This notice covers the &ldquo;Talk to us about a pilot&rdquo; form on terraoi.app.</p>
 

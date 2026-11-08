@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluate, isReviewed, mergedInto } from "./provenance.mjs";
+import { attributeStacked, evaluate, isReviewed, mergedInto } from "./provenance.mjs";
 
 const pr = { number: 7, merged_at: "2026-11-05T00:00:00Z", base: { ref: "main" }, user: { login: "alice" }, head: { sha: "h2" } };
 const approve = (login, commit_id = "h2") => ({ user: { login }, state: "APPROVED", commit_id });
@@ -34,4 +34,28 @@ describe("evaluate", () => {
     expect(evaluate({ rangeProblem: "compare API 404" }).ok).toBe(false));
   it("blocks while a policy-violation issue is open", () =>
     expect(evaluate({ openViolations: [3], commits: [ok], reviewsByPr: { 7: [approve("bob")] } }).ok).toBe(false));
+});
+
+describe("attributeStacked", () => {
+  // #29: commits first merged by #23 into a feature branch, then brought to main by #26.
+  const stacked = { number: 23, merged_at: "2026-11-05T00:00:00Z", base: { ref: "feat/x" }, user: { login: "alice" }, head: { sha: "s1" } };
+  const carrier = { number: 26, merged_at: "2026-11-05T01:00:00Z", base: { ref: "main" }, user: { login: "alice" }, head: { sha: "m1" } };
+  const commits = [{ sha: "s1", pulls: [stacked] }, { sha: "m1", pulls: [carrier] }];
+
+  it("credits an orphan commit to a main-merged PR in the range that lists it", () => {
+    const out = attributeStacked(commits, { 26: ["s1", "m1"] });
+    expect(mergedInto(out[0].pulls).map((p) => p.number)).toEqual([26]);
+    expect(evaluate({ commits: out, reviewsByPr: { 26: [approve("bob", "m1")] } }).ok).toBe(true);
+  });
+  it("still flags an orphan that no main-merged PR lists (a direct push)", () => {
+    const out = attributeStacked([{ sha: "d1", pulls: [] }, commits[1]], { 26: ["m1"] });
+    expect(evaluate({ commits: out, reviewsByPr: { 26: [approve("bob", "m1")] } }).violations.map((v) => v.sha)).toEqual(["d1"]);
+  });
+  it("keeps the review rule: the carrier PR itself must be approved", () => {
+    const out = attributeStacked(commits, { 26: ["s1", "m1"] });
+    expect(evaluate({ commits: out, reviewsByPr: { 26: [] } }).ok).toBe(false);
+  });
+  it("leaves commits that already have a main-merged PR untouched", () => {
+    expect(attributeStacked(commits, { 26: ["s1", "m1"] })[1]).toBe(commits[1]);
+  });
 });

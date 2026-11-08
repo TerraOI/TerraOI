@@ -1,5 +1,7 @@
 import postgres from "postgres";
+import { requestHost } from "@/platform/tenancy/host";
 import type { InquiryDeps } from "./handle-pilot-inquiry";
+import { isPlatformHost } from "./platform-host";
 
 // Real implementations of InquiryDeps on Cloudflare Workers (ADR-0002). Every binding is optional
 // in the type because staging may not have it yet: a missing secret or binding fails closed
@@ -14,19 +16,16 @@ export type InquiryEnv = {
 
 const SITEVERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
-// Until T-101's host resolver is on main (T-130 Task 11), only the two apex hosts count.
-const PLATFORM_HOSTS = new Set(["terraoi.app", "www.terraoi.app"]);
-
 function toHex(buffer: ArrayBuffer): string {
   return [...new Uint8Array(buffer)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 export function buildInquiryDeps(env: Partial<InquiryEnv>): InquiryDeps {
   return {
-    isPlatformHost: (host) => host !== null && PLATFORM_HOSTS.has(host),
-
-    // The routed request URL only; X-Forwarded-Host is client-controlled (T-101 finding B1).
-    requestHost: (req) => new URL(req.url).hostname,
+    // T-101's host rules (T-130 Task 11): the routed URL only, explicit ports refused, and only
+    // the hosts parseHost classifies as "platform".
+    isPlatformHost,
+    requestHost: (req) => requestHost({ url: req.url }),
 
     async verifyTurnstile(token, ip) {
       if (!env.TURNSTILE_SECRET) return false;
