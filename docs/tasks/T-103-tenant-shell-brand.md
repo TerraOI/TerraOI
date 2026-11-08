@@ -1,6 +1,6 @@
 # T-103 Tenant shell and brand loading in `terraoi` mode
 
-Lane: 1 · Week: 1 · Protected: no · Depends on: T-002, T-003, T-101, T-102 · Status: ready
+Lane: 1 · Week: 1 · Protected: no · Depends on: T-002, T-003, T-101, T-102 · Status: in progress (wyuinline) — the brand **validator, loader and cache** half is open as this PR: `src/platform/branding/` now holds the one validated `TenantBrand` object (hex colors only, real contrast checks, unresolved placeholders refused, https-only support links, asset path/type/size/content rules), the F04 host-driven loader with its platform fallback and admin-visible note, and the public cache that is hostname-keyed, bounded and refuses to hold membership data. The **shell** half (`src/components/tenant-shell/`, `src/app/(tenant)/layout.tsx`) is deliberately not opened: a Server Component still has no way to get the trusted routed host ([#55](https://github.com/TerraOI/TerraOI/issues/55)), there is no `tenant_brands` row to read ([#62](https://github.com/TerraOI/TerraOI/issues/62) — the loader reaches it through an injected port whose honest default today is "no row"), and nothing rules on how brand assets are served (the question this PR opens). The staging `Done evidence` below is **not** claimed, for those reasons. `TenantBrand` stays out of `src/contracts/` because [ADR-0004](../decisions/0004-tenant-brand-contract.md) is still proposed and blocked
 Plan refs: §5.1, §9.1; F04
 
 ## Goal
