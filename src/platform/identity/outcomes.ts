@@ -15,7 +15,6 @@ export const SIGNIN_OUTCOMES = [
   "rate_limited",
   "unavailable",
   "not_a_member",
-  "signed_in",
 ] as const;
 
 export type SigninOutcome = (typeof SIGNIN_OUTCOMES)[number];
