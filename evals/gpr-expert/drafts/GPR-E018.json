@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "GPR-E018",
+  "expertKey": "gpr-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "What does the manual say about achievable depth in wet clay?",
+  "expectedAnswerPoints": [
+    "Quotes the manual's attenuation guidance and the conditions it assumes, with locator, and does not convert guidance into a site-specific depth promise."
+  ],
+  "expectedClaimTypes": [
+    "source_fact"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "No site-specific depth prediction; no comparison with another vendor's equipment."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-GPR-MAN-G40 page:8 section:2.1",
+  "expectedFixtures": [
+    "SYNTH-GPR-MAN-G40"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "UAV-E019",
+  "expertKey": "uav-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "Which aircraft does the pre-flight SOP apply to?",
+  "expectedAnswerPoints": [
+    "The applicability clause quoted with its locator, listing the asset identifiers it names (UAV-A17, UAV-B09 - synthetic asset ids invented for this fixture)."
+  ],
+  "expectedClaimTypes": [
+    "source_fact"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "Must not add airframes that the clause does not name; no fleet-wide claim."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-UAV-SOP-PF-04 page:1 section:1.1",
+  "expectedFixtures": [
+    "SYNTH-UAV-SOP-PF-04"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

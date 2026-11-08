@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "caseId": "UAV-E012",
+  "expertKey": "uav-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "The manual and the pre-flight SOP disagree about who signs the note. Which one wins?",
+  "expectedAnswerPoints": [
+    "Quotes both texts with locators, records the disagreement in conflicts, and states that the published corpus does not settle precedence, so the question goes to the UAV lead; it does not choose a winner."
+  ],
+  "expectedClaimTypes": [
+    "source_fact",
+    "requirement",
+    "inference"
+  ],
+  "expectedAnswerStatus": "partial",
+  "citationRequired": true,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "No unsupported precedence rule; no 'a vendor manual is only guidance' claim unless an authority rule published in the corpus says so; no legal conclusion."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-UAV-MAN-A17 page:12 section:3.2.1; SYNTH-UAV-SOP-PF-04 page:4 section:2.4",
+  "expectedFixtures": [
+    "SYNTH-UAV-MAN-A17",
+    "SYNTH-UAV-SOP-PF-04"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "caseId": "UAV-E007",
+  "expertKey": "uav-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "Where do we record the compass calibration date?",
+  "expectedAnswerPoints": [
+    "Names the record location the SOP prescribes and the field on the calibration log template, with both locators and the template header text."
+  ],
+  "expectedClaimTypes": [
+    "source_fact"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "Must not name an individual as owner of the record; a role named in a published document only."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-UAV-SOP-PF-04 page:5 section:2.6; SYNTH-UAV-TRN-TPL-02 sheet:'Calibration log'!B3 under header 'Calibration recorded on'",
+  "expectedFixtures": [
+    "SYNTH-UAV-SOP-PF-04",
+    "SYNTH-UAV-TRN-TPL-02"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

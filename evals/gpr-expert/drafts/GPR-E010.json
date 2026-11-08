@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "GPR-E010",
+  "expertKey": "gpr-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "How much QC coverage does the SITE-SYNTH-02 client spec require?",
+  "expectedAnswerPoints": [
+    "The percentage and the clause for that client (synthetic: 10 percent repeat lines) with the specification version; says it is contractual for that client only."
+  ],
+  "expectedClaimTypes": [
+    "requirement"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "client_confidential",
+  "projectScope": "synth-site-02",
+  "forbiddenClaims": [
+    "Must not present the figure as a Company1 or industry minimum; no SITE-09 specification content."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-GPR-SPEC-CLIENT-03 page:11 section:5.2",
+  "expectedFixtures": [
+    "SYNTH-GPR-SPEC-CLIENT-03"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

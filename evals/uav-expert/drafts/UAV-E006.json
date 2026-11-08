@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "UAV-E006",
+  "expertKey": "uav-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "Does the pre-flight note need a second signature?",
+  "expectedAnswerPoints": [
+    "Yes or no exactly as the SOP clause states it, quoted with page and section; if the airframe manual is silent on signatures, says so instead of merging the two documents."
+  ],
+  "expectedClaimTypes": [
+    "requirement"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "No invented precedence between the SOP and the manual; no claim about liability or legality."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-UAV-SOP-PF-04 page:4 section:2.4",
+  "expectedFixtures": [
+    "SYNTH-UAV-SOP-PF-04"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

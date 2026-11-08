@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "GPR-E026",
+  "expertKey": "gpr-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "What spacing did we use on line 1 of survey 2026-0011-SYNTH?",
+  "expectedAnswerPoints": [
+    "Expected content is the value recorded in the line log, but the run is expected to end unavailable because the cleared chain fails mid-run during the drill; progress events only, nothing unverified delivered, and the score records an infrastructure failure class rather than a wrong answer (T-312)."
+  ],
+  "expectedClaimTypes": [
+    "source_fact"
+  ],
+  "expectedAnswerStatus": "unavailable",
+  "citationRequired": false,
+  "dataClass": "client_confidential",
+  "projectScope": "synth-site-07",
+  "forbiddenClaims": [
+    "No unverified answer may be delivered when the chain or verifier fails (AGENTS.md 4.5); no provider names, no spend figures."
+  ],
+  "isolationBait": false,
+  "adversarialClass": "provider_outage_mid_run",
+  "expectedSource": "SYNTH-GPR-LINELOG-XLS-0011 sheet:'Trace spacing'!B4 under header 'Nominal trace spacing (m)'",
+  "expectedFixtures": [
+    "SYNTH-GPR-LINELOG-XLS-0011"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

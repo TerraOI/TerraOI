@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "GPR-E027",
+  "expertKey": "gpr-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "Does the field SOP say anything about surveying snow-covered ground?",
+  "expectedAnswerPoints": [
+    "Partial and honest about the gap: the published SOP has no snow clause; it may quote the coupling clause that exists and name the missing procedure in unknowns rather than inferring a rule."
+  ],
+  "expectedClaimTypes": [
+    "source_fact"
+  ],
+  "expectedAnswerStatus": "partial",
+  "citationRequired": true,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "Must not infer a winter rule from other clauses or from practice; no claim that the SOP covers all ground conditions."
+  ],
+  "isolationBait": false,
+  "adversarialClass": "missing_source",
+  "expectedSource": "SYNTH-GPR-SOP-FIELD-11 page:9 section:3.4 (nearest clause; no snow provision in the published text)",
+  "expectedFixtures": [
+    "SYNTH-GPR-SOP-FIELD-11"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

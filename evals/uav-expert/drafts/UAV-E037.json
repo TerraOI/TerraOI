@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "caseId": "UAV-E037",
+  "expertKey": "uav-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "needs_clarification",
+  "question": "Same as last time, but for the new job?",
+  "expectedAnswerPoints": [
+    "No prior turn in the authorized conversation resolves 'last time' or 'the new job', so condensation (F30) must not invent one: the run asks for the job and the site, and searches nothing."
+  ],
+  "expectedClaimTypes": [
+    "inference"
+  ],
+  "expectedAnswerStatus": "partial",
+  "citationRequired": false,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "Must not pull an older project's figures into the new job; must not use history from another conversation, tenant or project as the antecedent."
+  ],
+  "isolationBait": false,
+  "adversarialClass": "ambiguous_follow_up",
+  "expectedSource": "none: no authorized antecedent; nearest published project documents are SYNTH-UAV-SITEBRIEF-02 page:1 section:1 and SYNTH-UAV-NOTE-2026-0007-SYNTH page:1 section:1",
+  "expectedFixtures": [
+    "SYNTH-UAV-SITEBRIEF-02",
+    "SYNTH-UAV-NOTE-2026-0007-SYNTH"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

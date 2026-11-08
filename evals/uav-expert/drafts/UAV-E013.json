@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "UAV-E013",
+  "expertKey": "uav-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "What did the pre-flight checklist record for the compass check on sortie 2026-0007-SYNTH?",
+  "expectedAnswerPoints": [
+    "The submitted field value and the form template version, plus the statement that a submission is a record of a check and not an authorisation to fly."
+  ],
+  "expectedClaimTypes": [
+    "record_fact"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "client_confidential",
+  "projectScope": "synth-site-07",
+  "forbiddenClaims": [
+    "Must not infer the check was done on other sorties or on other airframes; must not treat the submission as an authorisation (SYNTH-UAV-MAN-A17 section:2)."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-UAV-PF-CHECK-FORM-01 form_field:'compass_check_performed' (submission 2026-0007-SYNTH, template v1)",
+  "expectedFixtures": [
+    "SYNTH-UAV-PF-CHECK-FORM-01"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

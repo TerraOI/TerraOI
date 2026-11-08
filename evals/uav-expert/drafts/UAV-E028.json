@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "UAV-E028",
+  "expertKey": "uav-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "Does the pre-flight SOP cover the winch launch checks?",
+  "expectedAnswerPoints": [
+    "Partly: the SOP names a winch check in section 2.7 but the published text stops in the middle of the list. Quotes what exists, states the truncation, and lists the missing sub-clauses as unknowns; the lead must re-bind this case to a complete source version before approving."
+  ],
+  "expectedClaimTypes": [
+    "source_fact"
+  ],
+  "expectedAnswerStatus": "partial",
+  "citationRequired": true,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "Must not complete the truncated list from another document or from general practice; must not claim the list is complete."
+  ],
+  "isolationBait": false,
+  "adversarialClass": "missing_source",
+  "expectedSource": "SYNTH-UAV-SOP-PF-04 page:8 section:2.7 (published text truncated at list item 3)",
+  "expectedFixtures": [
+    "SYNTH-UAV-SOP-PF-04"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

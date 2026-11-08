@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "caseId": "UAV-E005",
+  "expertKey": "uav-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "Which area notices cover SITE-SYNTH-02 and until when?",
+  "expectedAnswerPoints": [
+    "The notice reference ids recorded in the project site brief (2026-0007-SYNTH, 2026-0011-SYNTH) with their stated end dates and the height ceiling figure, cited to the site brief rather than to the public reference."
+  ],
+  "expectedClaimTypes": [
+    "source_fact",
+    "requirement"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "client_confidential",
+  "projectScope": "synth-site-02",
+  "forbiddenClaims": [
+    "Must not present a notice as an authorisation to fly or as a legal clearance; must not substitute the public rules excerpt for the site-specific notice; no site data from another project."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-UAV-SITEBRIEF-02 page:2 section:2",
+  "expectedFixtures": [
+    "SYNTH-UAV-SITEBRIEF-02"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

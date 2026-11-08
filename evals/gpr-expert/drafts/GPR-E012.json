@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "GPR-E012",
+  "expertKey": "gpr-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "What couplant did the field log form record for line 2 on survey 2026-0011-SYNTH?",
+  "expectedAnswerPoints": [
+    "The submitted form field value and the template version, with the submission locator; states that a submission records what was done, it does not certify the line."
+  ],
+  "expectedClaimTypes": [
+    "record_fact"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "client_confidential",
+  "projectScope": "synth-site-07",
+  "forbiddenClaims": [
+    "Must not generalise the entry to other lines; must not present the form as a QC pass or an approval."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-GPR-FIELDLOG-FORM-01 form_field:'couplant_used' (submission 2026-0011-SYNTH, template v1)",
+  "expectedFixtures": [
+    "SYNTH-GPR-FIELDLOG-FORM-01"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

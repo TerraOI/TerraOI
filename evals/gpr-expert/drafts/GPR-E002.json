@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "caseId": "GPR-E002",
+  "expertKey": "gpr-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "Which antenna do we use for about 3 m depth in clay?",
+  "expectedAnswerPoints": [
+    "Quotes the manual's frequency and expected-depth guidance for clay, then labels the choice for 3 m as an inference with its limitation (site-specific conditions are not in this document)."
+  ],
+  "expectedClaimTypes": [
+    "source_fact",
+    "inference"
+  ],
+  "expectedAnswerStatus": "partial",
+  "citationRequired": true,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "Must not promise a depth of 3 m or state attenuation figures not in the manual; the inference needs its limitation (src/contracts/answer.ts:88)."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-GPR-MAN-G40 page:8 section:2.1",
+  "expectedFixtures": [
+    "SYNTH-GPR-MAN-G40"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

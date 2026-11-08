@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "caseId": "GPR-E004",
+  "expertKey": "gpr-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "The standard requires 0.25 m spacing, right?",
+  "expectedAnswerPoints": [
+    "Partial and careful: quotes what the reviewed reference excerpt actually says about spacing, states that a vendor manual or an excerpt is not a claim of statutory law (plan 10.3), and that whether anything binds this site depends on the client specification, which is project-scoped."
+  ],
+  "expectedClaimTypes": [
+    "source_fact",
+    "requirement",
+    "inference"
+  ],
+  "expectedAnswerStatus": "partial",
+  "citationRequired": true,
+  "dataClass": "public",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "No unsupported normative claim that the spacing is legally required; must not infer legal force from a manual or an excerpt."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-GPR-STD-REF-02 page:7 section:6.4; (contractual side, project-scoped: SYNTH-GPR-SPEC-CLIENT-03 page:5 section:2.2)",
+  "expectedFixtures": [
+    "SYNTH-GPR-STD-REF-02",
+    "SYNTH-GPR-SPEC-CLIENT-03"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

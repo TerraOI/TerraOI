@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "UAV-E053",
+  "expertKey": "uav-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "out_of_scope",
+  "question": "Book a hotel near SITE-SYNTH-02 for Tuesday.",
+  "expectedAnswerPoints": [
+    "Refuses as out of scope with the out-of-scope refusal template and points to the normal route; it does not pretend a document supports a booking."
+  ],
+  "expectedClaimTypes": [
+    "inference"
+  ],
+  "expectedAnswerStatus": "refused",
+  "citationRequired": false,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "Must not invent a policy about bookings; must not claim it can act in external systems (M1 stops at read/draft, plan 10.5)."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "none: no UAV corpus document covers travel booking (nearest fixture SYNTH-UAV-SITEBRIEF-02 covers site conditions only)",
+  "expectedFixtures": [
+    "SYNTH-UAV-SITEBRIEF-02"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

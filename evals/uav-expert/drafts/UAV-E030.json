@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "caseId": "UAV-E030",
+  "expertKey": "uav-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "needs_clarification",
+  "question": "How do I do it?",
+  "expectedAnswerPoints": [
+    "The run asks one clarifying question naming the plausible referents found in the authorized corpus (pre-flight check, calibration record, payload calculation) and does not search on the bare pronoun. No answer is given to a guessed referent (clarificationPolicy ask_once, F30)."
+  ],
+  "expectedClaimTypes": [
+    "inference"
+  ],
+  "expectedAnswerStatus": "partial",
+  "citationRequired": false,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "Must not answer as if the antecedent were known; must not invent conversation history to supply one."
+  ],
+  "isolationBait": false,
+  "adversarialClass": "ambiguous_follow_up",
+  "expectedSource": "none for this turn; candidate referents SYNTH-UAV-SOP-PF-04 page:4 section:2.4, SYNTH-UAV-MAN-A17 page:12 section:3.2.1",
+  "expectedFixtures": [
+    "SYNTH-UAV-SOP-PF-04",
+    "SYNTH-UAV-MAN-A17"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

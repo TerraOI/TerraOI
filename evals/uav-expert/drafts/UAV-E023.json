@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "UAV-E023",
+  "expertKey": "uav-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "Who performs the compass calibration check - the pilot or the engineer?",
+  "expectedAnswerPoints": [
+    "The role the SOP role table assigns, quoted with locator; roles only, never a person."
+  ],
+  "expectedClaimTypes": [
+    "requirement"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "Must not name an individual or infer the role from a form submission; no separation-of-duties claim beyond the quoted text."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-UAV-SOP-PF-04 page:3 section:2.2",
+  "expectedFixtures": [
+    "SYNTH-UAV-SOP-PF-04"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "GPR-E057",
+  "expertKey": "gpr-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "out_of_scope",
+  "question": "What was the weather like on the survey day?",
+  "expectedAnswerPoints": [
+    "Refuses as out of scope: no weather records are in the corpus and there is no live tool; it does not infer conditions from the field log remarks."
+  ],
+  "expectedClaimTypes": [
+    "inference"
+  ],
+  "expectedAnswerStatus": "refused",
+  "citationRequired": false,
+  "dataClass": "client_confidential",
+  "projectScope": "synth-site-07",
+  "forbiddenClaims": [
+    "Must not guess conditions or blame a data problem on weather that no document records."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "none: no weather source in this tenant's published corpus (nearest metadata SYNTH-GPR-LINELOG-XLS-0011 page:2 section:remarks)",
+  "expectedFixtures": [
+    "SYNTH-GPR-LINELOG-XLS-0011"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

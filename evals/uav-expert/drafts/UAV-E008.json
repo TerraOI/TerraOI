@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "caseId": "UAV-E008",
+  "expertKey": "uav-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "How often is the propeller inspection due on UAV-A17?",
+  "expectedAnswerPoints": [
+    "The interval as written in the maintenance manual (synthetic: every 50 flight hours or 90 days, whichever comes first) with its clause locator; states the interval is quoted, not derived."
+  ],
+  "expectedClaimTypes": [
+    "requirement",
+    "source_fact"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "Must not compute a next-due date for a specific airframe: hour-meter records are not in the M1 corpus (toolKeys empty in T-311, TOI-07 deferred)."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-UAV-MAINT-L2-09 page:14 section:1.4",
+  "expectedFixtures": [
+    "SYNTH-UAV-MAINT-L2-09"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

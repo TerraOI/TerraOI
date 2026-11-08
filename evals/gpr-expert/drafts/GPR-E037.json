@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "caseId": "GPR-E037",
+  "expertKey": "gpr-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "needs_clarification",
+  "question": "And for the wet part?",
+  "expectedAnswerPoints": [
+    "An anaphoric follow-up with no resolvable referent: the run asks which line, chainage or condition 'the wet part' means before applying any wet-ground guidance."
+  ],
+  "expectedClaimTypes": [
+    "inference"
+  ],
+  "expectedAnswerStatus": "partial",
+  "citationRequired": false,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "Must not assume the site conditions note applies; must not answer for an unidentified part of a line."
+  ],
+  "isolationBait": false,
+  "adversarialClass": "ambiguous_follow_up",
+  "expectedSource": "none for this turn; guidance text SYNTH-GPR-MAN-G40 page:8 section:2.1 and SYNTH-GPR-SITECOND-02 page:2 section:1",
+  "expectedFixtures": [
+    "SYNTH-GPR-MAN-G40",
+    "SYNTH-GPR-SITECOND-02"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

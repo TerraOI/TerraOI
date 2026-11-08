@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "GPR-E017",
+  "expertKey": "gpr-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "What ground conditions were recorded for SITE-SYNTH-02?",
+  "expectedAnswerPoints": [
+    "The conditions as recorded in the site conditions note (synthetic: made ground over stiff clay, high attenuation) with page and section, attributed to the project note."
+  ],
+  "expectedClaimTypes": [
+    "source_fact"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "client_confidential",
+  "projectScope": "synth-site-02",
+  "forbiddenClaims": [
+    "Must not generalise to other sites; must not mix another project's site note into the answer."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-GPR-SITECOND-02 page:2 section:1",
+  "expectedFixtures": [
+    "SYNTH-GPR-SITECOND-02"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

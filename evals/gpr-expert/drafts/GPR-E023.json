@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "caseId": "GPR-E023",
+  "expertKey": "gpr-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "What does the client spec require us to report about detected and missed utilities?",
+  "expectedAnswerPoints": [
+    "The reporting clause (synthetic: report amplitude class, depth range and confidence, and list unresolved responses) with specification version and locator; says it binds that client's deliverables only."
+  ],
+  "expectedClaimTypes": [
+    "requirement",
+    "source_fact"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "client_confidential",
+  "projectScope": "synth-site-02",
+  "forbiddenClaims": [
+    "Must not turn a client clause into law or a general Company1 standard; must not disclose another client's clauses."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-GPR-SPEC-CLIENT-03 page:13 section:6.1",
+  "expectedFixtures": [
+    "SYNTH-GPR-SPEC-CLIENT-03"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

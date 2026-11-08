@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "GPR-E008",
+  "expertKey": "gpr-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "Which couplant is recorded for line 3 in the log?",
+  "expectedAnswerPoints": [
+    "The single cell value with sheet and header named, and no interpretation of whether that couplant was appropriate."
+  ],
+  "expectedClaimTypes": [
+    "source_fact"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "client_confidential",
+  "projectScope": "synth-site-07",
+  "forbiddenClaims": [
+    "Must not recommend a couplant beyond what the manual states; must not judge line 3 quality."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-GPR-LINELOG-XLS-0011 sheet:'Coupling'!D6 under header 'Couplant used'",
+  "expectedFixtures": [
+    "SYNTH-GPR-LINELOG-XLS-0011"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

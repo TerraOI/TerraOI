@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "GPR-E024",
+  "expertKey": "gpr-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "Spacing and QC coverage for SITE-SYNTH-02 in one line please.",
+  "expectedAnswerPoints": [
+    "Two quoted figures with two locators in one short answer (specification section 2.2 and section 5.2); no combined sentence inventing a single rule."
+  ],
+  "expectedClaimTypes": [
+    "source_fact"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "client_confidential",
+  "projectScope": "synth-site-02",
+  "forbiddenClaims": [
+    "No derived figures; no figures from the SOP presented as contractual."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-GPR-SPEC-CLIENT-03 page:5 section:2.2; SYNTH-GPR-SPEC-CLIENT-03 page:11 section:5.2",
+  "expectedFixtures": [
+    "SYNTH-GPR-SPEC-CLIENT-03"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

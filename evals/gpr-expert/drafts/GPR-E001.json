@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "caseId": "GPR-E001",
+  "expertKey": "gpr-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "What trace spacing do we use on a utility detection survey?",
+  "expectedAnswerPoints": [
+    "The nominal spacing stated in the acquisition SOP with its clause, plus the manual's note that spacing is a nominal target; distinguishes the Company1 SOP figure from any client's contractual figure."
+  ],
+  "expectedClaimTypes": [
+    "source_fact"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "Must not present the SOP figure as a legal or industry-wide requirement; must not use a client specification from another project."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-GPR-SOP-FIELD-11 page:6 section:3.2; SYNTH-GPR-MAN-G40 page:14 section:4.2",
+  "expectedFixtures": [
+    "SYNTH-GPR-SOP-FIELD-11",
+    "SYNTH-GPR-MAN-G40"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

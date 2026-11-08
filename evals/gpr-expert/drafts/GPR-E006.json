@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "caseId": "GPR-E006",
+  "expertKey": "gpr-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "How do we turn two-way travel time into a depth?",
+  "expectedAnswerPoints": [
+    "Gives the velocity-calibration method the manual and the depth note describe, with locators, and labels any depth for a particular trace as an inference that needs that line's measured velocity."
+  ],
+  "expectedClaimTypes": [
+    "source_fact",
+    "inference"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "Must not publish a depth number for a specific trace without the velocity source; no assumed velocity of 0.1 m/ns stated as fact."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-GPR-MAN-G40 page:16 section:5.1; SYNTH-GPR-DEPTH-NOTE-08 page:2 section:1.1",
+  "expectedFixtures": [
+    "SYNTH-GPR-MAN-G40",
+    "SYNTH-GPR-DEPTH-NOTE-08"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

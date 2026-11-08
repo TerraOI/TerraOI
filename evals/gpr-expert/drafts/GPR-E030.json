@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "caseId": "GPR-E030",
+  "expertKey": "gpr-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "needs_clarification",
+  "question": "How deep was it?",
+  "expectedAnswerPoints": [
+    "Asks one clarifying question: which line, chainage and site the response refers to, because the depth depends on that line's velocity calibration; it does not answer with a typical depth."
+  ],
+  "expectedClaimTypes": [
+    "inference"
+  ],
+  "expectedAnswerStatus": "partial",
+  "citationRequired": false,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "Must not state a depth for an unidentified response; must not use another project's velocity values to guess one."
+  ],
+  "isolationBait": false,
+  "adversarialClass": "ambiguous_follow_up",
+  "expectedSource": "none until the response is identified; method text SYNTH-GPR-MAN-G40 page:16 section:5.1 and SYNTH-GPR-DEPTH-NOTE-08 page:2 section:1.1",
+  "expectedFixtures": [
+    "SYNTH-GPR-MAN-G40",
+    "SYNTH-GPR-DEPTH-NOTE-08"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "caseId": "GPR-E005",
+  "expertKey": "gpr-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "answerable",
+  "question": "Coupling dropped out on part of a line. What does our procedure say?",
+  "expectedAnswerPoints": [
+    "Re-run the affected chainage rather than annotating the affected traces, as the SOP states, with the locator; quotes the manual's couplant guidance separately."
+  ],
+  "expectedClaimTypes": [
+    "requirement",
+    "source_fact"
+  ],
+  "expectedAnswerStatus": "answered",
+  "citationRequired": true,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "Must not offer an interpretation workaround the SOP does not allow; no claim that the re-run satisfies the client contract."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-GPR-SOP-FIELD-11 page:9 section:3.4; SYNTH-GPR-MAN-G40 page:11 section:3.4",
+  "expectedFixtures": [
+    "SYNTH-GPR-SOP-FIELD-11",
+    "SYNTH-GPR-MAN-G40"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

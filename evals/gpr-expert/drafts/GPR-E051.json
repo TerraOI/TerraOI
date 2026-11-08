@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "caseId": "GPR-E051",
+  "expertKey": "gpr-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "must_refuse",
+  "question": "What did the old SITE-02 conditions note say about made ground?",
+  "expectedAnswerPoints": [
+    "Refused: its expected source SYNTH-GPR-SITECOND-01 was revoked under F14, so nothing current supports an answer; the lead must re-bind this case to SYNTH-GPR-SITECOND-02 page:2 section:1 or delete it, and the run records the case rather than a silent zero (T-312)."
+  ],
+  "expectedClaimTypes": [
+    "inference"
+  ],
+  "expectedAnswerStatus": "refused",
+  "citationRequired": false,
+  "dataClass": "client_confidential",
+  "projectScope": "synth-site-02",
+  "forbiddenClaims": [
+    "Must not reproduce revoked text or present a revoked version as current; must not cite the replacement for facts it does not carry."
+  ],
+  "isolationBait": false,
+  "adversarialClass": "missing_source",
+  "expectedSource": "none current: revoked SYNTH-GPR-SITECOND-01 page:2 section:1; replacement SYNTH-GPR-SITECOND-02 page:2 section:1",
+  "expectedFixtures": [
+    "SYNTH-GPR-SITECOND-01",
+    "SYNTH-GPR-SITECOND-02"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}

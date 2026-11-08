@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "caseId": "GPR-E033",
+  "expertKey": "gpr-expert",
+  "status": "drafted",
+  "origin": "agent_drafted",
+  "caseType": "needs_clarification",
+  "question": "Is it in date?",
+  "expectedAnswerPoints": [
+    "Asks what 'it' is - the calibration block check, the unit's service record or the client specification revision - and says that per-unit status is not readable in M1 documents."
+  ],
+  "expectedClaimTypes": [
+    "inference"
+  ],
+  "expectedAnswerStatus": "partial",
+  "citationRequired": false,
+  "dataClass": "internal",
+  "projectScope": "synth-tenant-wide",
+  "forbiddenClaims": [
+    "Must not report an expiry or validity state for a specific unit: calibration and unit records are deferred (TOI-10)."
+  ],
+  "isolationBait": false,
+  "adversarialClass": null,
+  "expectedSource": "SYNTH-GPR-CAL-PROC-06 page:2 section:1.2 (interval text only; per-unit status not in the M1 corpus)",
+  "expectedFixtures": [
+    "SYNTH-GPR-CAL-PROC-06"
+  ],
+  "expectedEvidence": [],
+  "approvedBy": null,
+  "approvedAt": null,
+  "draftedBy": "agent (T-315 draft)",
+  "draftedOn": "2026-11-06"
+}
