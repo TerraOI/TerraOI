@@ -125,22 +125,22 @@ select is_empty($$
      and p.oid not in (
        select allowed.proc::oid
          from (values
-           'public.current_organisation_id()'::regprocedure,
-           'public.set_tenant_scope(uuid)'::regprocedure,
-           'public.clear_tenant_scope()'::regprocedure,
-           'public.is_active_member(uuid)'::regprocedure,
-           'public.is_project_member(uuid)'::regprocedure,
-           'public.resolve_tenant_host(text)'::regprocedure,
-           'public.data_class_is_valid(text)'::regprocedure,
-           'public.data_class_rank(text)'::regprocedure,
-           'public.data_class_is_ingestible_in_m1(text)'::regprocedure,
-           'public.collection_is_readable(uuid)'::regprocedure,
-           'public.source_is_readable(uuid)'::regprocedure,
-           'public.source_version_is_readable(uuid)'::regprocedure,
-           'public.chunk_is_readable(uuid)'::regprocedure,
-           'public.begin_upload_session_v1(uuid, text, text, bigint)'::regprocedure,
-           'public.register_source_version_v1(uuid, text, bigint, text)'::regprocedure,
-           'public.record_upload_outcome_v1(uuid, text, text)'::regprocedure
+           ('public.current_organisation_id()'::regprocedure),
+           ('public.set_tenant_scope(uuid)'::regprocedure),
+           ('public.clear_tenant_scope()'::regprocedure),
+           ('public.is_active_member(uuid)'::regprocedure),
+           ('public.is_project_member(uuid)'::regprocedure),
+           ('public.resolve_tenant_host(text)'::regprocedure),
+           ('public.data_class_is_valid(text)'::regprocedure),
+           ('public.data_class_rank(text)'::regprocedure),
+           ('public.data_class_is_ingestible_in_m1(text)'::regprocedure),
+           ('public.collection_is_readable(uuid)'::regprocedure),
+           ('public.source_is_readable(uuid)'::regprocedure),
+           ('public.source_version_is_readable(uuid)'::regprocedure),
+           ('public.chunk_is_readable(uuid)'::regprocedure),
+           ('public.begin_upload_session_v1(uuid, text, text, bigint)'::regprocedure),
+           ('public.register_source_version_v1(uuid, text, bigint, text)'::regprocedure),
+           ('public.record_upload_outcome_v1(uuid, text, text)'::regprocedure)
          ) as allowed(proc)
      )
 $$, '32 no function in public is executable by authenticated beyond the named allow-list (§4.3, #60)');
