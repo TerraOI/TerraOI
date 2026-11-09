@@ -186,7 +186,7 @@ select is_empty($$
   select a.grantee::text as grantee, a.privilege_type
     from pg_default_acl da
     join pg_namespace n on n.oid = da.defaclnamespace
-   cross join lateral aclexplode(da.defacl) a
+   cross join lateral aclexplode(da.defaclacl) a
    where n.nspname = 'public' and da.defaclobjtype = 'f'
      and a.privilege_type = 'EXECUTE'
      and (a.grantee is null or a.grantee::regrole::text in ('public', 'anon', 'authenticated'))
