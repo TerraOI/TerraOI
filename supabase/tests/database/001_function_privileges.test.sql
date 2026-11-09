@@ -182,28 +182,40 @@ select ok((select count(*) > 0
                       where n.nspname = 'public' and p.proname = 'resolve_tenant_host')),
   '35 a default-privilege row for functions in public exists for that role (#60 Addition 1)');
 
+-- DIAGNOSTIC HEAD (PR #132): prints the owning role, the namespace, the grantee by NAME and the
+-- stored default ACL, so the failure names the two objects instead of two OIDs. Not the final form.
 select is_empty($$
-  select a.grantee::text as grantee, a.privilege_type
+  select coalesce(da.defaclrole::regrole::text, '?') || ' default in ' ||
+         coalesce(da.defaclnamespace::regnamespace::text, '(whole database)') ||
+         ' -> ' || coalesce(a.grantee::regrole::text, 'PUBLIC') || ' ' || a.privilege_type ||
+         ' | stored acl ' || coalesce(da.defaclacl::text, '(null)')
     from pg_default_acl da
-    join pg_namespace n on n.oid = da.defaclnamespace
    cross join lateral aclexplode(da.defaclacl) a
-   where n.nspname = 'public' and da.defaclobjtype = 'f'
+   where da.defaclobjtype = 'f'
      and a.privilege_type = 'EXECUTE'
      and (a.grantee is null or a.grantee::regrole::text in ('public', 'anon', 'authenticated'))
-$$, '36 no default-privilege row in public hands EXECUTE on future functions to public, anon or '
-   || 'authenticated (grantee is null for PUBLIC in aclexplode)');
+$$, '36 no default-privilege row hands EXECUTE on future functions to public, anon or authenticated '
+   || '(grantee is null for PUBLIC in aclexplode)');
 
--- ---------------------------------------------------------------- 37-38 the default in behaviour, not catalog
+select is((select 'session_user=' || coalesce(session_user, '?') || ' current_user=' || coalesce(current_user, '?')
+           || ' superuser=' || (select rolsuper::text from pg_roles where rolname = current_user)),
+  'DIAGNOSTIC', '37 dump: the role pg_prove runs this file as');
+
+-- ---------------------------------------------------------------- 38 the default in behaviour, not catalog
 -- A function created by that role after the hardening is unreachable to both request roles. This is
 -- the assertion that catches a hosted role the ALTER DEFAULT PRIVILEGES statement does not cover:
 -- if it fails, the statement is targeting the wrong role and gets dropped, not this test.
 set local role postgres;
 create function public.probe_001_default_privileges() returns boolean
   language sql as $$ select true $$;
-select is(has_function_privilege('anon', 'public.probe_001_default_privileges()', 'execute'), false,
-  '37 a function added after the hardening is not executable by anon by default (#60 Addition 1)');
-select is(has_function_privilege('authenticated', 'public.probe_001_default_privileges()', 'execute'), false,
-  '38 and not by authenticated either: the default is closed at the source, not per migration');
+select is((select 'probe_owner=' || pg_get_userbyid(p.proowner) ||
+           ' probe_acl=' || coalesce(p.proacl::text, '(null: built from the owner default)') ||
+           ' anon_x=' || has_function_privilege('anon', p.oid, 'EXECUTE')::text ||
+           ' auth_x=' || has_function_privilege('authenticated', p.oid, 'EXECUTE')::text
+     from pg_proc p
+     join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'probe_001_default_privileges'),
+  'DIAGNOSTIC', '38 dump: who created the probe function and what its ACL really is');
 drop function public.probe_001_default_privileges();
 reset role;
 
