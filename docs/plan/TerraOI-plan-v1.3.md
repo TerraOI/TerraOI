@@ -726,6 +726,9 @@ These are logical implementation units, not claims about functions already prese
 | F36 `publishExpertVersion` (v1.3) | Candidate expert version + passing eval run + owner approval → selectable version | Refuses without passing run at thresholds (§14.1); previous version retained for rollback |
 | F37 `checkProviderHealth` (v1.3) | Provider key → health, latency, quota-window and circuit state | Scheduled + passive (error-rate) checks; local-box offline detected within one check interval |
 | F38 `callProviderChain` (v1.3) | Eligible chain (F31) + payload + reservation → first successful result | Advances on outage, timeout, 429/5xx, context overflow or schema failure; each attempt reserved and audited; returns which tier answered |
+| F40 `recordRouteDecision` (v1.3) | Route request + reviewed clearance matrix (revision) + provider rows → recorded decision | Every model call records the matrix revision, the eligible chain, each skipped provider with its reason, and each attempt with its outcome, as run-audit content only (never rendered to an employee, §9.3), so any decision can be replayed; cites §12.4 and issue #16 N4. Persisted with the run by F22. |
+
+F39: unassigned; do not reuse (#70).
 
 Expose these as reviewed code interfaces with runtime schemas, tests, errors, metrics and owners. Keep implementation names aligned with the actual repository when integrating rather than mechanically renaming working code.
 
@@ -1135,7 +1138,7 @@ Lanes follow the module boundaries in §3.3, so the two agents rarely edit the s
 | Lane | Owner | Owns | Main F-functions |
 |---|---|---|---|
 | **Lane 1: Platform & experience** | Builder A | `src/app/`, `platform/tenancy`, `identity`, `branding`, `chat` (route and UI), `forms`, `notifications`, `components/` | F01–F05, F17, F23, F24, F29 UI, F33 |
-| **Lane 2: Knowledge & intelligence** | Builder B | `platform/knowledge`, `retrieval`, `agents`, `gateway`, `evals`, `budgets`, `audit`, `workers/`, `localbox/`, `evals/` | F08–F16, F18–F22, F29–F32, F34–F38 |
+| **Lane 2: Knowledge & intelligence** | Builder B | `platform/knowledge`, `retrieval`, `agents`, `gateway`, `evals`, `budgets`, `audit`, `workers/`, `localbox/`, `evals/` | F08–F16, F18–F22, F29–F32, F34–F38, F40 |
 | **Shared** | Supervisor approves | `src/contracts/`, `supabase/migrations/`, `docs/contracts/` | Each lane writes its own migrations; numbering is coordinated in the daily sync |
 
 Builders hold a 15-minute daily sync on contracts and migration numbering. The supervisor joins weekly.

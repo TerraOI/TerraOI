@@ -92,3 +92,19 @@ export function evaluateProvisional({ labels = [], body = "", issues = {} }) {
   }
   return { ok: problems.length === 0, problems };
 }
+
+/**
+ * The body and label names of a pull request as the REST API returns it now (#89). A missing body
+ * is an empty one; any other shape throws, so the caller fails closed rather than judging nothing.
+ */
+export function pullRequestState(pr) {
+  const body = pr?.body ?? "";
+  if (typeof body !== "string" || !Array.isArray(pr?.labels)) {
+    throw new Error("pull request response has no readable body or labels");
+  }
+  const labels = pr.labels.map((l) => {
+    if (typeof l?.name !== "string") throw new Error("pull request label without a name");
+    return l.name;
+  });
+  return { body, labels };
+}

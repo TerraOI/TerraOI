@@ -35,7 +35,8 @@ export const IngestionJobPayload = z
     // **Not** part of the stage idempotency key, which is (org, source, version, stage,
     // generation) (§7.5): a fresh key for every retry would defeat deduplication and re-enqueue
     // a stage that already ran. The attempt number is consumer bookkeeping — leases, backoff and
-    // observability — and the T-111 `ingestion_stage_runs` constraint leaves it out of the key.
+    // observability — and the unique stage key on `ingestion_jobs`
+    // (`20261105070000_knowledge_core.sql:398`) leaves it out.
     attempt: z.number().int().positive(),
     leaseToken: z.string().min(8).max(128).optional(),
     issuedAt: z.iso.datetime(),

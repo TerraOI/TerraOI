@@ -38,8 +38,10 @@ replayed or stale message cannot process another tenant's object or resurrect a 
 - The stage idempotency key is `(org, source, version, stage, parser/index generation)` (§7.5),
   and `attempt` is **not** part of it (issue #16 N3): a fresh key per retry would re-enqueue a
   stage that already ran and defeat the deduplication that at-least-once Cloudflare Queues needs.
-  `attempt` is consumer bookkeeping — lease, backoff, observability — and the T-111
-  `ingestion_stage_runs` constraint leaves it out of the key for exactly that reason.
+  `attempt` is consumer bookkeeping — lease, backoff, observability — and the unique stage key on
+  `ingestion_jobs` (`20261105070000_knowledge_core.sql:398`) leaves it out for exactly that reason.
+  Attempt history is not modelled as rows in M1. Retries increment `attempt` in place, and lease
+  state lives on the job row (#68).
 - `executor: local_box` is valid **only** for `extract`: inference and OCR are separate
   processes on the box, and OCR load must not starve chat (§13).
 - `dataClass: restricted` cannot be enqueued in M1 (§12.4). Lifting that needs an ADR.

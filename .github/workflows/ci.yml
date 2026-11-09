@@ -55,13 +55,25 @@ jobs:
       - name: pgTAP tests (RLS guardrails and tenancy)
         run: pnpm exec supabase test db
       - name: Generated types are up to date
+        id: types
         run: |
           if git ls-files --error-unmatch src/contracts/database.types.ts >/dev/null 2>&1; then
             pnpm db:types
             git diff --exit-code -- src/contracts/database.types.ts \
-              || { echo "::error::database.types.ts is stale. Run 'pnpm db:types' and commit it."; exit 1; }
+              || { echo "::error::database.types.ts is stale. No Docker needed: download the regenerated file with 'gh run download ${{ github.run_id }} -n database-types -D src/contracts/', commit it and push (#122)."; exit 1; }
           else
             echo "::notice::No generated types committed yet (first committed in T-003)."
           fi
+      # #122: builders have no Docker, so CI hands over the file it generated from this head's own
+      # migrations. Only when the check above ran and found it stale: a run whose pgTAP failed skips
+      # that step, so it never supplies types. CI never commits; the builder does.
+      - name: Upload regenerated database types
+        if: always() && steps.types.outcome == 'failure'
+        uses: actions/upload-artifact@v7
+        with:
+          name: database-types
+          path: src/contracts/database.types.ts
+          if-no-files-found: error
+          retention-days: 7
       - if: always()
         run: pnpm exec supabase stop --no-backup

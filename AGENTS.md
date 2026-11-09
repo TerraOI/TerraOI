@@ -40,7 +40,7 @@ Two builders work in parallel, one per lane. **Edit only your lane's paths plus 
 | **Lane 2: Knowledge & intelligence** | `src/app/api/jobs/`, `src/app/api/knowledge/` (FAQ-0005), `src/platform/{knowledge,retrieval,agents,gateway,evals,budgets,audit}/`, `workers/`, `localbox/`, `evals/` |
 | **Shared** (both; changes coordinated) | `src/contracts/`, `supabase/`, `docs/`, `scripts/`, `brand/` (read [brand/README.md](brand/README.md) first), root config |
 
-**Protected paths** need the supervisor's review (enforced by `.github/CODEOWNERS`): `supabase/migrations/`, `src/contracts/`, `src/platform/{tenancy,identity,policy}/`, `src/platform/gateway/` (chain and clearance), `src/app/api/jobs/`, `src/app/api/knowledge/`, `workers/`, `localbox/`, `.github/`, `AGENTS.md`, `wrangler.jsonc`, `brand/`.
+**Protected paths** are the paths listed in [`.github/CODEOWNERS`](.github/CODEOWNERS), and only those; this file does not repeat the list. A PR that touches one merges only with an `APPROVED` review from the supervisor on its final head commit. This is enforced by the provenance guard (`main-guard`), which reads CODEOWNERS; CODEOWNERS review itself becomes binding only once branch protection is available (#63).
 
 ## 4. Non-negotiables (security and data)
 

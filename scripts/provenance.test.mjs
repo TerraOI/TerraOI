@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { attributeStacked, evaluate, isReviewed, mergedInto } from "./provenance.mjs";
+import { readFileSync } from "node:fs";
+import { attributeStacked, evaluate, isReviewed, mergedInto, GUARD_FLOOR, parseCodeowners, protectedPatternsFrom, touchesProtected } from "./provenance.mjs";
 
 const pr = { number: 7, merged_at: "2026-11-05T00:00:00Z", base: { ref: "main" }, user: { login: "alice" }, head: { sha: "h2" } };
 const approve = (login, commit_id = "h2") => ({ user: { login }, state: "APPROVED", commit_id });
@@ -58,4 +59,60 @@ describe("attributeStacked", () => {
   it("leaves commits that already have a main-merged PR untouched", () => {
     expect(attributeStacked(commits, { 26: ["s1", "m1"] })[1]).toBe(commits[1]);
   });
+});
+
+describe("protected paths come from CODEOWNERS (#63)", () => {
+  const patterns = parseCodeowners("# comment\n/supabase/migrations/   @wyu610\n/AGENTS.md  @wyu610\n");
+  it("reads anchored folders and files", () => expect(patterns).toEqual(["supabase/migrations/", "AGENTS.md"]));
+  it("parses the repository's own CODEOWNERS", () =>
+    expect(parseCodeowners(readFileSync(".github/CODEOWNERS", "utf8"))).toContain(".github/"));
+  it("fails closed on a glob, an unanchored pattern or an empty list", () => {
+    expect(() => parseCodeowners("*.sql @x")).toThrow();
+    expect(() => parseCodeowners("docs/ @x")).toThrow();
+    expect(() => parseCodeowners("# nothing\n")).toThrow();
+  });
+  it("matches folder prefixes and exact files only", () => {
+    expect(touchesProtected(["supabase/migrations/x.sql"], patterns)).toBe(true);
+    expect(touchesProtected(["AGENTS.md"], patterns)).toBe(true);
+    expect(touchesProtected(["AGENTS.md.bak", "supabase/seed.sql", "docs/AGENTS.md"], patterns)).toBe(false);
+  });
+
+  const sup = ["wyu610"];
+  const ok = { sha: "a", pulls: [pr] };
+  const run = (files, reviews) =>
+    evaluate({ commits: [ok], reviewsByPr: { 7: reviews }, supervisors: sup, protectedPatterns: patterns, filesByPr: files === undefined ? {} : { 7: files } });
+  it("passes a protected path approved by a supervisor on the final commit", () =>
+    expect(run(["supabase/migrations/x.sql"], [approve("wyu610")]).ok).toBe(true));
+  it("flags a protected path approved only by a non-supervisor", () => {
+    const r = run(["supabase/migrations/x.sql"], [approve("bob")]);
+    expect(r.ok).toBe(false);
+    expect(r.violations[0].reason).toMatch(/protected path merged without a supervisor approval/);
+  });
+  it("does not count a stale supervisor approval", () =>
+    expect(run(["supabase/migrations/x.sql"], [approve("bob"), approve("wyu610", "h1")]).ok).toBe(false));
+  it("passes an unprotected path with any non-author approval", () =>
+    expect(run(["src/app/page.tsx"], [approve("bob")]).ok).toBe(true));
+  it("treats a PR whose file list is unknown as protected (fails closed)", () =>
+    expect(run(undefined, [approve("bob")]).ok).toBe(false));
+  it("keeps exempting PRs a supervisor authored", () =>
+    expect(evaluate({ commits: [{ sha: "a", pulls: [{ ...pr, user: { login: "wyu610" } }] }], reviewsByPr: { 7: [] }, supervisors: sup, protectedPatterns: patterns, filesByPr: { 7: ["AGENTS.md"] } }).ok).toBe(true));
+});
+
+describe("the protected list cannot be narrowed by the change it judges (#63)", () => {
+  const before = "/supabase/migrations/ @wyu610\n/.github/ @wyu610\n";
+  const after = "/.github/ @wyu610\n"; // a PR deleted the migrations line
+  it("unions every CODEOWNERS copy, so a removed line still protects", () =>
+    expect(touchesProtected(["supabase/migrations/x.sql"], protectedPatternsFrom([before, after]))).toBe(true));
+  it("always protects CODEOWNERS, the workflows and the guard's own code", () => {
+    const p = protectedPatternsFrom(["/docs/plan/ @wyu610\n"]);
+    for (const f of [".github/CODEOWNERS", ".github/workflows/main-guard.yml", "scripts/provenance.mjs", "scripts/check-pr-provenance.mjs"]) {
+      expect(touchesProtected([f], p)).toBe(true);
+    }
+    expect(GUARD_FLOOR).toContain(".github/");
+  });
+  it("fails closed with no CODEOWNERS copy at all", () => expect(() => protectedPatternsFrom([])).toThrow());
+  it("flags a guard change approved only by a non-supervisor", () =>
+    expect(
+      evaluate({ commits: [{ sha: "a", pulls: [pr] }], reviewsByPr: { 7: [approve("bob")] }, supervisors: ["wyu610"], protectedPatterns: protectedPatternsFrom([after]), filesByPr: { 7: ["scripts/provenance.mjs"] } }).ok,
+    ).toBe(false));
 });
