@@ -53,10 +53,11 @@ export async function resolvePageTenantContext(
   const routedHost = pageRoutedHost(input.headers);
   if (routedHost !== null && !BARE_HOST.test(routedHost)) return { ok: false, reason: "malformed_host" };
 
-  // The `invalid:` placeholder is the merged idiom (`src/platform/site/platform-host.ts:28`): it
-  // keeps `requestHost` as the single decision point, so a missing header fails closed in
-  // production while an explicit, environment-bound `developmentHost` still works under `next dev`
-  // — `requestHost` ignores that parameter everywhere else (host.ts:102-103).
+  // The `invalid:` placeholder is the merged idiom — `platformHostFromHeaders` builds the same
+  // placeholder URL in src/platform/site/platform-host.ts. It keeps `requestHost` as the single
+  // decision point, so a missing header fails closed in production while an explicit,
+  // environment-bound `developmentHost` still works under `next dev` — `requestHost` ignores that
+  // parameter everywhere else (host.ts:102-103).
   const url = routedHost === null ? "invalid:" : `https://${routedHost}/`;
 
   return resolveTenantContext({
