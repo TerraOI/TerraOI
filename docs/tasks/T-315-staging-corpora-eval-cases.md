@@ -34,15 +34,14 @@ may read** (§14.1 step 1); builders add the six non-domain cases §14.1 step 2 
 project-restricted document, poisoned instructions inside a document, a missing source, an outage mid-run,
 an ambiguous follow-up. Locators must be expressible as
 [`EvidenceRef`](../../src/contracts/answer.ts); a run is bound to a published corpus generation, and
-#6's engineering half decided that generation: `@cf/baai/bge-m3`, 1024 dims, cosine, `cleared_for` =
-`public` + `internal` only. Loading uses the ordinary capture path — `begin_upload_session_v1` and
+#6 decided that generation: `@cf/baai/bge-m3`, 1024 dims, cosine, and E1 for every tenant
+([ADR-0007](../decisions/0007-e1-embedding-clearance.md)), so `cleared_for` = `public` + `internal` + `client_confidential`. Loading uses the ordinary capture path — `begin_upload_session_v1` and
 `register_source_version_v1` in the merged
 [`20261106100000_knowledge_uploads.sql`](../../supabase/migrations/20261106100000_knowledge_uploads.sql)
 — with no pilot special case.
 **Assumed, not resolved; all four owe a supervisor decision and two can stop the packet:**
-**#6** with `cleared_for` at `public` + `internal`, a `client_confidential` corpus is searchable only in
-the labelled `lexical_only` lane, so an eval over it measures degraded retrieval — this packet loads
-`public`/`internal` first and says so; **#66** capture queues `'extract', 'cloud_worker'` unconditionally
+**#6** is answered (E1, ADR-0007), so a `client_confidential` corpus is embedded and its eval measures
+hybrid retrieval; **#66** capture queues `'extract', 'cloud_worker'` unconditionally
 (that file, `:474`), and the stage key at `knowledge_core.sql:398` **excludes `executor`** while the enqueue
 uses `on conflict … do nothing` (`knowledge_uploads.sql:477-478`) — so inserting a `local_box` row
 afterwards is **discarded

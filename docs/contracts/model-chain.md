@@ -76,9 +76,9 @@ incomparable, so:
 - model change → a shadow generation is built, evaluated, then the pointer switches atomically
   (§8.3) — never a runtime fallback;
 - embedding sends full chunk text, so `clearedFor` must cover every class in the index.
-  Company1's choice between **E1** (Workers AI embeds `client_confidential`) and **E2**
-  (local-box-only index, lexical fallback when the box is down) is still open (plan §18.3) and
-  lands here as data once recorded.
+  **E1 is decided for every tenant** (#6, [ADR-0007](../decisions/0007-e1-embedding-clearance.md)):
+  each Workers AI index is `cleared_for = {public, internal, client_confidential}`. This is
+  embedding clearance only; the chat matrix above is unchanged.
 
 ## Cost control (F19)
 

@@ -700,6 +700,10 @@ select is((select result from t_out where case_name = 'state_revoked_back'), '23
   '70 a revoked version cannot be republished by a stale or replayed job (§7.3, F14)');
 
 -- ---------------------------------------------------------------- 71-79 pinned index generations and jobs
+-- The seed clears every class E1 allows (#6, ADR-0007). Narrow this generation to `public` here,
+-- inside the test's transaction, so 72 still proves the gate refuses a class the index does not clear.
+update public.embedding_indexes set cleared_for = array['public']::text[]
+  where id = '91000000-0000-4000-8000-000000000001';
 insert into t_out values
   ('embed_wrong_dims', pg_temp.try_embedding('11111111-1111-4111-8111-111111111111',
       '91000000-0000-4000-8000-000000000001', '81000000-0000-4000-8000-000000000003', 1, '[0.1,0.2,0.3]')),

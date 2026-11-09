@@ -29,9 +29,9 @@ tables only — no `insert`, `update` or `delete` for `authenticated`. Writes go
 (`create_collection_v1`, `register_source_version_v1`, later `review_decision_v1`) that set the tenant,
 check role level and apply data-class rules; other lanes call the RPC, never the table.
 
-**Embedding pin, per #6:** the seeded `embedding_indexes` row names the **candidate** M1 pin
-`@cf/baai/bge-m3` (1024 dims, cosine) with `cleared_for` = `public` only, **pending Company1's**
-approval of option E1 — not an approved configuration, so fixtures stay synthetic.
+**Embedding pin, per #6 and [ADR-0007](../decisions/0007-e1-embedding-clearance.md):** the M1 pin is `@cf/baai/bge-m3` (1024 dims, cosine),
+and E1 is decided for every tenant, so each index is `cleared_for = {public, internal,
+client_confidential}`. The seeded rows carry that value; fixtures stay synthetic.
 
 ## Acceptance tests (write first, pgTAP)
 - [ ] guardrails 000 still pass (RLS everywhere, `search_path` pinned in every SECURITY DEFINER function)
@@ -45,8 +45,8 @@ approval of option E1 — not an approved configuration, so fixtures stay synthe
       `isIngestibleInM1`); a `client_confidential` collection without a project is rejected
 - [ ] negative: source version rows are immutable (an UPDATE of payload/hash/text is refused;
       corrections are new versions)
-- [ ] negative: an index row wider than `cleared_for = {public}` without a recorded tenant decision is
-      rejected, and the seeded row names the candidate pin only (#6)
+- [ ] negative: a vector for a class outside the index's `cleared_for` is refused, and `restricted` is
+      never embedded (#6, ADR-0007)
 - [ ] the state set matches `received → validating → extracting → indexing → awaiting_review → published`
       plus `quarantined/failed/superseded/revoked/deleting/deleted`; an out-of-set value is rejected
 - [ ] outbox: one source version inserts exactly one outbox event; a rolled-back transaction inserts none
