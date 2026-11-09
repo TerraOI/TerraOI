@@ -1,6 +1,6 @@
 # T-115 Gateway skeleton: route selection, clearance filter, compose, verifier pass 1
 
-Lane: 2 · Week: 1 · Protected: yes (`src/platform/gateway/`) · Depends on: T-002, T-111 · Status: in progress (wyuinline) — all four parts are now on `main`: **a** as [#31](https://github.com/TerraOI/TerraOI/pull/31), **b** as [#53](https://github.com/TerraOI/TerraOI/pull/53), the fix that belongs between `b` and `c` as [#76](https://github.com/TerraOI/TerraOI/pull/76) at `f6d9a9f` (the `invalid_request` failure class per plan §12.4 chain-walking rule (b), the per-call Workers AI account-token read, and the adapter-seam plus import-boundary tests), and **c** (verifier pass 1, `src/platform/gateway/verify-binding.ts`) and **d** (`src/platform/agents/compose.ts`) as [#56](https://github.com/TerraOI/TerraOI/pull/56) and [#58](https://github.com/TerraOI/TerraOI/pull/58). `main` only received `c` and `d` through [#113](https://github.com/TerraOI/TerraOI/pull/113) on 2026-11-08: #56 and #58 were based on a feature branch, so both read "MERGED" while their commits sat off `main`. Every part is re-confirmed with `git merge-base --is-ancestor`, not PR state, against `main` at `c7e7e8d`, where CI, `Main guard` and `Deploy staging` are green. Not claimed: the staging Done-evidence below (kill-the-box run and the external mock probe), which is the question in [#92](https://github.com/TerraOI/TerraOI/issues/92); the two rulings this chain now needs, [#95](https://github.com/TerraOI/TerraOI/issues/95) (which index space `startChar`/`endChar` count in, and whether the quoted span comes from the packed or the body text) and [#97](https://github.com/TerraOI/TerraOI/issues/97) (the refusal copy vocabulary); and the Claude adapter, deferred to T-215 by [#46](https://github.com/TerraOI/TerraOI/issues/46)
+Lane: 2 · Week: 1 · Protected: yes (`src/platform/gateway/`) · Depends on: T-002, T-111 · Status: in progress (wyuinline) — all four parts are now on `main`: **a** as [#31](https://github.com/TerraOI/TerraOI/pull/31), **b** as [#53](https://github.com/TerraOI/TerraOI/pull/53), the fix that belongs between `b` and `c` as [#76](https://github.com/TerraOI/TerraOI/pull/76) at `f6d9a9f` (the `invalid_request` failure class per plan §12.4 chain-walking rule (b), the per-call Workers AI account-token read, and the adapter-seam plus import-boundary tests), and **c** (verifier pass 1, `src/platform/gateway/verify-binding.ts`) and **d** (`src/platform/agents/compose.ts`) as [#56](https://github.com/TerraOI/TerraOI/pull/56) and [#58](https://github.com/TerraOI/TerraOI/pull/58). `main` only received `c` and `d` through [#113](https://github.com/TerraOI/TerraOI/pull/113) on 2026-11-08: #56 and #58 were based on a feature branch, so both read "MERGED" while their commits sat off `main`. Every part is re-confirmed with `git merge-base --is-ancestor`, not PR state, against `main` at `c7e7e8d`, where CI, `Main guard` and `Deploy staging` are green. Not claimed: the staging Done-evidence below (kill-the-box run and the external mock probe), which is the question in [#92](https://github.com/TerraOI/TerraOI/issues/92); the two rulings this chain now needs, [#95](https://github.com/TerraOI/TerraOI/issues/95) (which index space `startChar`/`endChar` count in, and whether the quoted span comes from the packed or the body text) and [#97](https://github.com/TerraOI/TerraOI/issues/97) (the refusal copy vocabulary); and the Claude adapter, now slice **T-115f** below by the [#46](https://github.com/TerraOI/TerraOI/issues/46) ruling (not started)
 Plan refs: §12.1 (pass 1), §12.3, §12.4 (chain walking), §10.1; F20 (=F31+F38), F31, F38, F19 (reserve only)
 
 ## Goal
@@ -54,6 +54,20 @@ clearance is never relaxed to find a verifier.
 `pnpm verify`; staging: kill the local box (or point the tunnel at nothing) and show the chain
 advancing with the fallback recorded; `client_confidential` probe with a mock that records which
 provider received the payload — DeepSeek/OpenRouter must show zero calls.
+
+## T-115f Claude adapter (added 2026-11-08 by the #46 ruling)
+Without it the week-1 demo ("a cited, verified answer") cannot run: `verify` starts at Claude (#9), so
+every answer would degrade to `partial`. Small slice, same Owns as above.
+- The adapter goes in `src/platform/gateway/adapters`, behind the existing import-boundary guard. No
+  Anthropic SDK or HTTP call outside `src/platform/gateway/`.
+- **The clearance filter decides** what reaches Claude. This slice does not relax clearance: a data
+  class not cleared for `claude` still never leaves.
+- The credential is read per call from a Worker secret, like the Workers AI token (`4dd0501`). Tests
+  use an injected fake and never a real key.
+- Acceptance: a `verify` call for a cleared class reaches the fake Claude adapter and is metered; an
+  uncleared class never reaches it; a missing secret is `unavailable`, never a crash or a logged key.
+- **Human step (§20.8, owner):** Anthropic account, spend limit, and the API key as a `wrangler secret`
+  on staging ([T-004](./T-004-infrastructure.md)). Agents never handle the key.
 
 ## Out of scope
 DeepSeek/OpenRouter adapters and passive health checks (T-314), budgets and rate limits as a

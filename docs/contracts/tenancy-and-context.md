@@ -17,6 +17,14 @@ request:
    request and proves nothing about them. This is what F02's cross-host replay has to fail
    (plan §4.1 steps 1 and 5, [PR #18](https://github.com/TerraOI/TerraOI/pull/18)). A development
    host for `next dev` is an explicit adapter parameter, never a header or a fallback.
+   The two surfaces get that URL differently ([ADR-0006](../decisions/0006-page-host-via-proxy-header.md),
+   [#55](https://github.com/TerraOI/TerraOI/issues/55)):
+   - **Route handlers** read `requestHost(request)`, from `request.url`, and never a header.
+   - **Pages** cannot see the request URL. `src/proxy.ts` deletes any inbound
+     `x-toi-routed-host` and sets it fresh from `new URL(request.url).host` on every request;
+     pages read it only through the tenancy helper, and fail closed when it is missing. No page
+     reads `Host` or `X-Forwarded-Host`. This holds once the OpenNext spike in ADR-0006 passes;
+     until then no page resolves a tenant host.
 2. `authenticateTenantUser` (F02) requires a verified session **and** an active
    `organisation_memberships` row for that organization. Identity alone grants nothing.
 3. Roles, permitted services and permitted projects are computed server-side from current

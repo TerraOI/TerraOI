@@ -1,6 +1,6 @@
 # T-211 Local-box OCR pull worker and job API (F32)
 
-Lane: 2 · Week: 2 · Protected: yes (`workers/`, `localbox/`, `supabase/migrations/`, `src/app/api/jobs/`) · Depends on: T-111, T-112, T-115 · Status: ready
+Lane: 2 · Week: 2 · Protected: yes (`workers/`, `localbox/`, `supabase/migrations/`, `src/app/api/jobs/`) · Depends on: T-111 (merged as #12), T-112 (merged as #32 + #54), T-115 (a–d on `main`, see its packet) · Status: ready — design in [ADR-0005](../decisions/0005-ocr-job-api-and-artifact-home.md) (proposed)
 Plan refs: §7.2 (extraction executors), §13 (local box in the topology), §7.5, §16 (Forms/OCR row); F12, F32
 
 ## Goal
@@ -12,10 +12,13 @@ tenant, version, stage and lease on every call and stops the job the moment its 
 ## Owns (may edit)
 - `workers/` (outbox dispatcher, job API handlers, lease wiring), `localbox/` (pull worker, runbook
   notes, no secrets)
-- one migration `supabase/migrations/YYYYMMDDHHMMSS_ocr_job_leases.sql` for lease/claim columns and
-  the worker-facing RPCs — timestamp agreed in the daily sync; migrations are protected and merged
-  migrations are never edited
-- `supabase/tests/database/040_ingestion_jobs.test.sql`, `workers/*.test.ts`, `localbox/*.test.ts`
+- one migration `supabase/migrations/YYYYMMDDHHMMSS_ocr_job_leases.sql` for the worker-facing RPCs,
+  their grants, one monotonic lease-fence column, the `extraction_artifacts` table (#51) and
+  `retarget_extract_job_v1` (#66). The lease columns themselves are already merged
+  (`20261105070000_knowledge_core.sql:373-375,392-393`). Timestamp agreed in the daily sync;
+  migrations are protected and merged migrations are never edited
+- `supabase/tests/database/045_ingestion_jobs.test.sql` (`040` is merged as `040_knowledge_uploads`;
+  `050` is T-213's), `workers/*.test.ts`, `localbox/*.test.ts`
 - `src/app/api/jobs/` — Lane 2 owns these route folders ([FAQ-0005](../../docs/FAQ.md)), so the job API
   is implemented here directly: no re-export from Lane 1 and no `cross-lane` label
 
@@ -26,14 +29,27 @@ gateway's business, T-115), `src/platform/chat/`, `brand/`
 ## Contract
 [`IngestionJobPayload`, `IngestionStage`, `JobExecutor`](../../src/contracts/ingestion-job.ts) —
 `executor: local_box` is valid only for stage `extract`, and `restricted` is never enqueued
-(`isIngestibleInM1`). New security-invoker RPCs `lease_parse_job_v1`, `renew_parse_lease_v1`,
-`complete_parse_job_v1`, `abort_parse_job_v1`, each re-reading the authoritative job row and applying
-`set_tenant_scope(uuid)` from the merged tenancy migration
-`supabase/migrations/20261105060000_tenancy_core.sql` (lands with T-003). Rules:
+(`isIngestibleInM1`). New RPCs `lease_parse_job_v1`, `renew_parse_lease_v1`,
+`complete_parse_job_v1`, `abort_parse_job_v1`, each re-reading the authoritative job row and never
+trusting a caller-supplied tenant. They cannot use `set_tenant_scope(uuid)`: it requires an employee
+session (`20261105060000_tenancy_core.sql:206-216`) and the box has none (plan §13). Their schema,
+role and worker-identity mechanism are ADR-0005 §2, §6 and §10-7; the identity question is still
+open, so settle it with the supervisor before the migration is written. Rules:
 [docs/contracts/knowledge-and-jobs.md](../../docs/contracts/knowledge-and-jobs.md).
 
+Rulings that bind this packet (2026-11-08):
+- **[#51](https://github.com/TerraOI/TerraOI/issues/51):** `source_versions.body_text` stays immutable and is
+  `null` for PDFs, scans and images. `complete_parse_job_v1` writes extracted text and page locators to
+  `extraction_artifacts`, keyed by `(source_version_id, parser_generation)` as ADR-0005 §4 sketches,
+  with its own `revoke … from anon, authenticated, service_role`. A re-parse writes a new artifact set,
+  never a new version.
+- **[#66](https://github.com/TerraOI/TerraOI/issues/66):** this packet adds `retarget_extract_job_v1`. It moves
+  only stage `extract`, only `cloud_worker → local_box`, only while `queued` (never once leased).
+  T-212 supplies the routing decision and writes nothing to `ingestion_jobs`; capture keeps queueing
+  `extract`/`cloud_worker` by default.
+
 ## Acceptance tests (write first)
-- [ ] positive: `supabase/tests/database/040_ingestion_jobs.test.sql` — one job is leased at a time with
+- [ ] positive: `supabase/tests/database/045_ingestion_jobs.test.sql` — one job is leased at a time with
       `leaseToken` and expiry recorded, and `complete_parse_job_v1` stores the artifact and releases
       the lease exactly once
 - [ ] positive: `workers/ocr-pull.test.ts` — the worker binds no port, authenticates outbound, and gets
@@ -47,6 +63,8 @@ gateway's business, T-115), `src/platform/chat/`, `brand/`
 - [ ] failure: the source is revoked mid-job → the next worker call aborts, the queued artifact is
       deleted and no chunk is written; box offline → the version waits in `extracting` as "queued for
       OCR" and is **never** re-routed to a third-party OCR service
+- [ ] negative (#66): `retarget_extract_job_v1` refuses another tenant's job, an already-leased job, a
+      non-`extract` stage and any target other than `local_box`
 
 ## Done evidence
 `pnpm db:test`, `pnpm verify`; staging through the staging tunnel: upload a synthetic scanned PDF for

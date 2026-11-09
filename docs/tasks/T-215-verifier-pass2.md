@@ -1,4 +1,4 @@
-# T-215 Verifier pass 2 (semantic entailment), Claude adapter, compose retry
+# T-215 Verifier pass 2 (semantic entailment), compose retry
 
 Lane: 2 · Week: 2 · Protected: yes (`src/platform/gateway/`) · Depends on: T-115, T-114, T-113, T-104 · Status: ready
 Plan refs: §12.1 (M1 two-pass verifier), §12.4 (chain walking, clearance), §9.3, §16 (model chain row); F20, F21, F31, F38
@@ -9,7 +9,7 @@ Deterministic binding proves an answer's ids and spans exist; pass 2 proves the 
 text plus cited spans only, and a failing composition gets one retry on the next eligible tier.
 
 ## Owns (may edit)
-- `src/platform/gateway/` (`verify` task class, pass-2 entailment, Claude adapter, compose retry,
+- `src/platform/gateway/` (`verify` task class, pass-2 entailment, compose retry,
   per-tier outcome metrics), `src/platform/agents/verify.ts`; tests `src/platform/gateway/*.test.ts`,
   `src/platform/agents/*.test.ts`, `evals/verification/` synthetic claim-and-span fixtures
 - no SQL expected; if needed, one **new** protected `supabase/migrations/YYYYMMDDHHMMSS_<snake>.sql`

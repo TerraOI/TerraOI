@@ -139,6 +139,9 @@ on conflict (id) do nothing;
 -- Published versions. object_ref is a synthetic storage key, never a URL or a signed grant.
 -- collection_id is denormalized from the source (it must match, or the guard trigger refuses the
 -- write) because content-hash deduplication is scoped to the collection, not the tenant (§6.2).
+-- body_text is written at capture only for text-like payloads (the .json note); it is null for
+-- PDFs, scans and images, whose extracted text lives in extraction artifacts (#51, ADR-0005 §4).
+-- Until that table exists, the PDF fixtures' text is carried by their chunks below.
 insert into public.source_versions (
   id, organisation_id, source_id, collection_id, version_number, uploaded_by, data_class, content_hash, object_ref,
   state, parser_generation, body_text, published_at
@@ -149,7 +152,7 @@ insert into public.source_versions (
    '0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0',
    'knowledge/11111111-1111-4111-8111-111111111111/61000000-0000-4000-8000-000000000001/v1.pdf',
    'published', 'v1',
-   'Synthetic sample manual for fixtures. Section one: before any training flight, confirm the compass calibration is current, record the battery pack serial numbers, and check that the notices covering the site are still in date. Section two: a pre-flight note is a record of the check, not an authorisation to fly; the pilot in command remains responsible for the decision. Section three: if a sensor reports a fault, ground the aircraft and raise a maintenance entry rather than continuing the sortie.',
+   null,
    now()),
   ('71000000-0000-4000-8000-000000000002', '11111111-1111-4111-8111-111111111111', '61000000-0000-4000-8000-000000000002', '51000000-0000-4000-8000-000000000002', 1,
    '00000000-0000-4000-8000-0000000000a1',
@@ -165,7 +168,7 @@ insert into public.source_versions (
    '9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0',
    'knowledge/22222222-2222-4222-8222-222222222222/62000000-0000-4000-8000-000000000001/v1.pdf',
    'published', 'v1',
-   'Synthetic ground-penetrating radar log for fixtures. Line one was recorded at a nominal trace spacing of a quarter metre with the antenna coupled by a dry couplant. Where coupling degrades, the synthetic procedure calls for a re-run of the affected chainage instead of an interpretation note on the affected trace.',
+   null,
    now())
 on conflict (id) do nothing;
 

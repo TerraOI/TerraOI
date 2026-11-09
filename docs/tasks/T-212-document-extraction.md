@@ -17,6 +17,9 @@ parser failure stays visible instead of becoming an empty "successful" source.
 - no migration is expected; if a state or routing check needs SQL, one new
   `supabase/migrations/YYYYMMDDHHMMSS_<snake_name>.sql` with the timestamp agreed in the daily sync —
   migrations are protected and merged migrations are never edited
+- **[#66](https://github.com/TerraOI/TerraOI/issues/66):** the routing decision and the text-layer quality
+  check are pure, tested functions here; this packet writes nothing to `ingestion_jobs`. Moving an
+  `extract` job to the box is T-211's `retarget_extract_job_v1`
 
 ## Must not edit
 `workers/` and `localbox/` (T-211), `src/contracts/`, merged migrations, `src/platform/gateway/`,
