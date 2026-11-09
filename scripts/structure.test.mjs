@@ -23,6 +23,14 @@ describe("checkStructure", () => {
   });
   it("rejects unknown platform modules", () =>
     expect(checkStructure([...ok, "src/platform/misc/x.ts"], read)[0]).toMatch(/unknown platform module/));
+  it("allows src/proxy.ts and its tests and nothing else directly under src/ (ADR-0006)", () => {
+    expect(checkStructure([...ok, "src/proxy.ts"], read)).toEqual([]);
+    // The proxy entry must sit at the src/ root, so its tests are colocated with it.
+    expect(checkStructure([...ok, "src/proxy.ts", "src/proxy.test.ts", "src/proxy.loopback.test.ts"], read)).toEqual([]);
+    // Next 16 renamed middleware.ts to proxy.ts; the old name is a drift signal, not a synonym.
+    expect(checkStructure([...ok, "src/middleware.ts"], read)[0]).toMatch(/directly under src/);
+    expect(checkStructure([...ok, "src/notes.ts"], read)[0]).toMatch(/directly under src/);
+  });
   it("requires a status line in task packets", () =>
     expect(checkStructure(ok, () => "no status")[0]).toMatch(/Status/));
   it("skips archived plans", () =>

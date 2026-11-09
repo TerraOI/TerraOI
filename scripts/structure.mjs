@@ -25,6 +25,12 @@ export const REQUIRED_FILES = [
   ".github/CODEOWNERS", ".github/pull_request_template.md",
 ];
 
+// Files allowed directly under `src/` (not in a folder). Next.js reserves a handful of root-level
+// source names; today TerraOI uses exactly one. ADR-0006 rule 1 puts the trusted-host proxy at
+// `src/proxy.ts`, and naming it here is what keeps a second root-level entry — or the Next 15 name
+// `src/middleware.ts`, which Next 16 no longer treats as the proxy — from arriving unnoticed.
+export const SRC_ROOT_FILES = new Set(["proxy.ts", "proxy.test.ts", "proxy.loopback.test.ts"]);
+
 const NAMING = [
   { dir: "docs/tasks/", re: /^(_TEMPLATE|T-\d{3}[a-z]?-[a-z0-9-]+)\.md$/, hint: "T-123-short-name.md or T-123b-short-name.md (a split packet)" },
   { dir: "docs/decisions/", re: /^(README|\d{4}-[a-z0-9-]+)\.md$/, hint: "0001-short-name.md" },
@@ -48,6 +54,11 @@ export function checkStructure(paths, read) {
 
   for (const p of paths) {
     if (JUNK.some((re) => re.test(p))) problems.push(`${p}: must not be committed`);
+    // Dotfiles under src/ (.env.example and friends) are governed by JUNK above, not here.
+    const srcRoot = /^src\/([^/]+)$/.exec(p);
+    if (srcRoot && !srcRoot[1].startsWith(".") && !SRC_ROOT_FILES.has(srcRoot[1])) {
+      problems.push(`${p}: only ${[...SRC_ROOT_FILES].join(", ")} may sit directly under src/ (see docs/REPO-STRUCTURE.md)`);
+    }
     const mod = /^src\/platform\/([^/]+)\//.exec(p)?.[1];
     if (mod && !PLATFORM_MODULES.has(mod)) problems.push(`${p}: unknown platform module '${mod}' (plan §3.3)`);
     for (const rule of NAMING) {
