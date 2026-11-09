@@ -179,6 +179,8 @@ create trigger tenant_provider_policy_narrows_platform
   before insert or update of provider_key, data_class on public.tenant_provider_policy
   for each row execute function public.tenant_provider_policy_narrows_platform();
 
+alter table public.tenant_provider_policy enable row level security;
+
 create policy tenant_provider_policy_member_read on public.tenant_provider_policy
   for select to authenticated
   using (public.is_active_member(organisation_id));

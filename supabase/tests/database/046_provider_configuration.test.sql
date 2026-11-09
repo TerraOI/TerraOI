@@ -100,50 +100,50 @@ select has_column('public', 'provider_health', 'observed_by',
   'scheduled probe vs passive error-rate signal (plan §17.1)');
 
 -- ── 2. the configuration is recorded by the owner, never by a request role (#60) ────────────
-select hasnt_table_privilege('anon', 'public.model_providers', 'select',
+select is(has_table_privilege('anon', 'public.model_providers', 'select'), false,
   'anon may not read the platform provider registry');
-select hasnt_table_privilege('anon', 'public.provider_routes', 'select',
+select is(has_table_privilege('anon', 'public.provider_routes', 'select'), false,
   'anon may not read the platform chain of record');
-select hasnt_table_privilege('anon', 'public.provider_health', 'select',
+select is(has_table_privilege('anon', 'public.provider_health', 'select'), false,
   'anon may not read provider health (run-audit content, §9.3)');
-select hasnt_table_privilege('anon', 'public.tenant_provider_policy', 'select',
+select is(has_table_privilege('anon', 'public.tenant_provider_policy', 'select'), false,
   'anon may not read a tenant provider policy');
 
-select hasnt_table_privilege('authenticated', 'public.model_providers', 'insert',
+select is(has_table_privilege('authenticated', 'public.model_providers', 'insert'), false,
   'a request role may not write the provider registry');
-select hasnt_table_privilege('authenticated', 'public.model_providers', 'update',
+select is(has_table_privilege('authenticated', 'public.model_providers', 'update'), false,
   'a request role may not update the provider registry');
-select hasnt_table_privilege('authenticated', 'public.model_providers', 'delete',
+select is(has_table_privilege('authenticated', 'public.model_providers', 'delete'), false,
   'a request role may not delete a provider');
-select hasnt_table_privilege('authenticated', 'public.provider_routes', 'insert',
+select is(has_table_privilege('authenticated', 'public.provider_routes', 'insert'), false,
   'a request role may not write the chain of record');
-select hasnt_table_privilege('authenticated', 'public.provider_routes', 'update',
+select is(has_table_privilege('authenticated', 'public.provider_routes', 'update'), false,
   'a request role may not reorder the chain of record');
-select hasnt_table_privilege('authenticated', 'public.provider_routes', 'delete',
+select is(has_table_privilege('authenticated', 'public.provider_routes', 'delete'), false,
   'a request role may not delete a chain position');
 select hasnt_table_privilege('authenticated', 'public.provider_health', 'insert',
   'health rows come from T-314''s server path, not from a request role');
-select hasnt_table_privilege('authenticated', 'public.provider_health', 'update',
+select is(has_table_privilege('authenticated', 'public.provider_health', 'update'), false,
   'a request role may not rewrite provider health');
-select hasnt_table_privilege('authenticated', 'public.provider_health', 'delete',
+select is(has_table_privilege('authenticated', 'public.provider_health', 'delete'), false,
   'a request role may not erase provider health');
-select hasnt_table_privilege('authenticated', 'public.tenant_provider_policy', 'insert',
+select is(has_table_privilege('authenticated', 'public.tenant_provider_policy', 'insert'), false,
   'the tenant admin write path is a scoped RPC (T-202), not a raw grant');
-select hasnt_table_privilege('authenticated', 'public.tenant_provider_policy', 'update',
+select is(has_table_privilege('authenticated', 'public.tenant_provider_policy', 'update'), false,
   'no raw update on the tenant policy table');
-select hasnt_table_privilege('authenticated', 'public.tenant_provider_policy', 'delete',
+select is(has_table_privilege('authenticated', 'public.tenant_provider_policy', 'delete'), false,
   'no raw delete on the tenant policy table');
 
 -- The one grant, and the closure of every function this migration adds (#60 rule 4).
-select has_table_privilege('authenticated', 'public.tenant_provider_policy', 'select',
+select is(has_table_privilege('authenticated', 'public.tenant_provider_policy', 'select'), true,
   'authenticated may read the tenant policy — rows are gated by RLS, columns never by policy');
-select hasnt_function_privilege('anon', 'public.tenant_provider_policy_v1()', 'execute',
+select is(has_function_privilege('anon', 'public.tenant_provider_policy_v1()', 'execute'), false,
   'anon may not call the tenant policy read path');
-select hasnt_function_privilege('authenticated', 'public.model_providers_one_revision()', 'execute',
+select is(has_function_privilege('authenticated', 'public.model_providers_one_revision()', 'execute'), false,
   'the matrix-revision guard is a trigger function, not a callable');
-select hasnt_function_privilege('authenticated', 'public.tenant_provider_policy_narrows_platform()', 'execute',
+select is(has_function_privilege('authenticated', 'public.tenant_provider_policy_narrows_platform()', 'execute'), false,
   'the narrow-only guard is a trigger function, not a callable');
-select has_function_privilege('authenticated', 'public.tenant_provider_policy_v1()', 'execute',
+select is(has_function_privilege('authenticated', 'public.tenant_provider_policy_v1()', 'execute'), true,
   'the gateway reads the tenant narrowing as the calling user (security invoker)');
 
 -- ── 3. RLS is on, and the tenant policy has exactly the one read policy ─────────────────────
