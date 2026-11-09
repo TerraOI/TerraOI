@@ -28,6 +28,23 @@ export function parseCodeowners(text) {
   return patterns;
 }
 
+/**
+ * Paths that stay protected whatever any CODEOWNERS copy says: the list itself, the workflows,
+ * and the guard's own code. Without this floor, a PR approved by a non-supervisor could remove
+ * a line from CODEOWNERS, or weaken the guard, and the next run would trust the result.
+ */
+export const GUARD_FLOOR = [".github/", "scripts/provenance.mjs", "scripts/check-pr-provenance.mjs"];
+
+/**
+ * The protected list the guard enforces: the floor, plus every CODEOWNERS copy it was given
+ * (the trusted pre-push copy and the pushed one), so a removal never narrows it.
+ */
+export function protectedPatternsFrom(codeownersTexts) {
+  const texts = Array.isArray(codeownersTexts) ? codeownersTexts : [];
+  if (texts.length === 0) throw new Error("no CODEOWNERS copy to read");
+  return [...new Set([...GUARD_FLOOR, ...texts.flatMap((t) => parseCodeowners(t))])];
+}
+
 /** Does any changed file fall under a protected pattern from parseCodeowners? */
 export function touchesProtected(files, patterns) {
   return (Array.isArray(files) ? files : []).some((f) =>

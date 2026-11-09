@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { attributeStacked, evaluate, isReviewed, mergedInto, parseCodeowners, touchesProtected } from "./provenance.mjs";
+import { attributeStacked, evaluate, isReviewed, mergedInto, GUARD_FLOOR, parseCodeowners, protectedPatternsFrom, touchesProtected } from "./provenance.mjs";
 
 const pr = { number: 7, merged_at: "2026-11-05T00:00:00Z", base: { ref: "main" }, user: { login: "alice" }, head: { sha: "h2" } };
 const approve = (login, commit_id = "h2") => ({ user: { login }, state: "APPROVED", commit_id });
@@ -96,4 +96,23 @@ describe("protected paths come from CODEOWNERS (#63)", () => {
     expect(run(undefined, [approve("bob")]).ok).toBe(false));
   it("keeps exempting PRs a supervisor authored", () =>
     expect(evaluate({ commits: [{ sha: "a", pulls: [{ ...pr, user: { login: "wyu610" } }] }], reviewsByPr: { 7: [] }, supervisors: sup, protectedPatterns: patterns, filesByPr: { 7: ["AGENTS.md"] } }).ok).toBe(true));
+});
+
+describe("the protected list cannot be narrowed by the change it judges (#63)", () => {
+  const before = "/supabase/migrations/ @wyu610\n/.github/ @wyu610\n";
+  const after = "/.github/ @wyu610\n"; // a PR deleted the migrations line
+  it("unions every CODEOWNERS copy, so a removed line still protects", () =>
+    expect(touchesProtected(["supabase/migrations/x.sql"], protectedPatternsFrom([before, after]))).toBe(true));
+  it("always protects CODEOWNERS, the workflows and the guard's own code", () => {
+    const p = protectedPatternsFrom(["/docs/plan/ @wyu610\n"]);
+    for (const f of [".github/CODEOWNERS", ".github/workflows/main-guard.yml", "scripts/provenance.mjs", "scripts/check-pr-provenance.mjs"]) {
+      expect(touchesProtected([f], p)).toBe(true);
+    }
+    expect(GUARD_FLOOR).toContain(".github/");
+  });
+  it("fails closed with no CODEOWNERS copy at all", () => expect(() => protectedPatternsFrom([])).toThrow());
+  it("flags a guard change approved only by a non-supervisor", () =>
+    expect(
+      evaluate({ commits: [{ sha: "a", pulls: [pr] }], reviewsByPr: { 7: [approve("bob")] }, supervisors: ["wyu610"], protectedPatterns: protectedPatternsFrom([after]), filesByPr: { 7: ["scripts/provenance.mjs"] } }).ok,
+    ).toBe(false));
 });

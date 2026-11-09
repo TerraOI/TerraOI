@@ -25,6 +25,22 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
+      # #63: judge a push with the guard and CODEOWNERS as they were BEFORE it, so a merged PR
+      # cannot weaken the rule that judges it. (This workflow file itself still comes from the
+      # pushed commit; only branch protection can close that, which is option (c) in #63.)
+      - name: Load the guard and CODEOWNERS from the pre-push commit
+        id: trusted
+        continue-on-error: true
+        env:
+          BEFORE: ${{ github.event.before }}
+          GUARD_DIR: ${{ runner.temp }}/guard
+        run: |
+          [[ "$BEFORE" =~ ^[0-9a-f]{40}$ && ! "$BEFORE" =~ ^0+$ ]] || { echo "::warning::no pre-push commit"; exit 1; }
+          git fetch --no-tags --depth=1 origin "$BEFORE"
+          mkdir -p "$GUARD_DIR"
+          for f in scripts/provenance.mjs scripts/check-pr-provenance.mjs .github/CODEOWNERS; do
+            git show "$BEFORE:$f" > "$GUARD_DIR/$(basename "$f")"
+          done
       - name: Every new commit came through a merged PR
         id: check
         env:
@@ -33,7 +49,15 @@ jobs:
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.event.after }}
           FORCED: ${{ github.event.forced }}
-        run: node scripts/check-pr-provenance.mjs
+          GUARD_DIR: ${{ runner.temp }}/guard
+          TRUSTED: ${{ steps.trusted.outcome }}
+        run: |
+          if [ "$TRUSTED" = "success" ]; then
+            # The pre-push list and the pushed list, unioned: a removal never narrows protection.
+            CODEOWNERS_PATHS="$GUARD_DIR/CODEOWNERS:.github/CODEOWNERS" node "$GUARD_DIR/check-pr-provenance.mjs"
+          else
+            TRUSTED_GUARD=false node scripts/check-pr-provenance.mjs
+          fi
       - name: Open a policy-violation issue
         if: failure() && steps.check.outputs.violations != ''
         env:
