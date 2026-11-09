@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { Answer, type Claim, type ClaimType, type EvidenceRef } from "@/contracts/answer";
+import { Answer, type Claim, type ClaimType } from "@/contracts/answer";
 import type { DataClass } from "@/contracts/data-class";
 import { DEFAULT_TASK_CHAIN_ORDER, PLATFORM_DEFAULT_CLEARANCE } from "@/contracts/provider-route";
 
@@ -19,6 +19,7 @@ import {
 } from "@/platform/gateway/gateway-fixtures";
 import { CircuitBook } from "@/platform/gateway/circuit";
 import type { AdapterCallOutcome } from "@/platform/gateway/adapters";
+import type { UnboundClaim } from "@/platform/gateway/verify-binding";
 
 import {
   composeAnswer,
@@ -71,19 +72,22 @@ const EVIDENCE = [CALIBRATION_CHUNK, SURVEY_CHUNK, GROUNDING_CHUNK];
 /** The same chunk as `chk-0002`, filed under a `client_confidential` collection (§6.2 test). */
 const CONFIDENTIAL_PACK = [{ ...SURVEY_CHUNK, dataClass: "client_confidential" as const }];
 
-function ref(chunkId: string, sourceVersionId: string, text: string): EvidenceRef {
-  const haystack = EVIDENCE.find((entry) => entry.chunkId === chunkId)?.text ?? "";
-  const startChar = haystack.indexOf(text);
-  return {
-    kind: "chunk",
-    sourceVersionId,
-    chunkId,
-    span: { startChar, endChar: startChar + text.length },
-    quotedText: text,
-  };
+/**
+ * What a compose model may cite: the chunk and the exact text it relies on, **no offset**
+ * (ADR-0008). This fake used to compute `span` by searching the chunk body, which made the test pass
+ * for a reason production does not have: only pass 1 may author a locator, and a model that invents
+ * one is silently accepted by a fake that repairs it.
+ */
+function ref(chunkId: string, sourceVersionId: string, text: string) {
+  return { kind: "chunk" as const, sourceVersionId, chunkId, quotedText: text };
 }
 
-function claimOf(id: string, type: ClaimType, text: string, evidence: EvidenceRef[]): Claim {
+function claimOf(
+  id: string,
+  type: ClaimType,
+  text: string,
+  evidence: ReturnType<typeof ref>[],
+): UnboundClaim {
   return {
     id,
     text,
@@ -95,7 +99,7 @@ function claimOf(id: string, type: ClaimType, text: string, evidence: EvidenceRe
   };
 }
 
-function candidate(claims: Claim[], extra: Record<string, unknown> = {}): string {
+function candidate(claims: UnboundClaim[], extra: Record<string, unknown> = {}): string {
   return JSON.stringify({
     summary: "Antenna calibration comes before the first pass.",
     claims: claims.map((claim) => ({
@@ -270,7 +274,7 @@ describe("pass 1 rejects citations that do not exist in this run (plan §12.1)",
       ref("chk-0001", VERSION_A, "Calibrate the antenna"),
     ]);
     const invented = claimOf("c2", "source_fact", "The antenna must be replaced yearly.", [
-      { kind: "chunk", sourceVersionId: VERSION_A, chunkId: "chk-9999", span: { startChar: 0, endChar: 12 }, quotedText: "Calibrate the " },
+      { kind: "chunk", sourceVersionId: VERSION_A, chunkId: "chk-9999", quotedText: "Calibrate the " },
     ]);
     const h = depsOf({ local_box: [answered(candidate([real, invented]), "open-weights-alpha")] });
     const { answer, audit } = await composeAnswer(input(), h.deps);
@@ -282,8 +286,30 @@ describe("pass 1 rejects citations that do not exist in this run (plan §12.1)",
     assertNothingInternalLeaks(answer, "invented citation dropped");
   });
 
+  it("a quote taken from the second chunk of a rendered pack binds inside that chunk's own body (ADR-0008)", async () => {
+    // The pack renders every chunk into one prompt. If a locator were measured in that rendered text,
+    // a quote from the second chunk would point into the first, and the answer would look healthy
+    // while the highlight was wrong. A span counts from the start of **that chunk version's body**.
+    const second = claimOf("c1", "source_fact", "The log records the operator.", [
+      ref("chk-0002", VERSION_B, "must record the operator"),
+    ]);
+    const h = depsOf({ local_box: [answered(candidate([second]), "open-weights-alpha")] });
+    const { answer, audit } = await composeAnswer(input(), h.deps);
+    expect(audit.bindingRejected).toEqual([]);
+    const cited = answer.claims[0]?.evidence[0];
+    expect(cited?.kind).toBe("chunk");
+    if (cited?.kind === "chunk") {
+      expect(cited.quotedText).toBe("must record the operator");
+      expect(SURVEY_CHUNK.text.slice(cited.span.startChar, cited.span.endChar)).toBe("must record the operator");
+      // 15, measured from `chk-0002`'s own text. In the rendered pack this same passage sits past the
+      // first chunk (offset 50+), which is exactly the number the old prompt invited the model to give.
+      expect(cited.span.startChar).toBe(15);
+      expect(cited.span.endChar).toBe(39);
+    }
+  });
+
   it("an answer made only of inferences is not an `answered` result (§12.1, issue #16 N2)", async () => {
-    const inferred: Claim = {
+    const inferred: UnboundClaim = {
       ...claimOf("c1", "inference", "The order of operations implies calibration first.", []),
       limitations: ["Inferred from the procedure order; no source states it."],
     };

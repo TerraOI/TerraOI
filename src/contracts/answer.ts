@@ -25,7 +25,21 @@ export const VerificationStatus = z.enum([
 ]);
 export type VerificationStatus = z.infer<typeof VerificationStatus>;
 
-/** Character span inside a specific chunk version, used for verbatim quote checks (F21). */
+/**
+ * A character span inside one specific chunk version, used for verbatim quote checks (F21).
+ *
+ * **Unit and origin are both fixed** (ADR-0008, decided on #95): the offsets count **UTF-16 code
+ * units** — exactly what JavaScript `.length` and `.slice()` count — and they count from the start
+ * of that chunk version's `knowledge_chunks.body_text`. Never from a rendered evidence pack, a
+ * prompt, or a citation display. This is deliberate: every M1 producer and consumer of a span is
+ * JavaScript in the Worker, so a missed conversion helper cannot drift the locator, and a quote
+ * crossing a non-BMP character (a surrogate pair) slices back to itself on both sides.
+ *
+ * SQL never computes one. A database function such as `search_corpus_v1` or `exact_lookup_v1`
+ * returns text; the Worker fills this field (pass 1 derives it, see
+ * `src/platform/gateway/verify-binding.ts`). A span the model authored is not representable here,
+ * because the compose candidate schema carries no span at all.
+ */
 const EvidenceSpan = z
   .strictObject({
     startChar: z.number().int().nonnegative(),
@@ -35,15 +49,21 @@ const EvidenceSpan = z
     message: "endChar must not precede startChar",
   });
 
-const ChunkEvidence = z.strictObject({
+/**
+ * The span is platform-filled; `quotedText` is **required**, because after ADR-0008 it is the thing
+ * being verified: pass 1 locates it verbatim in the chunk body and derives the span from the first
+ * exact occurrence. A citation with a locator and no quote is no longer expressible.
+ */
+export const ChunkEvidence = z.strictObject({
   kind: z.literal("chunk"),
   sourceVersionId: z.uuid(),
   chunkId: OpaqueId,
   span: EvidenceSpan,
-  quotedText: z.string().min(1).max(4000).optional(),
+  quotedText: z.string().min(1).max(4000),
 });
+export type ChunkEvidence = z.infer<typeof ChunkEvidence>;
 
-const RecordEvidence = z.strictObject({
+export const RecordEvidence = z.strictObject({
   kind: z.literal("record"),
   toolCallId: OpaqueId,
   recordType: z.string().regex(/^[a-z0-9][a-z0-9_.-]{0,63}$/),
@@ -52,7 +72,7 @@ const RecordEvidence = z.strictObject({
   observedAt: z.iso.datetime(),
 });
 
-const FormFieldEvidence = z.strictObject({
+export const FormFieldEvidence = z.strictObject({
   kind: z.literal("form_field"),
   submissionId: z.uuid(),
   fieldPath: z.string().min(1).max(256),
