@@ -8,8 +8,11 @@
 -- revoke-and-grant the standing rule.
 --
 -- This file asserts privileges; it changes nothing (the paired migration is revoke-and-grant only,
--- no table and no signature change). The two generic rules are the part that outlives this fix: a
--- function that is not on the allow-list is refused, whoever added it.
+-- no table and no signature change). The two generic rules — 31 and 32 — are the part that outlives
+-- this fix: a function that is not on the allow-list is refused, whoever added it and whichever role's
+-- default handed it the grant. Tests 34-38 record the second half of the ruling, the source-level
+-- default closure: CI showed a migration cannot deliver it, and these assertions say who owns what is
+-- left open instead of claiming it is shut.
 begin;
 create extension if not exists pgtap with schema extensions;
 
@@ -157,65 +160,85 @@ select is_empty($$
           or has_function_privilege('authenticated', p.oid, 'EXECUTE'))
 $$, '33 neither anon nor authenticated can execute anything in toi_identity or intake (§4.3)');
 
--- ---------------------------------------------------------------- 34-36 Addition 1: close the default
--- `alter default privileges … revoke execute on functions from public, anon, authenticated` is the
--- part that stops the class instead of this instance. It is per-role, so first pin which role the
--- migrations actually ran as: that is the role the statement must target, and if the hosted roles
--- differ the supervisor's ruling is to drop the line and say so on the PR.
+-- ---------------------------------------------------------------- 34-38 Addition 1: measured, not assumed
+-- The ruling asked for a source-level closure: `alter default privileges … revoke execute on
+-- functions from public, anon, authenticated`. CI says a migration cannot deliver it, and these five
+-- assertions are the evidence, kept in the file so a reviewer does not have to read the PR body to
+-- learn which claims are live. They replace, one for one, the three assertions that claimed the
+-- closure worked; the `plan` count is unchanged because nothing was dropped without something
+-- standing in its place. Tests 31-32 remain the protection: they enumerate every function live in
+-- `public` at test time, so a default grant is caught whoever's default it came from.
 select is((
-  select pg_get_userbyid(p.proowner)
+  select string_agg(distinct pg_get_userbyid(p.proowner), ','
+                    order by pg_get_userbyid(p.proowner))
     from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
-   where n.nspname = 'public' and p.proname = 'resolve_tenant_host'
+   where n.nspname = 'public' and p.prokind = 'f'
 ), 'postgres',
-  '34 the migration role that owns the public functions is postgres, so the default-privileges '
-  || 'statement targets the role that creates them (#60 Addition 1)');
+  '34 the only role that owns functions in public is postgres — enumerated at query time, not sampled. '
+  || 'It is also the role the migrations ran as, so it is the role a closure statement would have to '
+  || 'name. A second name appearing here is the signal that a new owning role needs its own closure '
+  || 'and its own allow-list entry; until then 31-32 are what cover it (#60 Addition 1)');
 
-select ok((select count(*) > 0
-  from pg_default_acl da
-  join pg_namespace n on n.oid = da.defaclnamespace
-  join pg_roles r on r.oid = da.defaclrole
-  where n.nspname = 'public' and da.defaclobjtype = 'f'
-    and r.rolname = (select pg_get_userbyid(p.proowner)
-                       from pg_proc p
-                       join pg_namespace n on n.oid = p.pronamespace
-                      where n.nspname = 'public' and p.proname = 'resolve_tenant_host')),
-  '35 a default-privilege row for functions in public exists for that role (#60 Addition 1)');
-
--- DIAGNOSTIC HEAD (PR #132): prints the owning role, the namespace, the grantee by NAME and the
--- stored default ACL, so the failure names the two objects instead of two OIDs. Not the final form.
-select is_empty($$
-  select coalesce(da.defaclrole::regrole::text, '?') || ' default in ' ||
-         coalesce(da.defaclnamespace::regnamespace::text, '(whole database)') ||
-         ' -> ' || coalesce(a.grantee::regrole::text, 'PUBLIC') || ' ' || a.privilege_type ||
-         ' | stored acl ' || coalesce(da.defaclacl::text, '(null)')
+-- 35 the two objects the hardening cannot remove, named. Head 7295625 printed `(16443,EXECUTE)` and
+-- `(16444,EXECUTE)`: aclexplode returns the grantee as an oid, and the query never selected
+-- defaclrole or defaclnamespace, so nothing in that run said who hands EXECUTE to whom. Named by
+-- run 42693946320, they are role `supabase_admin`'s per-schema defaults in `public` for `anon` and
+-- `authenticated`, stored as {postgres=X/supabase_admin,anon=X/supabase_admin,
+-- authenticated=X/supabase_admin,service_role=X/supabase_admin}. The value below is the grantee list
+-- from those rows, so any change — a new grantee, a PUBLIC row, or a closure that worked — fails and
+-- names itself.
+select is((
+  select coalesce(string_agg(distinct coalesce(a.grantee::regrole::text, 'PUBLIC'), ','
+                             order by coalesce(a.grantee::regrole::text, 'PUBLIC')), '(none)')
     from pg_default_acl da
-   cross join lateral aclexplode(da.defaclacl) a
+    cross join lateral aclexplode(da.defaclacl) a
    where da.defaclobjtype = 'f'
+     and da.defaclnamespace = 'public'::regnamespace
      and a.privilege_type = 'EXECUTE'
-     and (a.grantee is null or a.grantee::regrole::text in ('public', 'anon', 'authenticated'))
-$$, '36 no default-privilege row hands EXECUTE on future functions to public, anon or authenticated '
-   || '(grantee is null for PUBLIC in aclexplode)');
+     and (a.grantee is null or a.grantee::regrole::text in ('anon', 'authenticated'))
+), 'anon,authenticated',
+  '35 the surviving default-privilege rows in public belong to supabase_admin, not to the migration '
+  || 'role: EXECUTE on future functions still goes to anon and authenticated (#60 Addition 1)');
 
-select is((select 'session_user=' || coalesce(session_user, '?') || ' current_user=' || coalesce(current_user, '?')
-           || ' superuser=' || (select rolsuper::text from pg_roles where rolname = current_user)),
-  'DIAGNOSTIC', '37 dump: the role pg_prove runs this file as');
+select is((select 'rolsuper=' || rolsuper || ' member_of_supabase_admin='
+                 || pg_has_role('postgres', 'supabase_admin', 'MEMBER')
+            from pg_roles where rolname = 'postgres'),
+  'rolsuper=false member_of_supabase_admin=false',
+  '36 why this repository cannot close those rows itself: ALTER DEFAULT PRIVILEGES reaches only your '
+  || 'own defaults and those of roles you are a member of, and the migration role postgres is neither '
+  || 'a superuser nor a member of supabase_admin (run 42693946320)');
 
--- ---------------------------------------------------------------- 38 the default in behaviour, not catalog
--- A function created by that role after the hardening is unreachable to both request roles. This is
--- the assertion that catches a hosted role the ALTER DEFAULT PRIVILEGES statement does not cover:
--- if it fails, the statement is targeting the wrong role and gets dropped, not this test.
+-- 37-38 the open default in behaviour, and the net that catches it. The probe is created as postgres:
+-- the owner of every function in `public` (34) and the role pg_prove connects as (run 42693946320:
+-- session_user=postgres, current_user=postgres, rolsuper=false). Its stored ACL comes back
+-- {=X/postgres,postgres=X/postgres,service_role=X/postgres} — PUBLIC holds EXECUTE, and anon and
+-- authenticated are members of PUBLIC, so they can execute it. That is exactly the hole the closure
+-- statement was meant to shut, and per-schema default privileges can only add to the global ones, so
+-- a `IN SCHEMA public` revoke does not remove it. 37 pins that state; the day the default is closed —
+-- upstream, or by a fresh ruling — 37 fails first and says so. 38 shows the protection that carries
+-- the load meanwhile: the allow-list rule of 31 sees this function and names it.
 set local role postgres;
 create function public.probe_001_default_privileges() returns boolean
   language sql as $$ select true $$;
-select is((select 'probe_owner=' || pg_get_userbyid(p.proowner) ||
-           ' probe_acl=' || coalesce(p.proacl::text, '(null: built from the owner default)') ||
-           ' anon_x=' || has_function_privilege('anon', p.oid, 'EXECUTE')::text ||
-           ' auth_x=' || has_function_privilege('authenticated', p.oid, 'EXECUTE')::text
-     from pg_proc p
-     join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = 'public' and p.proname = 'probe_001_default_privileges'),
-  'DIAGNOSTIC', '38 dump: who created the probe function and what its ACL really is');
+select is(has_function_privilege('anon', 'public.probe_001_default_privileges()', 'execute'), true,
+  '37 pin: a function added to public today still starts with PUBLIC EXECUTE, so anon reaches it — '
+  || 'the source-level default is open and this suite, not the database, is what keeps that from '
+  || 'reaching a live function (#60 Addition 1, migration section 4)');
+select is((
+  select string_agg(p.pronamespace::regnamespace || '.' || p.proname || '(' ||
+                    pg_get_function_identity_arguments(p.oid) || ')', ','
+                    order by p.pronamespace::regnamespace || '.' || p.proname || '(' ||
+                             pg_get_function_identity_arguments(p.oid) || ')')
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.prokind = 'f'
+     and has_function_privilege('anon', p.oid, 'EXECUTE')
+     and p.oid <> 'public.resolve_tenant_host(text)'::regprocedure::oid
+), 'public.probe_001_default_privileges()',
+  '38 the anon allow-list rule of 31 is not vacuous: with exactly one default-granted function live it '
+  || 'names that function and nothing else, whoever the creating role was');
 drop function public.probe_001_default_privileges();
 reset role;
 
