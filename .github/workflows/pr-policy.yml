@@ -8,6 +8,11 @@ permissions:
   contents: read
   issues: read
 
+# #100: label and body edits each fire this workflow; a newer run for the same PR supersedes the older.
+concurrency:
+  group: pr-policy-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   lanes:
     name: lanes
@@ -40,13 +45,18 @@ jobs:
     name: provisional
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # #89: the check reads the PR's current body and labels from the API, so a re-run never
+    # replays the event payload. Read-only, this repository only.
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v7
       - name: Questions this PR builds on are answered (COORDINATION.md §6)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_BODY: ${{ github.event.pull_request.body }}
-          PR_LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: node scripts/check-provisional.mjs
 
   secrets:

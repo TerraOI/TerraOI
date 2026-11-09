@@ -1,5 +1,7 @@
-# Protected paths need the supervisor's approval (plan §20.1).
-# Takes effect when branch protection on main requires code-owner review.
+# Protected paths need the supervisor's approval (plan §20.1). This file is the one list (#63):
+# scripts/provenance.mjs reads it, and main-guard flags a protected change merged without a
+# supervisor approval on its final commit. Anchored literal paths only; a glob fails the guard closed.
+# Code-owner review itself takes effect when branch protection on main is available.
 # Builders: add yourselves to the lane paths below once your GitHub handles are known.
 
 /supabase/migrations/          @wyu610

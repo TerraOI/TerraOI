@@ -2,7 +2,8 @@ name: Main guard
 
 # Stopgap while branch protection is unavailable (private repo on GitHub Free).
 # Detects commits on main without a merged, reviewed PR (approval from a non-author on the
-# final commit; SUPERVISOR_LOGINS exempt), unverifiable ranges and force-pushes,
+# final commit; SUPERVISOR_LOGINS exempt; a PR touching a .github/CODEOWNERS path needs that
+# approval from a SUPERVISOR_LOGINS reviewer, #63), unverifiable ranges and force-pushes,
 # then fails visibly and opens a policy-violation issue. It cannot block the push;
 # deploy-staging.yml refuses to deploy such commits. Remove once rulesets are enabled.
 on:

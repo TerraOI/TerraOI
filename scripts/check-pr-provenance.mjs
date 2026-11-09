@@ -3,10 +3,11 @@
 // Fails closed: any API error or unverifiable range is a violation.
 // Env: GITHUB_TOKEN, GITHUB_REPOSITORY, BASE_BRANCH (default main), SUPERVISOR_LOGINS (comma list),
 //      BEFORE + AFTER (push range) or SHAS (space-separated), FORCED ("true"),
-//      CHECK_OPEN_VIOLATIONS ("true": also fail while policy-violation issues are open).
+//      CHECK_OPEN_VIOLATIONS ("true": also fail while policy-violation issues are open),
+//      CODEOWNERS_PATH (default .github/CODEOWNERS: the protected-path list, #63).
 // Writes `violations` (markdown list) to $GITHUB_OUTPUT; exits 1 on any violation.
-import { appendFileSync } from "node:fs";
-import { attributeStacked, evaluate, mergedInto } from "./provenance.mjs";
+import { appendFileSync, readFileSync } from "node:fs";
+import { attributeStacked, evaluate, mergedInto, parseCodeowners } from "./provenance.mjs";
 
 const env = process.env;
 const base = env.BASE_BRANCH || "main";
@@ -19,6 +20,21 @@ async function api(path) {
   });
   if (!r.ok) throw new Error(`GitHub API ${path} -> ${r.status}`);
   return r.json();
+}
+const MAX_FILE_PAGES = 30; // the pulls/files API stops at 3000 files
+
+/** Every changed path of a PR. Throws past the API's limit, so the guard fails closed. */
+async function prFiles(number) {
+  const files = [];
+  for (let page = 1; page <= MAX_FILE_PAGES; page++) {
+    const batch = await api(`/pulls/${number}/files?per_page=100&page=${page}`);
+    for (const f of batch) {
+      files.push(f.filename);
+      if (f.previous_filename) files.push(f.previous_filename); // a rename out of a protected path counts
+    }
+    if (batch.length < 100) return files;
+  }
+  throw new Error(`PR #${number} changes more files than the API lists`);
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -53,6 +69,7 @@ async function pullsFor(sha) {
 
 let result;
 try {
+  const protectedPatterns = parseCodeowners(readFileSync(env.CODEOWNERS_PATH || ".github/CODEOWNERS", "utf8"));
   const { shas, rangeProblem } = await resolveRange();
   const commits = [];
   const reviewsByPr = {};
@@ -76,12 +93,19 @@ try {
     }
   }
   const attributed = attributeStacked(commits, prCommits, base);
+  const filesByPr = {};
+  for (const { pulls } of attributed) {
+    for (const p of mergedInto(pulls, base)) {
+      if (!(p.number in filesByPr)) filesByPr[p.number] = await prFiles(p.number);
+      if (!(p.number in reviewsByPr)) reviewsByPr[p.number] = await api(`/pulls/${p.number}/reviews?per_page=100`);
+    }
+  }
   let openViolations = [];
   if (env.CHECK_OPEN_VIOLATIONS === "true") {
     const issues = await api(`/issues?labels=policy-violation&state=open&per_page=100`);
     openViolations = issues.filter((i) => !i.pull_request).map((i) => i.number);
   }
-  result = evaluate({ forced: env.FORCED === "true", rangeProblem, openViolations, commits: attributed, reviewsByPr, supervisors, base });
+  result = evaluate({ forced: env.FORCED === "true", rangeProblem, openViolations, commits: attributed, reviewsByPr, supervisors, base, protectedPatterns, filesByPr });
 } catch (e) {
   result = { ok: false, violations: [{ sha: "(check)", reason: `provenance check failed closed: ${e.message}` }] };
 }

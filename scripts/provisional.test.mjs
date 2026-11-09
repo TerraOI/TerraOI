@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluateProvisional, findProvisionalLineProblems, parseProvisionalRefs } from "./provisional.mjs";
+import { evaluateProvisional, findProvisionalLineProblems, parseProvisionalRefs, pullRequestState } from "./provisional.mjs";
 
 const answered = { state: "closed", labels: ["question", "answered"] };
 
@@ -55,4 +55,16 @@ describe("evaluateProvisional", () => {
     expect(evaluateProvisional({ labels: ["provisional"], body: "" }).problems[0]).toMatch(/no `Provisional on/));
   it("reports unknown issue numbers", () =>
     expect(evaluateProvisional({ body: "Provisional on: #99", issues: { 99: null } }).ok).toBe(false));
+});
+
+describe("pullRequestState (#89: the current PR, not the event payload)", () => {
+  it("reads the body and label names the API returns now", () =>
+    expect(pullRequestState({ body: "Provisional on: #5", labels: [{ name: "provisional" }] })).toEqual({
+      body: "Provisional on: #5",
+      labels: ["provisional"],
+    }));
+  it("treats a null body as empty", () => expect(pullRequestState({ body: null, labels: [] })).toEqual({ body: "", labels: [] }));
+  it("throws on a response without labels, so the check fails closed", () =>
+    expect(() => pullRequestState({ body: "" })).toThrow());
+  it("throws on a label without a name", () => expect(() => pullRequestState({ body: "", labels: [{}] })).toThrow());
 });
