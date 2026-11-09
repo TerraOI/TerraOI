@@ -121,8 +121,8 @@ select is(has_table_privilege('authenticated', 'public.provider_routes', 'update
   'a request role may not reorder the chain of record');
 select is(has_table_privilege('authenticated', 'public.provider_routes', 'delete'), false,
   'a request role may not delete a chain position');
-select hasnt_table_privilege('authenticated', 'public.provider_health', 'insert',
-  'health rows come from T-314''s server path, not from a request role');
+select is(has_table_privilege('authenticated', 'public.provider_health', 'insert'), false,
+  'health rows come from the T-314 server path, not from a request role');
 select is(has_table_privilege('authenticated', 'public.provider_health', 'update'), false,
   'a request role may not rewrite provider health');
 select is(has_table_privilege('authenticated', 'public.provider_health', 'delete'), false,
