@@ -26,21 +26,30 @@ jobs:
         with:
           node-version-file: .nvmrc
       # #63: judge a push with the guard and CODEOWNERS as they were BEFORE it, so a merged PR
-      # cannot weaken the rule that judges it. (This workflow file itself still comes from the
-      # pushed commit; only branch protection can close that, which is option (c) in #63.)
+      # cannot weaken the rule that judges it. Trusting BEFORE is sound only while nothing on main
+      # is under an open policy violation: once one is open, every later push fails here, in the
+      # shell, until the supervisor resolves and closes it. No pushed code ever decides the verdict.
+      # (This workflow file itself still comes from the pushed commit; only branch protection
+      # closes that, option (c) in #63.)
       - name: Load the guard and CODEOWNERS from the pre-push commit
         id: trusted
-        continue-on-error: true
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BEFORE: ${{ github.event.before }}
           GUARD_DIR: ${{ runner.temp }}/guard
         run: |
-          [[ "$BEFORE" =~ ^[0-9a-f]{40}$ && ! "$BEFORE" =~ ^0+$ ]] || { echo "::warning::no pre-push commit"; exit 1; }
-          git fetch --no-tags --depth=1 origin "$BEFORE"
+          open=$(gh issue list --repo "$GITHUB_REPOSITORY" --label policy-violation --state open --json number --jq 'length')
+          if [ "$open" != "0" ]; then echo "state=blocked" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [[ ! "$BEFORE" =~ ^[0-9a-f]{40}$ || "$BEFORE" =~ ^0+$ ]]; then echo "state=unloadable" >> "$GITHUB_OUTPUT"; exit 0; fi
           mkdir -p "$GUARD_DIR"
-          for f in scripts/provenance.mjs scripts/check-pr-provenance.mjs .github/CODEOWNERS; do
-            git show "$BEFORE:$f" > "$GUARD_DIR/$(basename "$f")"
-          done
+          if git fetch --no-tags --depth=1 origin "$BEFORE" \
+            && git show "$BEFORE:scripts/provenance.mjs" > "$GUARD_DIR/provenance.mjs" \
+            && git show "$BEFORE:scripts/check-pr-provenance.mjs" > "$GUARD_DIR/check-pr-provenance.mjs" \
+            && git show "$BEFORE:.github/CODEOWNERS" > "$GUARD_DIR/CODEOWNERS"; then
+            echo "state=trusted" >> "$GITHUB_OUTPUT"
+          else
+            echo "state=unloadable" >> "$GITHUB_OUTPUT"
+          fi
       - name: Every new commit came through a merged PR
         id: check
         env:
@@ -50,14 +59,21 @@ jobs:
           AFTER: ${{ github.event.after }}
           FORCED: ${{ github.event.forced }}
           GUARD_DIR: ${{ runner.temp }}/guard
-          TRUSTED: ${{ steps.trusted.outcome }}
+          STATE: ${{ steps.trusted.outputs.state }}
         run: |
-          if [ "$TRUSTED" = "success" ]; then
-            # The pre-push list and the pushed list, unioned: a removal never narrows protection.
-            CODEOWNERS_PATHS="$GUARD_DIR/CODEOWNERS:.github/CODEOWNERS" node "$GUARD_DIR/check-pr-provenance.mjs"
-          else
-            TRUSTED_GUARD=false node scripts/check-pr-provenance.mjs
-          fi
+          case "$STATE" in
+            trusted)
+              # The pre-push list and the pushed list, unioned: a removal never narrows protection.
+              CODEOWNERS_PATHS="$GUARD_DIR/CODEOWNERS:.github/CODEOWNERS" node "$GUARD_DIR/check-pr-provenance.mjs" ;;
+            blocked)
+              # The open issue already records the violation; failing again opens no duplicate.
+              echo "::error::A policy-violation issue is open; main stays unverified until the supervisor closes it."
+              exit 1 ;;
+            *)
+              printf 'violations<<EOF\n%s\nEOF\n' "- \`(guard)\`: the guard could not be loaded from the pre-push commit ($BEFORE); no pushed code was run to judge this push" >> "$GITHUB_OUTPUT"
+              echo "::error::The pre-push guard could not be loaded; failing closed."
+              exit 1 ;;
+          esac
       - name: Open a policy-violation issue
         if: failure() && steps.check.outputs.violations != ''
         env:

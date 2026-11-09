@@ -6,8 +6,6 @@
 //      CHECK_OPEN_VIOLATIONS ("true": also fail while policy-violation issues are open),
 //      CODEOWNERS_PATHS (colon-separated; default .github/CODEOWNERS): every copy is read and the
 //      lists are unioned with GUARD_FLOOR (#63). main-guard passes the pre-push copy and the pushed one.
-//      TRUSTED_GUARD ("false": this script runs from the pushed tree because the pre-push copy could
-//      not be loaded; that is reported as a violation, because the pushed guard may be weakened).
 // Writes `violations` (markdown list) to $GITHUB_OUTPUT; exits 1 on any violation.
 import { appendFileSync, readFileSync } from "node:fs";
 import { attributeStacked, evaluate, mergedInto, protectedPatternsFrom } from "./provenance.mjs";
@@ -74,13 +72,7 @@ let result;
 try {
   const codeownersPaths = (env.CODEOWNERS_PATHS || ".github/CODEOWNERS").split(":").filter(Boolean);
   const protectedPatterns = protectedPatternsFrom(codeownersPaths.map((p) => readFileSync(p, "utf8")));
-  const range = await resolveRange();
-  const { shas } = range;
-  let { rangeProblem } = range;
-  if (env.TRUSTED_GUARD === "false") {
-    const why = "the guard and CODEOWNERS could not be loaded from the pre-push commit; the pushed copy ran and may be weakened";
-    rangeProblem = rangeProblem ? `${rangeProblem}; ${why}` : why;
-  }
+  const { shas, rangeProblem } = await resolveRange();
   const commits = [];
   const reviewsByPr = {};
   for (const sha of shas) {
