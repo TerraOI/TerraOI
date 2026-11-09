@@ -3,6 +3,10 @@
 Lane: 2 · Week: 2 · Protected: yes (`src/platform/gateway/`) · Depends on: T-115, T-114, T-113, T-104 · Status: ready
 Plan refs: §12.1 (M1 two-pass verifier), §12.4 (chain walking, clearance), §9.3, §16 (model chain row); F20, F21, F31, F38
 
+## Supervisor rulings to apply (2026-11-09)
+These supersede anything below that disagrees.
+- **Refusal** ([#97](https://github.com/TerraOI/TerraOI/issues/97)): if pass 2 removes every claim, the answer is `refused` with `insufficient_support`.
+
 ## Goal
 Deterministic binding proves an answer's ids and spans exist; pass 2 proves the cited spans actually
 **support** each claim. A different model at or above `minVerifierTier` judges each claim from its claim

@@ -971,6 +971,8 @@ Model chain (v1.3): per provider and task class, track availability, latency, fa
 
 Provide kill switches per platform, tenant, service, provider and connector using explicit settings, without disabling the deterministic operational record system. Emergency source revoke/index-disable must block retrieval before background cleanup completes. Canceling new model calls does not erase already-sent data; record that distinction in incident procedures.
 
+**M1 scope (#74):** M1 delivers the tenant, expert and provider switches (§15.0 governs). The service switch waits for the first phase with more than one service per expert; the connector switch comes with TOI-08, which introduces connectors; the platform switch in M1 is the deployment rollback in the runbook, not a setting.
+
 ### 17.2 Staging and release procedure
 
 1. Confirm target commit, stack compatibility, owners, migration sequence, domain/service scope, processor policies and numeric operational thresholds.
@@ -1180,6 +1182,7 @@ Demo target: on the staging host for company1, sign in by magic link → upload 
 | T-202 | Tenant admin: invites, roles, projects, collections with data class | T-212 | DOCX/XLSX extraction; routing for scans and images |
 | T-203 | Chat UX: expert picker, evidence panel, citation open (F24), conversation history (F17), mobile drawer | T-213 | Review queue, publication policy, revoke (F14) |
 | T-204 | Brand contract in all 3 modes on login, shell, chat, errors and email | T-214 | Project-scoped ACLs through retrieval, citations and history |
+| | | T-111b | Collection admin RPC: `create_collection_v1`, `update_collection_v1` (#41) |
 | | | T-215 | Verifier pass 2, Claude adapter, compose retry on the next tier |
 | | | T-216 | Query condensation (F30) and exact lookup |
 
@@ -1191,6 +1194,7 @@ Demo target: on the staging host for company1, sign in by magic link → upload 
 | T-302 | Feedback buttons, "Save as knowledge" (F15), reviewer UI | T-312 | Eval harness (F34–F36): CI subset and nightly staging run |
 | T-303 | Eval review view for the UAV and GPR leads | T-313 | Budgets and rate limits (F19), run audit (F22) |
 | T-304 | Kill-switch settings; tenant provisioning script (F05) | T-314 | DeepSeek and OpenRouter adapters, health checks (F37), circuit breakers |
+| | | T-302b | Knowledge submissions: table, routes and promotion (F15 data path, #73) |
 | | | T-315 | Load approved Company1 corpora into staging; draft eval cases |
 
 During weeks 3–4 the Company1 UAV and GPR leads review and approve eval cases. Week 3 also includes a staging drill with the local box offline.

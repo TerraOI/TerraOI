@@ -17,6 +17,10 @@ describe("checkStructure", () => {
     expect(checkStructure([...ok, "docs/tasks/task101.md"], read)[0]).toMatch(/T-123/);
     expect(checkStructure([...ok, "docs/status/week45.md"], read)[0]).toMatch(/YYYY-Www/);
   });
+  it("accepts a split packet with one letter, and nothing longer", () => {
+    expect(checkStructure([...ok, "docs/tasks/T-111b-collection-admin-rpc.md"], read)).toEqual([]);
+    expect(checkStructure([...ok, "docs/tasks/T-111bc-x.md"], read)[0]).toMatch(/T-123/);
+  });
   it("rejects unknown platform modules", () =>
     expect(checkStructure([...ok, "src/platform/misc/x.ts"], read)[0]).toMatch(/unknown platform module/));
   it("requires a status line in task packets", () =>

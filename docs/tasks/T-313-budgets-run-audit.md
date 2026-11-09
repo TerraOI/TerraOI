@@ -1,8 +1,13 @@
 # T-313 Budgets and rate limits (F19) and the run audit (F22)
 
 Lane: 2 · Week: 3 · Protected: yes (`supabase/migrations/`, `src/platform/gateway/` reservation seam) · Depends on: T-115 (a merged as #31 — config/clearance/circuit; b/c/d open as #53/#56/#58, and b carries the F19 metering), T-104 (unclaimed — its migration creates `agent_runs`), T-215 (not started), T-111 (merged) · Status: ready
-Gated by decisions: [#45](https://github.com/TerraOI/TerraOI/issues/45), [#68](https://github.com/TerraOI/TerraOI/issues/68) (the stage idempotency key the contract names does not exist), [#46](https://github.com/TerraOI/TerraOI/issues/46) (no `verify` adapter, so verify spend is unreachable today)
+Decided (rulings below): [#45](https://github.com/TerraOI/TerraOI/issues/45), [#68](https://github.com/TerraOI/TerraOI/issues/68) (the stage idempotency key the contract names does not exist), [#46](https://github.com/TerraOI/TerraOI/issues/46) (no `verify` adapter, so verify spend is unreachable today)
 Plan refs: §12.3 (budget authority and M1 scope), §17.1 (audit, chain observability), §16 (Budget/provider row), §14 ("no admitted budget reservations exceeding the ceiling"), §9.4, §15.0, §18.3; F19, F22 (callers F20 = F31 + F38)
+
+## Supervisor rulings to apply (2026-11-09)
+These supersede anything below that disagrees.
+- **F40 is in the plan** ([#70](https://github.com/TerraOI/TerraOI/issues/70)): §11 now has the F40 row; the note below about the missing label no longer applies.
+- **Revisions** ([#98](https://github.com/TerraOI/TerraOI/issues/98)): stamp the run with the `policy_revision` it started under and the one it was delivered under.
 
 ## Goal
 Spend becomes enforced and auditable instead of estimated. Before **every** billable phase — compose, each

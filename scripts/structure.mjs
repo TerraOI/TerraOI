@@ -26,7 +26,7 @@ export const REQUIRED_FILES = [
 ];
 
 const NAMING = [
-  { dir: "docs/tasks/", re: /^(_TEMPLATE|T-\d{3}-[a-z0-9-]+)\.md$/, hint: "T-123-short-name.md" },
+  { dir: "docs/tasks/", re: /^(_TEMPLATE|T-\d{3}[a-z]?-[a-z0-9-]+)\.md$/, hint: "T-123-short-name.md or T-123b-short-name.md (a split packet)" },
   { dir: "docs/decisions/", re: /^(README|\d{4}-[a-z0-9-]+)\.md$/, hint: "0001-short-name.md" },
   { dir: "docs/status/", re: /^\d{4}-W\d{2}\.md$/, hint: "YYYY-Www.md (ISO week)" },
   { dir: "docs/plan/", re: /^TerraOI-plan-v\d+(\.\d+)*\.md$/, hint: "TerraOI-plan-vX.Y.md", skip: "docs/plan/archive/" },
@@ -55,7 +55,7 @@ export function checkStructure(paths, read) {
       const rest = p.slice(rule.dir.length);
       if (rest.includes("/") || !rule.re.test(rest)) problems.push(`${p}: name must match ${rule.hint}`);
     }
-    if (/^docs\/tasks\/T-\d{3}-/.test(p) && !PACKET_STATUS.test(read(p))) {
+    if (/^docs\/tasks\/T-\d{3}[a-z]?-/.test(p) && !PACKET_STATUS.test(read(p))) {
       problems.push(`${p}: packet needs a 'Status: ready|in progress|in review|blocked|done' line`);
     }
   }

@@ -3,6 +3,11 @@
 Lane: 2 · Week: 2 · Protected: yes (`supabase/migrations/`, `src/app/api/knowledge/`) · Depends on: T-104, T-111, T-112, T-113, T-114 · Status: ready
 Plan refs: §7.2 steps 7–9, §7.5 (revocation within 60 s), §6.2, §16 (tenant/source ACL row); F13, F14, F27
 
+## Supervisor rulings to apply (2026-11-09)
+These supersede anything below that disagrees.
+- **Reclass** ([#21](https://github.com/TerraOI/TerraOI/issues/21)): `review_reclass_v1` raises a collection and every descendant below the new class in one transaction with one audit row; pgTAP for the cascade, never-below-collection, refused `restricted` and tenant-wide `client_confidential` raises, another tenant refused, and E2 vector removal.
+- **`policy_revision`** ([#98](https://github.com/TerraOI/TerraOI/issues/98)): attach T-202's `bump_policy_revision()` to publish and revoke; assert the move in `050`.
+
 ## Goal
 Knowledge becomes publishable under policy instead of automatically: versions that need a human wait in
 a review queue, an independent reviewer can be required and checked against who actually uploaded the

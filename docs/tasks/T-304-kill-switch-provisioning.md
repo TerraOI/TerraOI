@@ -1,8 +1,13 @@
 # T-304 Kill-switch settings and the tenant provisioning script (F05)
 
 Lane: 1 · Week: 3 · Protected: yes (`supabase/migrations/`, `src/platform/tenancy/`; `scripts/` is shared) · Depends on: T-003, T-101 (both merged), T-102 (a–d open as #30/#50/#52/#57; only e's test-only pgTAP #59 is merged), T-115 (a merged as #31; b/c/d open as #53/#56/#58, for the provider switch), T-311 (same week, for the expert switch) · Status: ready
-Gated by decisions: [#45](https://github.com/TerraOI/TerraOI/issues/45), [#62](https://github.com/TerraOI/TerraOI/issues/62) (no tenant brand configuration exists), [#67](https://github.com/TerraOI/TerraOI/issues/67) (`organisations.locale` rejects `en-GB`)
+Decided (rulings below): [#45](https://github.com/TerraOI/TerraOI/issues/45), [#62](https://github.com/TerraOI/TerraOI/issues/62) (no tenant brand configuration exists), [#67](https://github.com/TerraOI/TerraOI/issues/67) (`organisations.locale` rejects `en-GB`)
 Plan refs: §17.1 (kill switches as settings), §15.0 ("Tenant provisioning by script (F05), not an admin UI"; "Kill switches (tenant, expert, provider) as settings"), §15.2 (M1-PILOT: kill switches verified), §16 (Operations row), §13, §4.1–§4.2; F05, F28 (F06 for the expert switch)
+
+## Supervisor rulings to apply (2026-11-09)
+These supersede anything below that disagrees.
+- **Kill switches** ([#74](https://github.com/TerraOI/TerraOI/issues/74)): M1 delivers tenant, expert and provider; add an expert-switch acceptance line in `100_lifecycle_switches.test.sql` (a switched-off expert is not selectable and its routes are refused at the gateway).
+- **Tenant switch** ([#98](https://github.com/TerraOI/TerraOI/issues/98)): relies on the `organisations.status` trigger from T-202 to move `policy_revision`.
 
 ## Goal
 Two operations surfaces, both as settings rather than UI: a **script** that provisions a tenant —

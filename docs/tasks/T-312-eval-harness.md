@@ -3,6 +3,13 @@
 Lane: 2 · Week: 3 · Protected: yes (`supabase/migrations/`, `.github/` is not this packet's) · Depends on: T-111 (merged), T-113 (unclaimed — unblocked on the pin by the #6 engineering decision), T-114 (unclaimed), T-104 (unclaimed), T-311 (same week: an expert version to run) · Status: ready
 Plan refs: §14.1 (workflow + pilot-entry thresholds), §14 (measure table), §6.1 (Evaluation group), §15.2 (M1-PILOT gate), §16 (Retrieval/Model chain rows), §20.3; F34, F35, F36 (TOI-ADR-17)
 
+## Supervisor rulings to apply (2026-11-09)
+These supersede anything below that disagrees.
+- **Data and permission** ([#82](https://github.com/TerraOI/TerraOI/issues/82)): `eval_cases` and `eval_reviews` with RLS and #60 privileges in `090`; a seeded `evals.review` area (`write` to approve/edit/reject, `admin` to export) granted to role `eval_reviewer`; approval needs a non-author reviewer with `evals.review`; export into `evals/<expert>/` only from approved rows carrying `approvedBy`/`approvedAt`; F35 ignores `approvedBy: null`; the nightly run cross-checks committed cases.
+- **Contract first** ([#84](https://github.com/TerraOI/TerraOI/issues/84)): the first PR adds `src/contracts/eval-case.ts` (strict, discriminated on `status`, enums for `CaseType`, adversarial class and `origin`), sets `docs/contracts/eval-case-format.md` to accepted, and a Vitest test parses every JSON file under `evals/*/` and `evals/*/drafts/`.
+- **Nightly workflow** ([#74](https://github.com/TerraOI/TerraOI/issues/74)): this packet **owns** `.github/workflows/eval-nightly.yml` (protected, supervisor-reviewed): `repo-hygiene.yml` schedule pattern, staging only, never on a PR, reports `unavailable` when a key or staging is missing.
+- **Pilot feedback** ([#102](https://github.com/TerraOI/TerraOI/issues/102)): `draft_eval_case_from_feedback_v1` creates `origin = 'pilot'` drafted rows; `eval_cases` gains `data_class` (highest of run evidence and conversation) and `derived_from_run_id`/`derived_from_message_id`; export refuses any `origin = 'pilot'` row (tested); pilot cases count toward the running set and the exit report, not the pilot-entry threshold.
+
 ## Goal
 An expert version is only as good as its approved case set. This packet lands the harness: F34 drafts
 candidate cases from published collection versions (marked `agent_drafted`, and never drafted from a
@@ -22,9 +29,7 @@ selectable for rollback. A fast subset runs on PRs; the full set runs nightly on
   script entries in `package.json` (shared root config — coordinate the change in the daily sync)
 
 ## Must not edit
-`.github/` — the **scheduled nightly workflow is a supervisor PR** ([#74](https://github.com/TerraOI/TerraOI/issues/74)
-asks who schedules it), this packet only ships the command it
-calls (AGENTS.md §6: `.github/` is protected and no packet owns it); `src/contracts/`; merged migrations;
+`.github/` other than `.github/workflows/eval-nightly.yml`, which this packet owns since [#74](https://github.com/TerraOI/TerraOI/issues/74) (protected: supervisor review); `src/contracts/` beyond `eval-case.ts` ([#84](https://github.com/TerraOI/TerraOI/issues/84)); merged migrations;
 `src/app/` and `src/components/` (the review page is [T-303](./T-303-eval-review-view.md));
 `supabase/seed.sql` with anything other than synthetic cases (AGENTS.md §4.7).
 

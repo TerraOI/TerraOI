@@ -3,6 +3,11 @@
 Lane: 1 · Week: 3 · Protected: no · Depends on: T-102 (a–d open as #30/#50/#52/#57; only e's test-only pgTAP #59 is merged), T-103 (unclaimed), T-312 (same week: the eval tables, `eval_cases`/`eval_reviews` and the F34 drafts must merge first) · Status: ready
 Plan refs: §14.1 (steps 1 and 3), §6.1 (Evaluation group), §15.0 ("Eval review view for UAV/GPR leads"), §18.3 (named reviewers still open), §16; F34/F35 boundary (harness is [T-312](./T-312-eval-harness.md))
 
+## Supervisor rulings to apply (2026-11-09)
+These supersede anything below that disagrees.
+- **Permission and data** ([#82](https://github.com/TerraOI/TerraOI/issues/82)): build against T-312's `eval_cases`/`eval_reviews` routes and the `evals.review` permission; define no permission of your own.
+- **Pilot drafts** ([#102](https://github.com/TerraOI/TerraOI/issues/102)): show `origin = 'pilot'` drafts with their data class, readable only to `evals.review` holders in the tenant.
+
 ## Goal
 The Company1 UAV lead and GPR lead sign in on their tenant host and see **only the candidate eval
 cases their own authorization allows them to see**, each with its question, expected answer points,

@@ -3,6 +3,10 @@
 Lane: 2 · Week: 2 · Protected: yes (`supabase/migrations/`) · Depends on: T-111, T-114, T-213, T-104 · Status: ready
 Plan refs: §6.2 (read predicate, derived outputs), §8.2, §16 (tenant/source ACL row), §20.4 item 5; F08, F16, F17, F24
 
+## Supervisor rulings to apply (2026-11-09)
+These supersede anything below that disagrees.
+- **`policy_revision`** ([#98](https://github.com/TerraOI/TerraOI/issues/98)): attach T-202's `bump_policy_revision()` to the project ACL tables; assert the move in `060`.
+
 ## Goal
 Project is a real information boundary, not a label: one access decision decides what retrieval
 returns, what a citation will open and what conversation history may show, so removing someone from a

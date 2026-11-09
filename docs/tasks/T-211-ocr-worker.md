@@ -3,6 +3,11 @@
 Lane: 2 · Week: 2 · Protected: yes (`workers/`, `localbox/`, `supabase/migrations/`, `src/app/api/jobs/`) · Depends on: T-111 (merged as #12), T-112 (merged as #32 + #54), T-115 (a–d on `main`, see its packet) · Status: ready — design in [ADR-0005](../decisions/0005-ocr-job-api-and-artifact-home.md) (proposed)
 Plan refs: §7.2 (extraction executors), §13 (local box in the topology), §7.5, §16 (Forms/OCR row); F12, F32
 
+## Supervisor rulings to apply (2026-11-09)
+These supersede anything below that disagrees.
+- **Dead letter and reclaim** ([#99](https://github.com/TerraOI/TerraOI/issues/99), ADR-0005 §12): `max_attempts = 5`; `lease_parse_job_v1` first reclaims expired leases for the tenant and stage (under the cap → `queued`, lease pair cleared, `lease_fence` bumped; at the cap → `failed`, `last_error = 'retries_exhausted'`), then excludes capped rows; the mutating compare keeps the `lease_expires_at > now()` arm too; abort uses a closed reason vocabulary; a service/admin-only reconciler view lists stuck jobs, recent failures and versions with no job; the outbox dispatcher relies on the stage key.
+- **pgTAP `045` adds:** cap → `failed` and the next job leases; expired lease reclaimed and the old worker's completion matches zero rows; abandoned lease refused by the expiry arm; duplicate dispatch creates no job; the reconciler lists a stuck job and a job-less version; no request role reads it.
+
 ## Goal
 A scanned PDF or image becomes text: the box runs **no inbound listener**, it polls a narrow job API
 with a scoped worker credential, leases one job, pulls the object through a short-lived signed URL,

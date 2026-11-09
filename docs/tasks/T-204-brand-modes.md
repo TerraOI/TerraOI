@@ -3,6 +3,11 @@
 Lane: 1 · Week: 2 · Protected: no · Depends on: T-002, T-102, T-103 · Status: ready
 Plan refs: §5.1, §4.4 (public brand cache), §16 (white-label row), §20.5 (M1 subset); F04
 
+## Supervisor rulings to apply (2026-11-09)
+These supersede anything below that disagrees.
+- **Sender domain** ([#64](https://github.com/TerraOI/TerraOI/issues/64), [#98](https://github.com/TerraOI/TerraOI/issues/98)): the human step is T-004's "Email transport" line (T-105), which the sentence below points at.
+- **Brand-mode test** ([#65](https://github.com/TerraOI/TerraOI/issues/65)): rewrite `brand-modes.test.tsx:43-54` against the two marker values exported by `src/contracts/tenant-brand.ts` (scoped edit authorized, as in #44).
+
 ## Goal
 One validated brand object drives product identity everywhere an employee can see it — login, reset
 and invite pages, the tenant shell, chat empty and error states, browser titles, manifest and favicon,
@@ -57,4 +62,4 @@ email shows the verified sender (headers pasted, no secret values).
 ## Out of scope
 Printed reports and PDF/Word export branding, custom customer domains, a brand editor UI and the
 control-plane UI (plan §15.0 "Deferred after M1"); first shell load in `terraoi` mode was T-103;
-sending-domain setup is a human step in [T-004](./T-004-infrastructure.md).
+sending-domain setup is a human step in [T-004](./T-004-infrastructure.md) ("Email transport", for [T-105](./T-105-email-transport.md)).
