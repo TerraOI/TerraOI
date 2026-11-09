@@ -38,7 +38,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          open=$(gh issue list --repo "$GITHUB_REPOSITORY" --label policy-violation --state open --json number --jq 'length')
+          open=$(gh issue list --repo "$GITHUB_REPOSITORY" --label policy-violation --state open --json number --jq 'length') || open=unknown
           [ "$open" = "0" ] || { echo "::error::$open policy-violation issue(s) open; staging deploys stay blocked."; exit 1; }
       - name: Every commit came through a merged, reviewed PR; no open violations
         env:

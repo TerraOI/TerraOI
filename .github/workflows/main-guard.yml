@@ -38,8 +38,10 @@ jobs:
           BEFORE: ${{ github.event.before }}
           GUARD_DIR: ${{ runner.temp }}/guard
         run: |
-          open=$(gh issue list --repo "$GITHUB_REPOSITORY" --label policy-violation --state open --json number --jq 'length')
-          if [ "$open" != "0" ]; then echo "state=blocked" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if ! open=$(gh issue list --repo "$GITHUB_REPOSITORY" --label policy-violation --state open --json number --jq 'map(.number) | join(" ")'); then
+            echo "state=unloadable" >> "$GITHUB_OUTPUT"; exit 0   # cannot tell: fail closed and record it
+          fi
+          if [ -n "$open" ]; then echo "state=blocked" >> "$GITHUB_OUTPUT"; echo "issues=$open" >> "$GITHUB_OUTPUT"; exit 0; fi
           if [[ ! "$BEFORE" =~ ^[0-9a-f]{40}$ || "$BEFORE" =~ ^0+$ ]]; then echo "state=unloadable" >> "$GITHUB_OUTPUT"; exit 0; fi
           mkdir -p "$GUARD_DIR"
           if git fetch --no-tags --depth=1 origin "$BEFORE" \
@@ -60,14 +62,26 @@ jobs:
           FORCED: ${{ github.event.forced }}
           GUARD_DIR: ${{ runner.temp }}/guard
           STATE: ${{ steps.trusted.outputs.state }}
+          OPEN_ISSUES: ${{ steps.trusted.outputs.issues }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           case "$STATE" in
             trusted)
               # The pre-push list and the pushed list, unioned: a removal never narrows protection.
               CODEOWNERS_PATHS="$GUARD_DIR/CODEOWNERS:.github/CODEOWNERS" node "$GUARD_DIR/check-pr-provenance.mjs" ;;
             blocked)
-              # The open issue already records the violation; failing again opens no duplicate.
-              echo "::error::A policy-violation issue is open; main stays unverified until the supervisor closes it."
+              # Record this push on every open issue, so nothing lands unseen while main is blocked;
+              # the supervisor reviews these ranges before closing. If the comment fails, open a new
+              # issue instead (via `violations`), so the push is always recorded somewhere.
+              note="Another push reached \`main\` while this issue is open and was **not** verified: \`$BEFORE..$AFTER\` (forced: $FORCED). Review this range too before closing. Run: $RUN_URL"
+              for n in $OPEN_ISSUES; do
+                gh issue comment "$n" --repo "$GITHUB_REPOSITORY" --body "$note" || recorded=no
+              done
+              if [ "${recorded:-yes}" = "no" ]; then
+                printf 'violations<<EOF\n%s\nEOF\n' "- \`$BEFORE..$AFTER\`: pushed while policy-violation issue(s) $OPEN_ISSUES were open; not verified" >> "$GITHUB_OUTPUT"
+              fi
+              echo "::error::Policy-violation issue(s) $OPEN_ISSUES open; this push is recorded there and main stays unverified until the supervisor closes them."
               exit 1 ;;
             *)
               printf 'violations<<EOF\n%s\nEOF\n' "- \`(guard)\`: the guard could not be loaded from the pre-push commit ($BEFORE); no pushed code was run to judge this push" >> "$GITHUB_OUTPUT"
