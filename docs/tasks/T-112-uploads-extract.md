@@ -3,6 +3,11 @@
 Lane: 2 · Week: 1 · Protected: yes (`src/app/api/knowledge/`, and any migration here) · Depends on: T-111 · Status: done — merged as [PR #32](https://github.com/TerraOI/TerraOI/pull/32) (a: upload session and capture RPCs) and [PR #54](https://github.com/TerraOI/TerraOI/pull/54) (b: digital-PDF extraction with page locators); the staging demo below is **not** claimed — it still waits on #38 (storage credential) and #75 (session-store reach)
 Plan refs: §7.2 steps 1–3, §9.2.1, §6.2; F09, F10, F12
 
+## Supervisor rulings to apply (2026-11-09)
+These supersede anything below that disagrees.
+- **Follow-up PR** ([#40](https://github.com/TerraOI/TerraOI/issues/40)): delete the stored object when a capture is quarantined or fails, per the #40 ruling.
+- **T-112c** ([#96](https://github.com/TerraOI/TerraOI/issues/96)): a new migration (never edit the merged one) so that the `completed` replay in `register_source_version_v1` filters `organisation_id` and checks `source_is_readable`/`collection_is_readable`, answering with the same generic refusal as the dedup and race branches; and the session guard pins `expires_at` and makes `completed`, `quarantined`, `failed` and `expired` final (only `awaiting_upload` may change state). pgTAP in slot `041`. Lane 2, protected, week 2.
+
 ## Goal
 An authorized member starts an upload, the object lands in private storage under a server-chosen
 key, completion verifies the object and creates an immutable source version plus an outbox event,

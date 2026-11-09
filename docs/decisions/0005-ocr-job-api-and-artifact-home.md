@@ -293,6 +293,16 @@ None of these may be done by an agent or a builder, and none is a repository sec
 7. **Worker identity: how does a presented credential become `app.worker_id`?** (§3's note.) Unresolved and load-bearing. A shared role plus a self-asserted GUC means any box can claim another's identity; the options are a per-box connection identity, a verify step inside the job API, or tunnel/mTLS mapping. Nothing in this ADR picks one, and until one is picked the honest statement is that `revoked_at` bounds new leases only.
 8. **Who owns dead-letter and reconciliation** (§5b)? Plan §7.5 line 406 requires both; no packet names them, and the `attempt` cap turns their absence into queue starvation. Either a state-machine change lands here, or the starvation is accepted and recorded with the packet that will fix it later.
 
+## 10b. Amendment (2026-11-09): retry bound, inline reclaim and the dead letter ([#99](https://github.com/TerraOI/TerraOI/issues/99))
+
+Supervisor ruling, recorded here so §3 and §5b have one answer:
+- **`max_attempts = 5`**, a named constant in the job-API migration. With leases capped at 1800 s, a poisoned document holds the box for at most about 2.5 hours. The `between 1 and 100` CHECK stays as a backstop that should never fire.
+- **Reclaim runs inline** in `lease_parse_job_v1`, before it selects, in the same transaction, for the tenant and stage: an expired lease under the cap returns to `queued` with the lease pair cleared and **`lease_fence` bumped**; at the cap it moves to **`failed`** with `last_error = 'retries_exhausted'`. The select then excludes capped rows.
+- **Both arms stay** in every mutating compare: the fence defeats a re-leased worker, and `lease_expires_at > now()` defeats an abandoned one.
+- **The dead letter is a state, never a deletion.** `failed` is final for that row; the abort RPC uses a closed reason vocabulary; replay under a new parser generation is T-405, not M1.
+- **Reconciler:** a service/admin-only view in the same migration lists non-final jobs older than twice the maximum lease, `failed` jobs from the last 7 days, and versions in a non-final pipeline state with no job row.
+- pgTAP in `045` covers each of these (see T-211's rulings).
+
 ## 11. Alternatives considered
 
 - **Machine membership instead of worker grants** (§3): rejected in the sketch, not by ruling — it widens a leaked credential to the full `authenticated` read surface and puts a non-person in provenance columns.

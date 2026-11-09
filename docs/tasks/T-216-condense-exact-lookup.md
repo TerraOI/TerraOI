@@ -3,6 +3,10 @@
 Lane: 2 · Week: 2 · Protected: no (the lookup RPC migration is protected) · Depends on: T-104, T-111, T-114, T-115 · Status: ready
 Plan refs: §8.1 steps 4–5, §8.2, §12.4 (per-task chains), §16 (retrieval row); F16, F17, F30
 
+## Supervisor rulings to apply (2026-11-09)
+These supersede anything below that disagrees.
+- **Spans** ([#95](https://github.com/TerraOI/TerraOI/issues/95), ADR-0008): `exact_lookup_v1` returns text, never offsets.
+
 ## Goal
 Follow-up turns search well and obvious identifiers resolve immediately: a follow-up is rewritten into a
 standalone query using only the authorized conversation history, exact record ids, provision numbers,

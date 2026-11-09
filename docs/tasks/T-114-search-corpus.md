@@ -3,6 +3,10 @@
 Lane: 2 (shared path) · Week: 1 · Protected: yes (`supabase/migrations/`) · Depends on: T-111, T-113 · Status: ready
 Plan refs: §8.1–§8.3, §6.2; F16, F08
 
+## Supervisor rulings to apply (2026-11-09)
+These supersede anything below that disagrees.
+- **Spans** ([#95](https://github.com/TerraOI/TerraOI/issues/95), ADR-0008): `search_corpus_v1` returns text, never a `startChar`/`endChar`; spans are UTF-16 offsets into `knowledge_chunks.body_text`, computed only in the Worker.
+
 ## Goal
 One security-invoker RPC answers a scoped question with authorized, ranked evidence rows and
 bounded coverage diagnostics — full-text plus vector, combined by rank fusion, never wider than the

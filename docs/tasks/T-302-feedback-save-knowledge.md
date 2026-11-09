@@ -1,9 +1,14 @@
 # T-302 Feedback buttons, "Save as knowledge" (F15) and the reviewer queue UI
 
 Lane: 1 · Week: 3 · Protected: yes (`supabase/migrations/` — the feedback rows only, see Contract) · Depends on: T-111, T-104 (unclaimed), T-202, T-203, T-213 · Status: ready
-Gated by decisions: [#41](https://github.com/TerraOI/TerraOI/issues/41) (`create_collection_v1` has no owner), [#39](https://github.com/TerraOI/TerraOI/issues/39) (who may publish, hence who may approve), [#21](https://github.com/TerraOI/TerraOI/issues/21) (whether a data-class raise cascades to derived rows)
+Decided (rulings below): [#41](https://github.com/TerraOI/TerraOI/issues/41) (`create_collection_v1` has no owner), [#39](https://github.com/TerraOI/TerraOI/issues/39) (who may publish, hence who may approve), [#21](https://github.com/TerraOI/TerraOI/issues/21) (whether a data-class raise cascades to derived rows)
 Plan refs: §7.4, §6.1 (Employee knowledge capture), §6.2, §15.0 ("Feedback buttons + Save as knowledge"),
 §16 (Tenant/source ACL row); F15 (the review decision itself is [T-213](./T-213-review-publish-revoke.md)'s F13/F14)
+
+## Supervisor rulings to apply (2026-11-09)
+These supersede anything below that disagrees.
+- **Split decided** ([#73](https://github.com/TerraOI/TerraOI/issues/73)): this packet owns the four answer controls, the submission form and the reviewer queue screens, and calls [T-302b](./T-302b-knowledge-submissions.md)'s routes; it writes no knowledge table. Gates #41, #39 and #21 are answered.
+- **Eval drafts** ([#102](https://github.com/TerraOI/TerraOI/issues/102)): when an `Incorrect` or `Suggest correction` rating is saved, call T-312's `draft_eval_case_from_feedback_v1`; the draft itself is T-312's.
 
 ## Goal
 Every delivered answer carries **Useful**, **Incorrect**, **Suggest correction** and **Save as
@@ -36,7 +41,7 @@ answer it cites ([`maxDataClass`](../../src/contracts/data-class.ts), §6.2) and
 reviewer but never lowered. Approval reuses T-213's `review_decision_v1` and the publication rules in
 [docs/contracts/knowledge-and-jobs.md](../../docs/contracts/knowledge-and-jobs.md); independence is
 compared against the server-set author, never a client-supplied one (#8).
-**Split assumed, decision owed ([#73](https://github.com/TerraOI/TerraOI/issues/73)):** §20.2 assigns F15 to Lane 2 while §20.3 lists T-302 in
+**Split (historical; decided by [#73](https://github.com/TerraOI/TerraOI/issues/73), see the rulings above — the Lane 2 half is [T-302b](./T-302b-knowledge-submissions.md)):** §20.2 assigns F15 to Lane 2 while §20.3 lists T-302 in
 the Lane 1 column, and no packet lists `knowledge_submissions` or its RPC in "Owns" — the same class of gap as
 [#41](https://github.com/TerraOI/TerraOI/issues/41). This packet assumes Lane 1 owns the pages and the
 rating rows and **calls** a Lane 2 `submit_employee_knowledge_v1`, and it needs the supervisor to

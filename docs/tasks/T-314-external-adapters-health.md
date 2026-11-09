@@ -1,8 +1,12 @@
 # T-314 DeepSeek and OpenRouter adapters, provider health checks (F37) and circuit breakers
 
 Lane: 2 · Week: 3 · Protected: yes (`src/platform/gateway/`) · Depends on: T-115 (a merged as #31 — config/clearance/circuit; b/c/d open as #53/#56/#58, and b is the fetch adapters plus chain walking), T-115f (not started — it owns the Claude adapter since the #46 ruling), T-215 (not started), T-311 (same week: `route` chains that reach these tiers), T-313 (same week: quota-window signal) · Status: ready
-Gated by decisions: [#45](https://github.com/TerraOI/TerraOI/issues/45), [#46](https://github.com/TerraOI/TerraOI/issues/46), [#74](https://github.com/TerraOI/TerraOI/issues/74) (nobody owns the week-3 box-offline drill this packet's Done evidence is), plus the model-selection finding posted on PR #53 (not an issue)
+Decided (rulings below): [#45](https://github.com/TerraOI/TerraOI/issues/45), [#46](https://github.com/TerraOI/TerraOI/issues/46), [#74](https://github.com/TerraOI/TerraOI/issues/74) (nobody owns the week-3 box-offline drill this packet's Done evidence is), plus the model-selection finding posted on PR #53 (not an issue)
 Plan refs: §12.4 (chain rows 4–5 and the clearance matrix), §16 (Model chain row), §17.1 (chain observability; box offline within one check interval), §13 (local-box contract), §15.0, §18.2 ("Client data reaches an uncleared provider"); F37, F31, F38, F20
+
+## Supervisor rulings to apply (2026-11-09)
+These supersede anything below that disagrees.
+- **Box-offline drill** ([#74](https://github.com/TerraOI/TerraOI/issues/74)): a numbered task — runbook in `docs/runbooks/`, offline detected within one check interval, `client_confidential` advances to Claude and never DeepSeek/OpenRouter, `restricted` returns `unavailable`, scanned-PDF `extract` waits as queued and is never re-routed, result in `docs/status/`. Stopping the box is an owner action.
 
 ## Goal
 The two cheapest cloud fallbacks become real, and health becomes something the platform knows instead of

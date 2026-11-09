@@ -92,9 +92,53 @@ Every question states **what you will assume until answered** and whether that i
 **4. Pick up answers at the start of every session:**
 `gh issue list --author @me --label answered --state closed --search "updated:>=<last session date>"`. Read each `[Supervisor] Answer`. If it says *adjust*, change the provisional work. Then update the PR: remove `provisional` and change the line to `Provisional on: none` (or keep the answered issue number; the check accepts answered ones). The edit re-runs CI.
 
-**Never clear a body-driven gate with `gh run rerun`.** A re-run replays the event payload captured when the event fired, so the PR body and labels it reads are the ones from that moment — a stale red, and the mirror-image hazard is a stale **green** on a head whose body has since added a dependency. Editing the body re-fires the gate (`edited` is a trigger), and toggling a label re-fires it too; that is the operational rule behind [#89](https://github.com/TerraOI/TerraOI/issues/89), option 3.
+**Re-runs read the PR as it is now.** Since [#130](https://github.com/TerraOI/TerraOI/pull/130), the `provisional` job fetches the current body and labels from the API, so a re-run no longer replays the event payload ([#89](https://github.com/TerraOI/TerraOI/issues/89), option 2). Editing the body or toggling a label still re-fires the gate, and remains the normal way to refresh it.
+
+**Zero-step failures are not evidence.** A check that failed with **zero steps** and GitHub's billing or spending-limit annotation never ran: it is "no evidence", not "failed". Nobody approves or merges on it. After such an outage, any head whose last green run predates the cutoff is unverified until it runs again ([#100](https://github.com/TerraOI/TerraOI/issues/100)).
 
 **5. Answers become knowledge.** Reusable answers go into [FAQ.md](FAQ.md) (or an ADR for decisions) through the supervisor's `/terraoi-inbox`, so the next agent finds them instead of asking again.
+
+### 6a. Done evidence that needs staging ([#92](https://github.com/TerraOI/TerraOI/issues/92), [#94](https://github.com/TerraOI/TerraOI/issues/94))
+
+Staging evidence is **deferred, never waived**:
+- A PR may merge on unit, pgTAP and loopback evidence.
+- A packet whose staging step cannot run yet keeps `Status: in progress`, and its status line says **"code complete; staging evidence owed"** and names the issue or §20.8 human step that unblocks it. No acceptance box that names staging is ticked on unit evidence.
+- The packet is `done` only when its staging Done evidence is recorded in `docs/status/`. Each owed run is listed under [T-004](tasks/T-004-infrastructure.md).
+- **Security claims need a loopback harness now** (§4.3, §4.4): a plain Node `http` listener on `127.0.0.1`, `listen(0)`, closed in `afterAll`, in Vitest under `pnpm verify` — no Docker, no fixed port, no external network. The code under test uses its real `fetch` or route handler, and the test asserts what crossed the socket.
+
+### 6b. pgTAP slots
+
+One file per packet under `supabase/tests/database/`. Claim a new number in the daily sync and add it here; never reuse one.
+
+| Slot | File | Owner |
+|---|---|---|
+| 000 | `000_guardrails` | T-003 (merged) |
+| 001 | function privileges | [#60](https://github.com/TerraOI/TerraOI/issues/60) |
+| 010, 011 | `010_tenancy`, `011_identity` | merged |
+| 012 | `012_auth_methods` | T-201 |
+| 013 | `013_tenant_admin` | T-202 (also `policy_revision`, [#98](https://github.com/TerraOI/TerraOI/issues/98)) |
+| 014 | `014_identity_session` | T-102 (merged) |
+| 015 | locale and timezone | [#67](https://github.com/TerraOI/TerraOI/issues/67) |
+| 020 | `020_knowledge` | T-111 (merged) |
+| 025 | `025_collection_admin` | T-111b |
+| 030 | `030_pilot_inquiries` | T-130 (merged) |
+| 035 | `035_chat_persistence` | T-104 |
+| 040 | `040_knowledge_uploads` | T-112 (merged) |
+| 041 | `041_knowledge_uploads_guard` | T-112c ([#96](https://github.com/TerraOI/TerraOI/issues/96)) |
+| 045 | `045_ingestion_jobs` | T-211 |
+| 050 | `050_review_publish` | T-213 |
+| 060 | `060_project_acl` | T-214 |
+| 070 | `070_exact_lookup` | T-216 |
+| 075 | `075_experts_and_prompts` | T-311 |
+| 080 | `080_forms` | T-301 |
+| 085 | `085_chat_feedback` | T-302 |
+| 087 | `087_knowledge_submissions` | T-302b |
+| 090 | `090_eval_cases_and_runs` | T-312 |
+| 095 | `095_budgets_and_run_audit` | T-313 |
+| 100 | `100_lifecycle_switches` | T-304 |
+| 105 | `105_provider_health` | T-314 |
+
+T-114 and T-116 claim theirs in the daily sync.
 
 ## 7. Daily and weekly rhythm
 

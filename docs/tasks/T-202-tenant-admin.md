@@ -3,6 +3,13 @@
 Lane: 1 · Week: 2 · Protected: yes (`src/platform/tenancy/`) · Depends on: T-003, T-101, T-102, T-111 · Status: ready
 Plan refs: §4.2, §5.2 (permission areas), §6.1–§6.2, §15.0 (Thin: tenant admin pages); F02, F05, F08
 
+## Supervisor rulings to apply (2026-11-09)
+These supersede anything below that disagrees.
+- **Collection writes** ([#41](https://github.com/TerraOI/TerraOI/issues/41)): the collection page calls [T-111b](./T-111b-collection-admin-rpc.md)'s `create_collection_v1`/`update_collection_v1`; a class raise calls T-213's `review_reclass_v1` ([#21](https://github.com/TerraOI/TerraOI/issues/21)). This packet writes no knowledge table.
+- **Seed** ([#39](https://github.com/TerraOI/TerraOI/issues/39)): one `contributor` role with `knowledge.write`, its permission row and one membership grant, plus the matching fixture in `040_knowledge_uploads.test.sql`.
+- **Brand fallback banner** ([#62](https://github.com/TerraOI/TerraOI/issues/62)): admins see a banner when the tenant brand fell back (`brand.fallback` log event).
+- **`policy_revision` writer** ([#98](https://github.com/TerraOI/TerraOI/issues/98)): ship `public.bump_policy_revision()` (after-statement trigger, `security definer`, pinned `search_path`, EXECUTE revoked from request roles) and attach it to `organisation_memberships`, `roles`, `role_permissions`, group membership and `organisations` status changes; replace the table comment at `tenancy_core.sql:34` ("a monotonic stamp … recorded for audit and used as a cache key; access is always re-derived"); pgTAP in `013` asserts each write moves it and a no-op does not.
+
 ## Goal
 A tenant admin invites people, grants roles, creates projects and creates collections **with a data
 class** from thin pages inside the tenant shell. Every write goes through a security-invoker RPC

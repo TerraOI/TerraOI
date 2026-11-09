@@ -5,6 +5,10 @@ Plan refs: §4.1, §13, §17.2, §20.8
 
 Agents must not perform these steps; they need account access and secrets.
 
+## Supervisor rulings to apply (2026-11-09)
+These supersede anything below that disagrees.
+- **Owed staging runs** ([#92](https://github.com/TerraOI/TerraOI/issues/92), [#94](https://github.com/TerraOI/TerraOI/issues/94)): T-115's external-mock probe on the staging Worker (with T-314's box-offline drill); T-102's sign-in demo after T-105 and the `SESSION_DB` step above. Each is recorded in `docs/status/` when run.
+
 ## Steps
 - [x] Supabase **staging** project; note its project ref (TerraOI-Staging, separate from production; W45 register)
 - [ ] Cloudflare: proxied DNS for staging tenant hosts; add staging `routes` to `wrangler.jsonc` `env.staging` in a PR (no secrets)
