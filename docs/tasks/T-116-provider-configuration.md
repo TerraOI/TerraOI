@@ -1,7 +1,7 @@
 # T-116 Provider and clearance configuration
 
 Lane: 2 (shared path) · Week: 3 · Protected: yes (`supabase/migrations/`, `src/platform/gateway/` chain and clearance) · Depends on: T-003, T-115 (must be merged before claiming)
-Status: ready
+Status: in progress (wyuinline) — the configuration half is open as a draft PR: one migration (`20261109203000_provider_configuration.sql`) creating `model_providers`, `provider_routes`, `tenant_provider_policy` and `provider_health` with the narrow-only and one-matrix-revision guards, pgTAP slot `046` (claimed in the daily sync, row added to COORDINATION §6b), and every new function revoked and granted by name per #60. The **typed repository** half is deliberately not opened: reading the three platform tables needs a named server-path role, and no ruling names one yet (filed as #134 for the job API, same question family), so the repository will land behind an injected port once that is answered. `provider_health` is written by T-314, not here.
 Plan refs: §6.1, §12.4, §20.3 week 3, F37, F38; decision [#45](https://github.com/TerraOI/TerraOI/issues/45)
 
 ## Supervisor rulings to apply (2026-11-09)

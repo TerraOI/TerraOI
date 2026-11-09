@@ -130,6 +130,7 @@ One file per packet under `supabase/tests/database/`. Claim a new number in the 
 | 040 | `040_knowledge_uploads` | T-112 (merged) |
 | 041 | `041_knowledge_uploads_guard` | T-112c ([#96](https://github.com/TerraOI/TerraOI/issues/96)) |
 | 045 | `045_ingestion_jobs` | T-211 |
+| 046 | `046_provider_configuration` | T-116 (claimed in the daily sync; four §6.1 tables, narrow-only and one-revision guards) |
 | 050 | `050_review_publish` | T-213 |
 | 060 | `060_project_acl` | T-214 |
 | 070 | `070_exact_lookup` | T-216 |
