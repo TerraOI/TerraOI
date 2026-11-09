@@ -1,6 +1,6 @@
 # T-314 DeepSeek and OpenRouter adapters, provider health checks (F37) and circuit breakers
 
-Lane: 2 · Week: 3 · Protected: yes (`src/platform/gateway/`) · Depends on: T-115 (a merged as #31 — config/clearance/circuit; b/c/d open as #53/#56/#58, and b is the fetch adapters plus chain walking), T-215 (not started — it owns the Claude adapter, see #46), T-311 (same week: `route` chains that reach these tiers), T-313 (same week: quota-window signal) · Status: ready
+Lane: 2 · Week: 3 · Protected: yes (`src/platform/gateway/`) · Depends on: T-115 (a merged as #31 — config/clearance/circuit; b/c/d open as #53/#56/#58, and b is the fetch adapters plus chain walking), T-115f (not started — it owns the Claude adapter since the #46 ruling), T-215 (not started), T-311 (same week: `route` chains that reach these tiers), T-313 (same week: quota-window signal) · Status: ready
 Gated by decisions: [#45](https://github.com/TerraOI/TerraOI/issues/45), [#46](https://github.com/TerraOI/TerraOI/issues/46), [#74](https://github.com/TerraOI/TerraOI/issues/74) (nobody owns the week-3 box-offline drill this packet's Done evidence is), plus the model-selection finding posted on PR #53 (not an issue)
 Plan refs: §12.4 (chain rows 4–5 and the clearance matrix), §16 (Model chain row), §17.1 (chain observability; box offline within one check interval), §13 (local-box contract), §15.0, §18.2 ("Client data reaches an uncleared provider"); F37, F31, F38, F20
 
@@ -75,7 +75,7 @@ offline within one interval, the chain advancing with the reason recorded, and O
 `client_confidential` probe recording zero DeepSeek/OpenRouter calls.
 
 ## Out of scope
-Budgets, ceilings and rate limits as a feature (T-313), the Claude adapter (#46, T-215), box hardware,
+Budgets, ceilings and rate limits as a feature (T-313), the Claude adapter (#46, T-115f), box hardware,
 model server, tunnel and Access token (§20.8 human-only), dashboards and alert thresholds (T-405),
 reranking or alternative embeddings, connector health checks (§7.3, after M1), and anything that would
 widen the clearance matrix — that is a recorded tenant decision and a supervisor call.
