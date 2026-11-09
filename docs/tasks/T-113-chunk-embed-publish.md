@@ -23,9 +23,10 @@ and generation, **no fallback field**, and a `clearedFor` list that must cover t
 chunk written to that index; `isIngestibleInM1`; `maxDataClass` for derived rows;
 `IngestionJobPayload` stages `index` then `publish`.
 
-The M1 pin is the **candidate** `@cf/baai/bge-m3` (1024 dimensions, cosine) with
-`cleared_for = {public}` only, pending Company1's E1 decision (#6) — until that decision is recorded,
-only `public` fixtures are embedded and no client collection is ingested past `public`.
+The M1 pin is `@cf/baai/bge-m3` (1024 dimensions, cosine), still to be verified against Company1
+documents in TOI-04. E1 is decided for every tenant (#6, [ADR-0007](../decisions/0007-e1-embedding-clearance.md)): each index is
+`cleared_for = {public, internal, client_confidential}`, so `client_confidential` chunks are embedded
+rather than taking the `lexical_only` lane. `restricted` is never embedded.
 
 ## Acceptance tests (write first)
 - [ ] positive: chunking keeps headings and table headers with the rows, and a chunk id is stable

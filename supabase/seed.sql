@@ -213,17 +213,16 @@ insert into public.knowledge_chunks (id, organisation_id, source_version_id, chu
    'client_confidential', 26)
 on conflict (id) do nothing;
 
--- One pinned embedding generation per tenant (§12.4, TOI-ADR-13). Company1's E1/E2 choice —
--- whether Workers AI may embed client_confidential text — is still open (plan §18.3), so the
--- seeded generation is cleared for `public` only and the confidential fixture chunks carry no
--- vectors: the lexical lane still finds them (§8.1). Recording E1 or E2 here is a data change.
+-- One pinned embedding generation per tenant (§12.4, TOI-ADR-13). E1 is decided for every tenant
+-- (#6, ADR-0007), so each generation is cleared for public, internal and client_confidential.
+-- restricted is never embedded. The fixture chunks carry no vectors yet; that is T-113's job.
 insert into public.embedding_indexes (
   id, organisation_id, index_key, provider_key, model, dimensions, metric, generation, status, cleared_for
 ) values
   ('91000000-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111', 'corpus', 'workers_ai',
-   'synthetic-multilingual-e5', 1024, 'cosine', 1, 'active', array['public']::text[]),
+   'synthetic-multilingual-e5', 1024, 'cosine', 1, 'active', array['public', 'internal', 'client_confidential']::text[]),
   ('92000000-0000-4000-8000-000000000001', '22222222-2222-4222-8222-222222222222', 'corpus', 'local_box',
-   'synthetic-multilingual-e5', 1024, 'cosine', 1, 'active', array['public']::text[])
+   'synthetic-multilingual-e5', 1024, 'cosine', 1, 'active', array['public', 'internal', 'client_confidential']::text[])
 on conflict (id) do nothing;
 
 -- Stage rows the walking skeleton shows as progress. The idempotency key is the unique
