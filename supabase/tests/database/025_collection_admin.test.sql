@@ -141,9 +141,14 @@ select m.organisation_id, m.id, '31000000-0000-4000-8000-000000000003'
    and m.user_id = '00000000-0000-4000-8000-0000000000a2'
 on conflict (membership_id, role_id) do nothing;
 
--- Results produced under the role under test, read back as the owner.
+-- Results produced under the role under test, read back as the owner. The tables are created **as
+-- `authenticated`**, the 010 idiom, because a temp table is owned by the role that created it and the
+-- inserts below run while that role is set: created as the migration owner they would answer
+-- `permission denied for table t_out` and abort the file (CI on 17faae1 caught exactly that).
+set local role authenticated;
 create temp table t_out (case_name text, result text);
 create temp table t_scope (case_name text, org uuid);
+reset role;
 
 select plan(39);
 
