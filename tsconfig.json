@@ -36,6 +36,8 @@
     "next-env.d.ts",
     "src/**/*.ts",
     "src/**/*.tsx",
+    "workers/**/*.ts",
+    "localbox/**/*.ts",
     ".next/types/**/*.ts",
     "*.ts",
     ".next/dev/types/**/*.ts"
