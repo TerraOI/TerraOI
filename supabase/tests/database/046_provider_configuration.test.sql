@@ -147,15 +147,15 @@ select is(has_function_privilege('authenticated', 'public.tenant_provider_policy
   'the gateway reads the tenant narrowing as the calling user (security invoker)');
 
 -- ── 3. RLS is on, and the tenant policy has exactly the one read policy ─────────────────────
-select is_empty($
+select is_empty($$
   select 1 from pg_class where relname = 'tenant_provider_policy' and not relrowsecurity
-$, 'RLS is enabled on tenant_provider_policy (AGENTS.md §4.2)');
-select is_empty($
+$$, 'RLS is enabled on tenant_provider_policy (AGENTS.md §4.2)');
+select is_empty($$
   select 1 from pg_class where relname = 'model_providers' and not relrowsecurity
-$, 'RLS is enabled on model_providers too, so a future broad grant still exposes no row');
-select is_empty($
+$$, 'RLS is enabled on model_providers too, so a future broad grant still exposes no row');
+select is_empty($$
   select 1 from pg_class where relname = 'provider_health' and not relrowsecurity
-$, 'RLS is enabled on provider_health too, as run-audit content (§9.3)');
+$$, 'RLS is enabled on provider_health too, as run-audit content (§9.3)');
 select is(1::bigint, (
   select count(*) from pg_policies
    where schemaname = 'public' and tablename = 'tenant_provider_policy'
