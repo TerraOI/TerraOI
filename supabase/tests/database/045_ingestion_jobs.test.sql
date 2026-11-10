@@ -801,7 +801,7 @@ select is((select data_class from public.extraction_artifacts
 select ok(exists(select 1 from pg_policies
                    where schemaname = 'public' and tablename = 'extraction_artifacts'
                      and policyname = 'extraction_artifacts_scoped_read'
-                     and cmd = 'SELECT' and permissive),
+                     and cmd = 'SELECT' and permissive = 'PERMISSIVE'),
   '104 a permissive SELECT policy exists on the artifact home, so a future grant is bounded from day one');
 select ok((select count(*) from pg_policies
              where tablename = 'extraction_artifacts' and cmd <> 'SELECT') = 0
