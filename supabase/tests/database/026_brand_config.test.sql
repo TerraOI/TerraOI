@@ -225,7 +225,7 @@ insert into t_brand select 'lookalike', null, null, null, null, null, count(*)::
   from public.load_public_brand('evil.terraoi.app');
 insert into t_brand select 'staging', null, null, null, null, null, count(*)::int
   from public.load_public_brand('company1-staging.terraoi.app');
-insert into t_brand select 'c2_not_c1', b.display_name, null, null, null, null, count(*)::int
+insert into t_brand (case_name, rows) select 'c2_not_c1', count(*)::int
   from public.load_public_brand('company2.terraoi.app') b
  where b.display_name = 'Company1 Geotechnics';
 
@@ -250,13 +250,17 @@ select is((select rows from t_brand where case_name = 'suspended'), 0::int,
 rollback to savepoint sp_suspend;
 
 -- ---------------------------------------------------------------- 22-25 the asset read
-insert into t_asset select 'right', a.content_base64, a.content_type, a.byte_size, count(*)::int
-  from public.load_public_brand_asset('company1.terraoi.app', 1, 'logo.svg') a;
-insert into t_asset select 'other_host', null, null, null, count(*)::int
+-- The bytes case captures the row itself; the refusal cases aggregate a count, because an aggregate
+-- over zero rows yields one row of `0` while a bare select over zero rows yields none — and a missing
+-- capture row would read as NULL, which is not the same claim.
+insert into t_asset (case_name, content_base64, kind, size)
+  select 'right', a.content_base64, a.content_type, a.byte_size
+    from public.load_public_brand_asset('company1.terraoi.app', 1, 'logo.svg') a;
+insert into t_asset (case_name, rows) select 'other_host', count(*)::int
   from public.load_public_brand_asset('company2.terraoi.app', 1, 'logo.svg');
-insert into t_asset select 'old_version', null, null, null, count(*)::int
+insert into t_asset (case_name, rows) select 'old_version', count(*)::int
   from public.load_public_brand_asset('company1.terraoi.app', 99, 'logo.svg');
-insert into t_asset select 'no_name', null, null, null, count(*)::int
+insert into t_asset (case_name, rows) select 'no_name', count(*)::int
   from public.load_public_brand_asset('company1.terraoi.app', 1, 'other.svg');
 
 select is((select content_base64 from t_asset where case_name = 'right'),
@@ -361,14 +365,11 @@ select is((select count(*)::int from pg_policies where schemaname = 'public'
 -- ---------------------------------------------------------------- 39-41 the member read
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
-insert into t_full select 'a1_noscope', f.organisation_id, f.legal_name, f.config_version, 1
-  from public.get_tenant_brand_v1() f;
+insert into t_full (case_name, rows) select 'a1_noscope', count(*)::int from public.get_tenant_brand_v1();
 insert into t_out values ('scope_c1', pg_temp.try_scope('11111111-1111-4111-8111-111111111111'));
-insert into t_full select 'a1_c1', f.organisation_id, f.legal_name, f.config_version, 1
-  from public.get_tenant_brand_v1() f;
+insert into t_full (case_name, organisation_id, legal_name, config_version)
+  select 'a1_c1', f.organisation_id, f.legal_name, f.config_version from public.get_tenant_brand_v1() f;
 insert into t_out values ('scope_c2_forged', pg_temp.try_scope('22222222-2222-4222-8222-222222222222'));
-insert into t_full select 'a1_after_forge', f.organisation_id, f.legal_name, f.config_version, 1
-  from public.get_tenant_brand_v1() f;
 reset role;
 
 select is((select rows from t_full where case_name = 'a1_noscope'), 0::int,
@@ -454,10 +455,11 @@ insert into t_out values
      jsonb_build_array(jsonb_build_object('name', 'logo-v3.svg', 'contentType', 'image/svg+xml',
        'contentBase64', encode(convert_to('<svg xmlns="http://www.w3.org/2000/svg"/>', 'UTF8'), 'base64')))));
 
-insert into t_brand select 'after_write', b.mode, b.display_name, b.logo_path, b.logo_bytes, b.show_powered_by, 1
-  from public.load_public_brand('company1.terraoi.app') b;
-insert into t_asset select 'v1_after', a.content, a.content_type, a.byte_size, count(*)::int
-  from public.load_public_brand_asset('company1.terraoi.app', 1, 'logo.svg') a;
+insert into t_brand (case_name, mode, display_name, logo_path, logo_bytes, show_powered_by)
+  select 'after_write', b.mode, b.display_name, b.logo_path, b.logo_bytes, b.show_powered_by
+    from public.load_public_brand('company1.terraoi.app') b;
+insert into t_asset (case_name, rows) select 'v1_after', count(*)::int
+  from public.load_public_brand_asset('company1.terraoi.app', 1, 'logo.svg');
 
 select is((select result from t_out where case_name = 'put_noscope'), '28000',
   '43 a brand write without a scope refuses outright: there is no organisation argument to forge (§4.1)');
