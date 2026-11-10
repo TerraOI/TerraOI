@@ -1,6 +1,6 @@
 # T-111b Collection admin RPC (`create_collection_v1`, `update_collection_v1`)
 
-Lane: 2 · Week: 2 · Protected: yes (`supabase/migrations/`) · Depends on: T-111 · Status: ready
+Lane: 2 · Week: 2 · Protected: yes (`supabase/migrations/`) · Depends on: T-111 · Status: in progress (wyuinline)
 Plan refs: §6.1, §6.2; FAQ-0004; decided in [#41](https://github.com/TerraOI/TerraOI/issues/41)
 
 ## Supervisor rulings to apply (2026-11-11)
