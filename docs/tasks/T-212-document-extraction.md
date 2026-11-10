@@ -3,6 +3,12 @@
 Lane: 2 · Week: 2 · Protected: no · Depends on: T-111, T-112, T-211 · Status: ready
 Plan refs: §7.1 (M1 file types), §7.2 steps 2–3 and "extraction executors", §7.5, §16 (ingestion row); F09, F10, F12
 
+## Supervisor rulings to apply (2026-11-09)
+These supersede anything below that disagrees.
+- **No artifact writer here** ([#135](https://github.com/TerraOI/TerraOI/issues/135)): the Owns item "artifact writer" becomes an **artifact mapper** — pure functions from extractor output to the `complete_parse_job_v1` artifact payload, with locators, tested against that contract. This packet writes nothing to the database and calls no job-API function; T-211's cloud loop stores the result.
+- **Capture** ([#135](https://github.com/TerraOI/TerraOI/issues/135)): this packet opens capture for images (PNG/JPEG/TIFF/HEIC) and OOXML (DOCX/XLSX) in the validator, in the same PR as the extractors and their limits. Every verified object is still queued as `cloud_worker`; the routing decision sends images, scans and failed text layers to the box through T-211's retarget. Capture stays unaware of executors (`040_knowledge_uploads.test.sql:406-409` stands). The data class is inherited from the collection, as today.
+- **Done evidence:** merges on `pnpm verify` and the unit and mapper tests. The staging run is **deferred, not waived** (COORDINATION §6a) until T-211's cloud loop, [#146](https://github.com/TerraOI/TerraOI/issues/146) and T-113's chunk writer are merged; the PR says so.
+
 ## Goal
 Company1's office files become citable knowledge: digital PDF, DOCX, XLSX and form JSON are extracted
 by the bounded cloud worker with page, section and sheet/row/column locators, while scanned PDFs,

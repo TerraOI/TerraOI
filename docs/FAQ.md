@@ -12,6 +12,10 @@ Source: #<issue> · Date: YYYY-MM-DD · Applies to: <lane / module / all>
 
 ## Stack and tooling
 
+### FAQ-0010: Why does a new function in `public` start executable by everyone, and what do I do?
+**Answer:** PostgreSQL grants `EXECUTE` to `PUBLIC` on every new function, and a migration cannot close that default. So in the same migration that creates a function in `public`, revoke it from `public, anon, authenticated` by full signature and grant back only what the packet names; a function a request role must reach goes on `001_function_privileges.test.sql`'s allow-list, by full signature, in the same PR. Server-path functions go in a non-exposed schema with their own `NOLOGIN` role, never in `public`; no SQL is run in the dashboard. **Why:** the allow-list suite runs on every PR and gates merge, which is the control; a global default revoke would also reach Supabase-managed schemas ([#142](https://github.com/TerraOI/TerraOI/issues/142), `20261105210000_intake_service_role.sql:10-11`).
+Source: #142 · Date: 2026-11-09 · Applies to: Lane 2, `supabase/migrations/`
+
 ### FAQ-0009: How do I update `database.types.ts` without Docker?
 **Answer:** Push the migration with its pgTAP. If the types are stale, CI's `database` job fails only on that step and uploads the regenerated file as the `database-types` artifact; run `gh run download <run id> -n database-types -D src/contracts/`, commit it and push. Never hand-edit the file, and never take types from a run whose pgTAP failed (that run uploads none). **Why:** no builder machine has Docker, and CI is the only place the generator runs ([#122](https://github.com/TerraOI/TerraOI/issues/122)).
 Source: #122 · Date: 2026-11-09 · Applies to: all (migration PRs)

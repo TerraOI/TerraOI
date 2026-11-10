@@ -8,6 +8,8 @@ Agents must not perform these steps; they need account access and secrets.
 ## Supervisor rulings to apply (2026-11-09)
 These supersede anything below that disagrees.
 - **Owed staging runs** ([#92](https://github.com/TerraOI/TerraOI/issues/92), [#94](https://github.com/TerraOI/TerraOI/issues/94)): T-115's external-mock probe on the staging Worker (with T-314's box-offline drill); T-102's sign-in demo after T-105 and the `SESSION_DB` step above. Each is recorded in `docs/status/` when run.
+- **Server-path database roles** ([#134](https://github.com/TerraOI/TerraOI/issues/134)): one `NOLOGIN` role per server path, each granted `IN ROLE` to its own login user and reached through its own Hyperdrive binding (staging first): `toi_job_api` over **`JOB_DB`** (T-211) and `toi_gateway_config` over **`CONFIG_DB`** (T-116). The owner creates each login user and password, the Hyperdrive config and its `wrangler.jsonc` binding.
+- **Worker credentials** ([#134](https://github.com/TerraOI/TerraOI/issues/134)): one per executor (each box, and the cloud worker). The owner issues each token through T-211's reviewed owner script, which stores only the hash; the box token goes on the box, the cloud token in a `wrangler secret`. Never in the repository.
 
 ## Steps
 - [x] Supabase **staging** project; note its project ref (TerraOI-Staging, separate from production; W45 register)

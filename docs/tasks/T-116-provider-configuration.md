@@ -4,6 +4,11 @@ Lane: 2 (shared path) · Week: 3 · Protected: yes (`supabase/migrations/`, `src
 Status: ready
 Plan refs: §6.1, §12.4, §20.3 week 3, F37, F38; decision [#45](https://github.com/TerraOI/TerraOI/issues/45)
 
+## Supervisor rulings to apply (2026-11-09)
+These supersede anything below that disagrees.
+- **Server path** ([#134](https://github.com/TerraOI/TerraOI/issues/134)): the gateway reads provider configuration through `security definer` read functions (pinned `search_path`) in a **non-exposed** schema, executed by its own `NOLOGIN` role `toi_gateway_config` over a `CONFIG_DB` Hyperdrive binding, with **no table grants**. T-314's health writes go through one named function on the same role. One role per server path, never shared with `toi_job_api`. The human steps are in T-004.
+- **Function privileges** ([#142](https://github.com/TerraOI/TerraOI/issues/142), FAQ-0010): any function this packet leaves in `public` (the trigger functions) is revoked from `public, anon, authenticated` by full signature in the creating transaction; a request-role grant is added to `001`'s allow-list in the same PR.
+
 ## Goal
 The model-chain configuration that the gateway receives today as reviewed, injected configuration (`parseGatewayConfiguration`) can be loaded from Postgres: `model_providers`, `provider_routes`, `tenant_provider_policy` and `provider_health` (§6.1). The gateway's chain and clearance behaviour does not change. Only the source of its configuration does, behind the existing injection seam.
 
