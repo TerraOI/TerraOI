@@ -358,7 +358,7 @@ select is((select result from t_out where case_name = 'logo_cross_tenant'), '235
   || 'the cross-host case impossible, not merely filtered (plan §4.1 step 4)');
 select is((select count(*)::int from pg_policies where schemaname = 'public'
             and tablename in ('tenant_brands', 'tenant_brand_assets')
-            and tokencmd = 'SELECT' and permissive),
+            and cmd = 'SELECT' and permissive),
   2::int, '38 both new tables carry a member-and-scope read policy, held ready for the day a table '
   || 'grant is decided — the grant is withheld today on the column reason (test 3)');
 
