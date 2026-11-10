@@ -824,25 +824,33 @@ select ok((select count(*) = 1 from pg_policies
              where schemaname = 'public' and tablename = 'extraction_artifacts'),
   '108 exactly one policy is attached to the table, so 104-107 cannot be describing a stray policy while a '
   || 'looser one sits beside it');
+-- pg_temp is session-local, so this grant is observable nowhere outside this file: it lets a
+-- member-scoped call record its own scope outcome in the scratch table before the predicate is asked.
+grant insert, select on t_out to authenticated;
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
-select pg_temp.try_scope('11111111-1111-4111-8111-111111111111');
-select is(public.source_version_is_readable('71000000-0000-4000-8000-000000000002')::text, 'true',
-  '109 the predicate a Site A member leans on answers readable for the confidential version, so the policy '
-  || 'would admit that read the day a consumer exists');
+insert into t_out values ('scope_site_a_member', pg_temp.try_scope('11111111-1111-4111-8111-111111111111'));
+select is((select result from t_out where case_name = 'scope_site_a_member') || ':'
+          || public.source_version_is_readable('71000000-0000-4000-8000-000000000002')::text, 'ok:true',
+  '109 a Site A member scopes fine and the predicate a read would lean on answers readable for the '
+  || 'confidential version, so the policy would admit that read the day a consumer exists');
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a2';
-select pg_temp.try_scope('11111111-1111-4111-8111-111111111111');
-select is(public.source_version_is_readable('71000000-0000-4000-8000-000000000002')::text, 'false',
-  '110 a company1 member who is **not** in Site A is refused it: same tenant, different project, the second '
-  || 'AGENTS §4.2 negative');
+insert into t_out values ('scope_other_project_member', pg_temp.try_scope('11111111-1111-4111-8111-111111111111'));
+select is((select result from t_out where case_name = 'scope_other_project_member') || ':'
+          || public.source_version_is_readable('71000000-0000-4000-8000-000000000002')::text, 'ok:false',
+  '110 a company1 member who is **not** in Site A scopes fine but is refused the version: same tenant, '
+  || 'different project, the second AGENTS §4.2 negative, and the scope arm proves it is not an unscoped '
+  || 'answer');
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a3';
 select is(pg_temp.try_scope('11111111-1111-4111-8111-111111111111'), '28000',
   '111 a suspended membership cannot even scope the tenant (20261105060000_tenancy_core.sql:214-216): the '
   || 'deactivated-member negative bites before any read is attempted');
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000b1';
-select pg_temp.try_scope('22222222-2222-4222-8222-222222222222');
-select is(public.source_version_is_readable('71000000-0000-4000-8000-000000000002')::text, 'false',
-  '112 company2''s owner is refused company1''s version outright, the third AGENTS §4.2 negative');
+insert into t_out values ('scope_company2_owner', pg_temp.try_scope('22222222-2222-4222-8222-222222222222'));
+select is((select result from t_out where case_name = 'scope_company2_owner') || ':'
+          || public.source_version_is_readable('71000000-0000-4000-8000-000000000002')::text, 'ok:false',
+  '112 company2''s owner scopes to company2 and is refused company1''s version outright, the third AGENTS '
+  || '§4.2 negative');
 reset role;
 
 -- ================================================================ 111-117 clearance, the object
