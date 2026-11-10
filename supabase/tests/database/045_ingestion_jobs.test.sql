@@ -300,8 +300,10 @@ select ok((select count(*) = 1 from pg_constraint
   '8 the tenant boundary is a composite (source_version_id, organisation_id) FK (ADR-0005 §4)');
 select is(has_table_privilege('anon', 'public.extraction_artifacts', 'select'), false,
   '9 anon reads no artifact');
-select is(has_table_privilege('authenticated', 'public.extraction_artifacts', 'select'), true,
-  '10 members hold select, which the policy below scopes row by row');
+select is(has_table_privilege('authenticated', 'public.extraction_artifacts', 'select'), false,
+  '10 and no request role holds the read either: nothing on main reads artifact rows yet, so the grant '
+  || 'waits for the PR that has a consumer to name it (#149 review; #60''s rule that privilege changes '
+  || 'are standalone and visible)');
 select is(has_table_privilege('service_role', 'public.extraction_artifacts', 'insert'), false,
   '11 even the service key cannot insert an artifact: complete_parse_job_v1 is the only writer '
   || '(AGENTS §4.2, ADR-0011)');
@@ -792,39 +794,55 @@ select is((select data_class from public.extraction_artifacts
             where source_version_id = '71000000-0000-4000-8000-000000000002' limit 1),
   'client_confidential', '103 and the artifact inherits the confidential class, not a milder one');
 
--- The three AGENTS §4.2 negatives, as members, under RLS.
+-- There is no request-role read on this table any more (test 10), so this group splits the guarantee
+-- in two: the policy that will bound the eventual read is asserted against the catalog, and the three
+-- AGENTS §4.2 negatives are asserted against the predicate that policy leans on, under the same
+-- member identities the rest of this suite uses.
+select ok(exists(select 1 from pg_policies
+                   where schemaname = 'public' and tablename = 'extraction_artifacts'
+                     and policyname = 'extraction_artifacts_scoped_read'
+                     and cmd = 'SELECT' and permissive),
+  '104 a permissive SELECT policy exists on the artifact home, so a future grant is bounded from day one');
+select ok((select count(*) from pg_policies
+             where tablename = 'extraction_artifacts' and cmd <> 'SELECT') = 0
+          and not has_table_privilege('authenticated', 'public.extraction_artifacts', 'insert'),
+  '105 and no write path exists at either layer: no INSERT, UPDATE or DELETE policy is attached, and no '
+  || 'member holds INSERT, so a later read grant cannot open a write by accident (#13(1), FAQ-0004)');
+select ok((select pg_get_expr(polqual, polrelid) from pg_policy
+             where polrelid = 'public.extraction_artifacts'::regclass
+               and polname = 'extraction_artifacts_scoped_read') like '%is_active_member%'
+          and (select pg_get_expr(polqual, polrelid) from pg_policy
+                 where polrelid = 'public.extraction_artifacts'::regclass
+                   and polname = 'extraction_artifacts_scoped_read') like '%current_organisation_id%',
+  '106 its qual conjoins an active membership (20261105060000_tenancy_core.sql:184) with the tenant of the '
+  || 'scoped request (§4.1), so it is never a bare tenant column');
+select ok((select pg_get_expr(polqual, polrelid) from pg_policy
+             where polrelid = 'public.extraction_artifacts'::regclass
+               and polname = 'extraction_artifacts_scoped_read') like '%source_version_is_readable%',
+  '107 and the parent version''s own readability, which is where the project arm lives (knowledge_core.sql:442)');
+select ok((select count(*) = 1 from pg_policies
+             where schemaname = 'public' and tablename = 'extraction_artifacts'),
+  '108 exactly one policy is attached to the table, so 104-107 cannot be describing a stray policy while a '
+  || 'looser one sits beside it');
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
-select is(pg_temp.try_scope('11111111-1111-4111-8111-111111111111'), 'ok',
-  '104 a Site A member scopes to company1');
-select is((select count(*)::text from public.extraction_artifacts
-            where source_version_id = '71000000-0000-4000-8000-000000000002'), '1',
-  '105 and reads the confidential artifact set through the policy');
-select is(pg_temp.try_artifact_insert('11111111-1111-4111-8111-111111111111',
-         '71000000-0000-4000-8000-000000000002', 'client_confidential', 'v1', 7), '42501',
-  '106 and holds no write at all: select only, and the RPC is the writer (#13(1), FAQ-0004)');
+select pg_temp.try_scope('11111111-1111-4111-8111-111111111111');
+select is(public.source_version_is_readable('71000000-0000-4000-8000-000000000002')::text, 'true',
+  '109 the predicate a Site A member leans on answers readable for the confidential version, so the policy '
+  || 'would admit that read the day a consumer exists');
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a2';
-select is(pg_temp.try_scope('11111111-1111-4111-8111-111111111111'), 'ok',
-  '107 a company1 member who is **not** in Site A scopes fine');
-select is((select count(*)::text from public.extraction_artifacts
-            where source_version_id = '71000000-0000-4000-8000-000000000002'), '0',
-  '108 and sees none of the confidential artifacts — same tenant, different project (collection_is_readable''s '
-  || 'project arm, knowledge_core.sql:442)');
+select pg_temp.try_scope('11111111-1111-4111-8111-111111111111');
+select is(public.source_version_is_readable('71000000-0000-4000-8000-000000000002')::text, 'false',
+  '110 a company1 member who is **not** in Site A is refused it: same tenant, different project, the second '
+  || 'AGENTS §4.2 negative');
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a3';
 select is(pg_temp.try_scope('11111111-1111-4111-8111-111111111111'), '28000',
-  '109 a suspended membership cannot even scope the tenant (20261105060000_tenancy_core.sql:214-216)');
-select is((select count(*)::text from public.extraction_artifacts
-            where source_version_id = '71000000-0000-4000-8000-000000000001'), '0',
-  '110 and it reads no artifact of any class, unscoped (is_active_member, :184)');
-reset role;
-
-set local role authenticated;
+  '111 a suspended membership cannot even scope the tenant (20261105060000_tenancy_core.sql:214-216): the '
+  || 'deactivated-member negative bites before any read is attempted');
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000b1';
-select is(pg_temp.try_scope('22222222-2222-4222-8222-222222222222'), 'ok',
-  '111 company2''s owner scopes to company2');
-select is((select count(*)::text from public.extraction_artifacts), '0',
-  '112 and sees no artifact at all, including company1''s and including the confidential one its own '
-  || 'tenant''s box job would have produced had it run here (the third AGENTS §4.2 negative)');
+select pg_temp.try_scope('22222222-2222-4222-8222-222222222222');
+select is(public.source_version_is_readable('71000000-0000-4000-8000-000000000002')::text, 'false',
+  '112 company2''s owner is refused company1''s version outright, the third AGENTS §4.2 negative');
 reset role;
 
 -- ================================================================ 111-117 clearance, the object

@@ -211,10 +211,14 @@ comment on table public.extraction_artifacts is
   'Extracted text with page/section/table locators and OCR confidence, one row per located unit (#51, ADR-0005 §4; F12, F32). Insert-only: a correction is a new artifact set under a new parser_generation, never an edit in place. Reads are RLS-gated through the parent version; writes happen only inside complete_parse_job_v1, which copies the generations from the job row.';
 
 -- New `public` tables are privileged for anon, authenticated and service_role by default
--- (supabase/config.toml:19-23). Close all three, then grant only the member read the policy below
--- scopes (precedent knowledge_core.sql:884-894). Writes go through job_api, never through a grant.
+-- (supabase/config.toml:19-23). Close all three and leave them closed: nothing on `main` reads
+-- artifact rows yet. The consumers are T-213's review view and T-104's evidence panel, and the merged
+-- pattern for derived text is a scoped RPC (`knowledge_core.sql:903-911`), so the read grant — or the
+-- RPC that would need one — belongs in the PR that first reads these rows, where it can name its
+-- consumer and carry its own pgTAP assertion (#60's answer: a privilege change is standalone and
+-- visible, not a side effect of a feature PR). The policy below exists so that the eventual read is
+-- bounded from day one; writes go through job_api, never through a grant.
 revoke all on public.extraction_artifacts from anon, authenticated, service_role;
-grant select on public.extraction_artifacts to authenticated;
 
 alter table public.extraction_artifacts enable row level security;
 
