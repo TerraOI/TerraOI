@@ -142,6 +142,12 @@ One file per packet under `supabase/tests/database/`. Claim a new number in the 
 
 T-116 claims its slot in the daily sync.
 
+Two pgTAP traps that each cost [#149](https://github.com/TerraOI/TerraOI/pull/149) a full CI round, written down so they stop being tribal knowledge:
+
+- **Use the four-argument form.** In this pgTAP build `has_column` resolves its three-argument form as *(unqualified table, column, description)* and quotes the first argument as a single identifier, so `has_column('public.ingestion_jobs', 'lease_fence', …)` matches nothing and the assertion fails on a column that exists. Write `has_column(schema, table, column, description)` — the same shape the merged suites already use for `has_table(schema, table, description)`.
+- **Assertion helpers return a TAP line, so never wrap them.** `ok(has_table(…))` asks Postgres for `ok(text, unknown)`, which does not exist; psql stops at the first error, and the run reports `Bad plan. You planned 133 tests but ran 0` instead of the one real failure. Direct calls only; combine two columns into one catalog assertion (`ok((select count(*) = 2 from pg_attribute where …))`) rather than an `and` of helpers.
+- **`plan(N)` must equal the assertions that actually run**, and a rule must not assert over an empty set. Count numbered messages and top-level assertion statements in the file before pushing (`001`'s test 40 is the pin that keeps its own schema-wide rule honest); `is(have, want)` is the argument order used here, and seed rows and fixture inserts are not assertions.
+
 ## 7. Daily and weekly rhythm
 
 - **Daily (builders, 15 min):** open PRs, claims, `blocked` and `needs-contract` items, next migration timestamps. Record anything decided in the relevant PR or issue, not only in chat.

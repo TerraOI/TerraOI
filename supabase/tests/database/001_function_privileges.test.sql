@@ -16,7 +16,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(39);
+select plan(40);
 
 -- ---------------------------------------------------------------- 1-15 anon executes nothing here
 -- §12.4/§4.1: knowledge is behind sign-in. The tenancy host resolver is the only `public` function
@@ -251,6 +251,15 @@ select ok((select count(*) = 2
   join pg_namespace n on n.oid = p.pronamespace
   where n.nspname = 'public' and p.proname in ('data_class_rank', 'data_class_is_valid')),
   '39 sanity: the two knowledge helpers this file names really exist, so 1-22 are not vacuous');
+
+-- 40 why 33 cannot go quiet: the job_api arm is an enumeration over the schema, not a hand-maintained
+-- name list, and this pin counts job_api's functions at query time so 33 cannot pass by matching
+-- nothing (§6b: a rule that asserts over an empty set is the trap #143's review was).
+select ok((select count(*) >= 11 from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'job_api'),
+  '40 job_api really holds the eleven functions #134 ruled for, so 33 matched live objects and a '
+  || 'twelfth added without its revoke fails 33 rather than being invisible to it');
 
 select * from finish();
 rollback;
