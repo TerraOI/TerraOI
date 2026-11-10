@@ -121,6 +121,7 @@ One file per packet under `supabase/tests/database/`. Claim a new number in the 
 | 015 | locale and timezone | [#67](https://github.com/TerraOI/TerraOI/issues/67) |
 | 020 | `020_knowledge` | T-111 (merged) |
 | 025 | `025_collection_admin` | T-111b |
+| 026 | `026_brand_config` | T-103 (brand configuration and assets) |
 | 030 | `030_pilot_inquiries` | T-130 (merged) |
 | 035 | `035_chat_persistence` | T-104 |
 | 036 | `036_chunk_publish` | T-113 ([#136](https://github.com/TerraOI/TerraOI/issues/136)) |
