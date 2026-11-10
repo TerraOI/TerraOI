@@ -92,9 +92,12 @@ select is(has_function_privilege('authenticated', 'public.source_versions_outbox
   '30 source_versions_outbox is not a request-role endpoint (§7.4 outbox)');
 
 -- ---------------------------------------------------------------- 31 the generic rule for anon
--- Allow-list in `public` for anon: exactly `resolve_tenant_host(text)`, granted on purpose at
--- `tenancy_core.sql:356` because sign-in must resolve the tenant before anyone is authenticated.
--- Anything else in `public` that anon can execute is a finding, whoever added it and whenever.
+-- Allow-list in `public` for anon: `resolve_tenant_host(text)`, granted on purpose at
+-- `tenancy_core.sql:356` because sign-in must resolve the tenant before anyone is authenticated, and
+-- the two brand readers `20261116210000_brand_config.sql` adds for the same reason — the sign-in
+-- surface must render a tenant's own brand and logo before anyone is signed in (FAQ-0008, ADR-0004
+-- §4). Both return a projection for one exact host, never a row set. Anything else in `public` that
+-- anon can execute is a finding, whoever added it and whenever.
 select is_empty($$
   select p.pronamespace::regnamespace || '.' || p.proname || '(' ||
          pg_get_function_identity_arguments(p.oid) || ')' as function
@@ -103,8 +106,15 @@ select is_empty($$
    where n.nspname = 'public'
      and p.prokind = 'f'
      and has_function_privilege('anon', p.oid, 'EXECUTE')
-     and p.oid <> 'public.resolve_tenant_host(text)'::regprocedure::oid
-$$, '31 no function in public is executable by anon except resolve_tenant_host(text) (§4.1, #60)');
+     and p.oid not in (
+       select allowed.proc::oid
+         from (values
+           ('public.resolve_tenant_host(text)'::regprocedure),
+           ('public.load_public_brand(text)'::regprocedure),
+           ('public.load_public_brand_asset(text, bigint, text)'::regprocedure)
+         ) as allowed(proc)
+     )
+$$, '31 no function in public is executable by anon except the named allow-list (§4.1, #60)');
 
 -- ---------------------------------------------------------------- 32 the generic rule for authenticated
 -- Additions 2. The allow-list is the set granted on purpose today, by name:
@@ -117,6 +127,11 @@ $$, '31 no function in public is executable by anon except resolve_tenant_host(t
 --     update_collection_v1 — a tenant admin's write path, granted to `authenticated` and still gated
 --     inside the function on `knowledge.admin` at `admin`. The two signatures take `p_organisation_id`
 --     first and establish the scope themselves (#163, FAQ-0011), so both rows are re-pinned here
+--   brand (`20261116210000_brand_config.sql`): load_public_brand(text) — the same projection anon
+--     already holds — and get_tenant_brand_v1(), the member read that takes **no** organisation
+--     argument. put_tenant_brand_v1(jsonb, jsonb) is created by that migration and granted to no
+--     request role at all, so it must not appear here: 026_brand_config.test.sql test 9 pins that
+--     closed until the admin surface and its seeded permission arrive.
 -- The session functions the ruling also lists live in `toi_identity`, not `public`
 -- (`20261107024000_session_store.sql:122-219`), and that migration grants them to **no role** at all
 -- pending #75 — so they cannot appear in a `public` allow-list; test 33 pins them closed instead.
@@ -151,7 +166,9 @@ select is_empty($$
            ('public.register_source_version_v1(uuid, text, bigint, text)'::regprocedure),
            ('public.record_upload_outcome_v1(uuid, text, text)'::regprocedure),
            ('public.create_collection_v1(uuid, text, text, text, uuid, text)'::regprocedure),
-           ('public.update_collection_v1(uuid, uuid, text)'::regprocedure)
+           ('public.update_collection_v1(uuid, uuid, text)'::regprocedure),
+           ('public.load_public_brand(text)'::regprocedure),
+           ('public.get_tenant_brand_v1()'::regprocedure)
          ) as allowed(proc)
      )
 $$, '32 no function in public is executable by authenticated beyond the named allow-list (§4.3, #60)');
@@ -243,7 +260,10 @@ select is((
    where n.nspname = 'public'
      and p.prokind = 'f'
      and has_function_privilege('anon', p.oid, 'EXECUTE')
-     and p.oid <> 'public.resolve_tenant_host(text)'::regprocedure::oid
+     and p.oid not in (select allowed.proc::oid from (values
+        ('public.resolve_tenant_host(text)'::regprocedure),
+        ('public.load_public_brand(text)'::regprocedure),
+        ('public.load_public_brand_asset(text, bigint, text)'::regprocedure)) as allowed(proc))
 ), 'public.probe_001_default_privileges()',
   '38 the anon allow-list rule of 31 is not vacuous: with exactly one default-granted function live it '
   || 'names that function and nothing else, whoever the creating role was');
