@@ -19,7 +19,7 @@ The single description of **where things go** in TerraOI. `scripts/check-structu
 | `docs/` | Plan, coordination, tasks, decisions, status ([docs/README.md](README.md)) | Supervisor |
 | `.github/` | CI/CD workflows, CODEOWNERS, PR/issue templates, labels | Supervisor |
 | `.claude/` | Supervisor's Claude Code commands | Supervisor |
-| Root config | `package.json`, `pnpm-lock.yaml`, `tsconfig.json`, `eslint.config.mjs`, `vitest.config.ts`, `next.config.ts`, `open-next.config.ts`, `wrangler.jsonc`, `.nvmrc`, `.gitignore` | Shared |
+| Root config | `package.json`, `pnpm-lock.yaml`, `tsconfig.json`, `eslint.config.mjs`, `vitest.config.ts`, `next.config.ts`, `open-next.config.ts`, `wrangler.jsonc`, `.nvmrc`, `.gitignore`, `.gitattributes` (LF everywhere) | Shared |
 
 Nothing else belongs at the top level. A new top-level entry needs a PR that updates this table and `scripts/structure.mjs`, reviewed by the supervisor.
 

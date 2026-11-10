@@ -1,0 +1,18 @@
+# Line endings: every text file is stored and checked out with LF, on every OS.
+# A Windows checkout otherwise converts files to CRLF and a 5-line change shows as a whole-file
+# rewrite (#143, round 2). Binary files are detected automatically; the list below makes the
+# common ones explicit so they are never touched.
+* text=auto eol=lf
+
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.ico  binary
+*.pdf  binary
+*.woff binary
+*.woff2 binary
+*.ttf  binary
+*.otf  binary
+*.zip  binary

@@ -3,7 +3,7 @@
 
 export const TOP_LEVEL = new Set([
   // config and entry docs
-  ".claude", ".cursor", ".github", ".gitignore", ".nvmrc",
+  ".claude", ".cursor", ".github", ".gitattributes", ".gitignore", ".nvmrc",
   "AGENTS.md", "CLAUDE.md", "README.md",
   "package.json", "pnpm-lock.yaml", "tsconfig.json", "eslint.config.mjs", "vitest.config.ts",
   "next.config.ts", "open-next.config.ts", "wrangler.jsonc",
