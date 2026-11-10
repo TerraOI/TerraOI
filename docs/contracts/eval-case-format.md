@@ -98,11 +98,15 @@ expressible as the `chunk` member of `EvidenceRef`
 | `kind` | `"chunk"` | the only member a document-eval case can use; `record` and `form_field` belong to other evidence classes |
 | `sourceVersionId` | UUID | a **published** source version the reviewing expert is authorized to read; a revoked version makes the case invalid (plan §14.1, T-213) |
 | `chunkId` | `OpaqueId` | `^[A-Za-z0-9_-]{1,128}$` ([`keys.ts:45`](../../src/contracts/keys.ts)) |
-| `span.startChar` / `span.endChar` | non-negative integers | `endChar >= startChar`; a character span inside that chunk version, the same span F21 checks verbatim quotes against |
+| `span.startChar` / `span.endChar` | non-negative integers | `endChar >= startChar`; **UTF-16 code units** from the start of that chunk version's `body_text`, the same span F21 checks verbatim quotes against ([ADR-0008](../decisions/0008-citation-span-unit-and-origin.md)) |
 
 - Drafts carry `[]` here, because a draft names a synthetic fixture that does not exist in any tenant.
   Binding happens when the lead approves, in the review view, against the live corpus.
-- `quotedText` (optional on `ChunkEvidence`) stays **absent** from committed case files: see §4.
+- `quotedText` is **required** on `ChunkEvidence` ([ADR-0008](../decisions/0008-citation-span-unit-and-origin.md)):
+  pass 1 verifies a citation by locating that exact text, so an approved case that expects a citation
+  must record the quote it expects — a bare locator cannot be replayed. It stays **absent** from
+  committed case files for the provenance reason in §4, which is why a bound case is scored against
+  the live corpus rather than against stored text.
 - Approval can never attach a source version the reviewer may not read: drafting is already limited to
   collections the reviewing expert may see (plan §14.1 step 1), and the same read predicate gates the
   review view. A case whose expected source was revoked must go back to review, not score as a failure.

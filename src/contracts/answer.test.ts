@@ -10,7 +10,10 @@ const chunkEvidence = () => ({
   kind: "chunk" as const,
   sourceVersionId: SOURCE_VERSION_ID,
   chunkId: "chk_01HTZK9",
-  span: { startChar: 0, endChar: 38 },
+  span: { startChar: 0, endChar: 36 },
+  // Required since ADR-0008: pass 1 derives `span` by locating this quote in the chunk body, so a
+  // citation that quotes nothing has nothing to verify and is not representable in an `Answer`.
+  quotedText: "Calibrate the unit before each line.",
 });
 
 // Fixtures are loose on purpose: negative cases pass values the parser must reject.
@@ -60,6 +63,20 @@ describe("Answer (plan §12.1)", () => {
     expect(() => Answer.parse({ ...validAnswer(), unknowns: undefined })).toThrow();
     expect(() => Answer.parse({ ...validAnswer(), dataClass: undefined })).toThrow();
     expect(() => Answer.parse({ ...validAnswer(), dataClass: "secret" })).toThrow();
+  });
+
+  it("refuses a chunk citation that quotes nothing, and one with no locator (ADR-0008, #95)", () => {
+    // Both halves of the pair: a locator without a quote cannot be replayed, and a quote without a
+    // locator cannot be highlighted. The contract keeps both required; only pass 1 fills the span.
+    const locatorOnly = { ...chunkEvidence() } as Record<string, unknown>;
+    delete locatorOnly.quotedText;
+    const noLocator = { ...chunkEvidence() } as Record<string, unknown>;
+    delete noLocator.span;
+    for (const broken of [locatorOnly, noLocator]) {
+      const answer = validAnswer();
+      answer.claims = [claimWith({ evidence: [broken] })];
+      expect(() => Answer.parse(answer)).toThrow();
+    }
   });
 
   it("rejects a claim with no evidence for every non-inference type", () => {
