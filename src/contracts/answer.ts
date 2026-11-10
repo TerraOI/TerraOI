@@ -26,6 +26,20 @@ export const VerificationStatus = z.enum([
 export type VerificationStatus = z.infer<typeof VerificationStatus>;
 
 /**
+ * Which refusal sentence the run actually showed, drawn from the four templates an expert definition
+ * is required to state (`expert-definition.ts` → `refusalTemplates`).
+ *
+ * ADR-0009 (#97). The rule this exists to make expressible: **every refusal sentence a user sees has
+ * to be true for the code path that chose it.** "I could not find that in the documents you can
+ * access" is false once findings were handed to the composer and none of them survived (review
+ * finding B4 on #56/#58). Recording the key rather than only the prose is also what lets an eval case
+ * score the refusal — T-312's `expectedRefusalKey` compares against this field, not against a
+ * sentence an expert may reword between releases.
+ */
+export const RefusalKey = z.enum(["no_evidence", "insufficient_support", "out_of_scope", "unavailable"]);
+export type RefusalKey = z.infer<typeof RefusalKey>;
+
+/**
  * A character span inside one specific chunk version, used for verbatim quote checks (F21).
  *
  * **Unit and origin are both fixed** (ADR-0008, decided on #95): the offsets count **UTF-16 code
@@ -119,6 +133,9 @@ export type Claim = z.infer<typeof Claim>;
 export const Answer = z
   .strictObject({
     status: z.enum(["answered", "partial", "refused", "unavailable"]),
+    // Which template filled `summary` when no answer reached the employee. Paired with `status` in the
+    // refinement below: present exactly when `status` is `refused` or `unavailable` (ADR-0009).
+    refusalKey: RefusalKey.optional(),
     runId: z.uuid(),
     expertVersions: z.array(z.string().min(1).max(160)),
     corpusGenerations: z.array(z.number().int().positive()),
@@ -146,6 +163,29 @@ export const Answer = z
         code: "custom",
         path: ["claims"],
         message: "status 'answered' requires at least one non-inference claim with evidence (§12.1)",
+      });
+    }
+
+    // ADR-0009 (#97), the pairing rule, in both directions:
+    // - a refusal that does not say which sentence it used cannot be replayed, scored, or audited;
+    // - a refusal key on an answer the employee received would describe a sentence nobody was shown.
+    // A key is deliberately **not** pinned to one status: `no_evidence`, `insufficient_support` and
+    // `out_of_scope` all surface as `refused`, and `unavailable` is the only key that surfaces as
+    // `unavailable`. Which path picks which key is compose's rule (ADR-0009 decision 2), not a fact the
+    // contract can enumerate for every future producer.
+    const refused = answer.status === "refused" || answer.status === "unavailable";
+    if (refused && answer.refusalKey === undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["refusalKey"],
+        message: "a refused or unavailable answer must name the sentence it showed (ADR-0009)",
+      });
+    }
+    if (!refused && answer.refusalKey !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["refusalKey"],
+        message: `refusalKey is set only when status is refused or unavailable, not '${answer.status}' (ADR-0009)`,
       });
     }
   });
