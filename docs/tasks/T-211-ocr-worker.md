@@ -1,6 +1,6 @@
 # T-211 Local-box OCR pull worker and job API (F32)
 
-Lane: 2 · Week: 2 · Protected: yes (`workers/`, `localbox/`, `supabase/migrations/`, `src/app/api/jobs/`) · Depends on: T-111 (merged as #12), T-112 (merged as #32 + #54), T-115 (a–d on `main`, see its packet) · Status: ready — design in [ADR-0005](../decisions/0005-ocr-job-api-and-artifact-home.md) (proposed)
+Lane: 2 · Week: 2 · Protected: yes (`workers/`, `localbox/`, `supabase/migrations/`, `src/app/api/jobs/`) · Depends on: T-111 (merged as #12), T-112 (merged as #32 + #54), T-115 (a–d on `main`, see its packet) · Status: in progress — claimed by Lane 2 (PR-1: migration `20261109230000_ocr_job_leases.sql`, pgTAP `045_ingestion_jobs.test.sql`, ADR-0005 accepted, ADR-0011, `scripts/worker-credential.mjs`) · Design: [ADR-0005](../decisions/0005-ocr-job-api-and-artifact-home.md), accepted by that PR
 Plan refs: §7.2 (extraction executors), §13 (local box in the topology), §7.5, §16 (Forms/OCR row); F12, F32
 
 ## Supervisor rulings to apply (2026-11-09)
