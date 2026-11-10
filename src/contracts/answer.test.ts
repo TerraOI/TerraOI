@@ -133,10 +133,68 @@ describe("Answer (plan §12.1)", () => {
   });
 
   it("refused and unavailable answers may carry no claims; an answered one may not", () => {
-    for (const status of ["refused", "unavailable", "partial"] as const) {
-      expect(() => Answer.parse({ ...validAnswer(), status, claims: [] })).not.toThrow();
-    }
+    // ADR-0009 changed this line's `refused`/`unavailable` rows only in one respect: a refusal now has
+    // to name the sentence it used. The claim rule it pins is untouched.
+    expect(() => Answer.parse({ ...validAnswer(), status: "partial", claims: [] })).not.toThrow();
+    expect(() =>
+      Answer.parse({ ...validAnswer(), status: "refused", claims: [], refusalKey: "no_evidence" }),
+    ).not.toThrow();
+    expect(() =>
+      Answer.parse({ ...validAnswer(), status: "unavailable", claims: [], refusalKey: "unavailable" }),
+    ).not.toThrow();
     expect(() => Answer.parse({ ...validAnswer(), status: "answered", claims: [] })).toThrow();
+  });
+
+  // ADR-0009 (#97): every refusal sentence a user sees must be true for the code path that chose it,
+  // and the run has to record which one it was. `refusalKey` is the closed set of the four templates
+  // an expert definition must carry, paired with `status` in both directions.
+  describe("refusalKey pairs with status (ADR-0009, #97)", () => {
+    it("is allowed on a refusal and names the sentence the employee was shown", () => {
+      for (const [status, refusalKey] of [
+        ["refused", "no_evidence"],
+        ["refused", "insufficient_support"],
+        ["refused", "out_of_scope"],
+        ["unavailable", "unavailable"],
+      ] as const) {
+        const parsed = Answer.parse({ ...validAnswer(), status, claims: [], refusalKey });
+        expect(parsed.status).toBe(status);
+        expect(parsed.refusalKey).toBe(refusalKey);
+      }
+    });
+
+    it("is forbidden on an answer the employee actually got: answered and partial carry no refusal sentence", () => {
+      for (const status of ["answered", "partial"] as const) {
+        for (const refusalKey of ["no_evidence", "insufficient_support", "out_of_scope", "unavailable"] as const) {
+          // Matched on the rule's own words, not on any throw: before the field existed the parser
+          // rejected `refusalKey` as an unrecognized key, which would have made this pass vacuously.
+          expect(() => Answer.parse({ ...validAnswer(), status, refusalKey })).toThrow(
+            /refusalKey is set only when/,
+          );
+        }
+      }
+    });
+
+    it("is required when the employee was refused: an unnamed refusal cannot be replayed, scored, or audited", () => {
+      for (const status of ["refused", "unavailable"] as const) {
+        expect(() => Answer.parse({ ...validAnswer(), status, claims: [] })).toThrow(
+          /a refused or unavailable answer must name the sentence/,
+        );
+      }
+    });
+
+    it("is a closed set: an invented key, prose with the words in it, and an empty string all fail", () => {
+      for (const refusalKey of ["no_docs", "insufficient support", ""] as const) {
+        expect(() =>
+          Answer.parse({ ...validAnswer(), status: "refused", claims: [], refusalKey }),
+        ).toThrow();
+      }
+      expect(() =>
+        Answer.parse({ ...validAnswer(), status: "refused", claims: [], refusalKey: null }),
+      ).toThrow();
+      expect(() =>
+        Answer.parse({ ...validAnswer(), status: "refused", claims: [], refusalKey: "no_evidence" }),
+      ).not.toThrow();
+    });
   });
 
   it("validates evidence: spans are ordered and every evidence row is typed", () => {

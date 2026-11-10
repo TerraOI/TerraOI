@@ -38,6 +38,7 @@ const validExpert = () => ({
   clarificationPolicy: "ask_once" as const,
   refusalTemplates: {
     no_evidence: "I could not find this in the documents you can access.",
+    insufficient_support: "The documents I could access did not support a reliable answer.",
     out_of_scope: "That is outside what the {expert} can answer.",
     unavailable: "The knowledge service is unavailable right now.",
   },
@@ -79,7 +80,22 @@ describe("ExpertDefinition (plan §5.2)", () => {
     }
   });
 
-  it("requires all three refusal templates and a non-empty compose/verify chain", () => {
+  // #97: four sentences, not three. `refusalTemplates` is a `strictObject`, so an absent key fails —
+  // that is the point: an expert release cannot go out without stating the copy it will show when
+  // evidence existed but no claim survived. ADR-0009 fixes which code path selects which key.
+  it("requires all four refusal templates and a non-empty compose/verify chain", () => {
+    for (const missing of ["no_evidence", "insufficient_support", "out_of_scope", "unavailable"] as const) {
+      const templates = { ...validExpert().refusalTemplates } as Record<string, string | undefined>;
+      delete templates[missing];
+      expect(() => ExpertDefinition.parse({ ...validExpert(), refusalTemplates: templates })).toThrow();
+    }
+    // A blank sentence is not a sentence: the employee would be shown an empty message.
+    expect(() =>
+      ExpertDefinition.parse({
+        ...validExpert(),
+        refusalTemplates: { ...validExpert().refusalTemplates, insufficient_support: "" },
+      }),
+    ).toThrow();
     expect(() =>
       ExpertDefinition.parse({
         ...validExpert(),
