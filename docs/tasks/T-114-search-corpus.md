@@ -6,6 +6,7 @@ Plan refs: §8.1–§8.3, §6.2; F16, F08
 ## Supervisor rulings to apply (2026-11-09)
 These supersede anything below that disagrees.
 - **Spans** ([#95](https://github.com/TerraOI/TerraOI/issues/95), ADR-0008): `search_corpus_v1` returns text, never a `startChar`/`endChar`; spans are UTF-16 offsets into `knowledge_chunks.body_text`, computed only in the Worker.
+- **Slot and role** ([#136](https://github.com/TerraOI/TerraOI/issues/136)): the pgTAP file is `supabase/tests/database/037_search_corpus.test.sql` (`030` is T-130's, merged). This packet is a reader only: `search_corpus_v1` is security invoker, `EXECUTE` granted to `authenticated` by full signature and added to `001_function_privileges.test.sql`'s allow-list in the same PR ([#142](https://github.com/TerraOI/TerraOI/issues/142)); it creates no write path (T-113 owns chunk writes and the publish switch).
 
 ## Goal
 One security-invoker RPC answers a scoped question with authorized, ranked evidence rows and
@@ -15,7 +16,7 @@ caller may see.
 ## Owns (may edit)
 - one migration `supabase/migrations/YYYYMMDDHHMMSS_search_corpus.sql` (timestamp from the daily
   sync), indexes and partial indexes it proves necessary
-- `supabase/tests/database/030_search_corpus*.test.sql`, `src/platform/retrieval/` (client wrapper)
+- `supabase/tests/database/037_search_corpus.test.sql`, `src/platform/retrieval/` (client wrapper)
 - `evals/retrieval/` synthetic query/recall fixtures
 
 ## Must not edit

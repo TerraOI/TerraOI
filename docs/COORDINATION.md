@@ -123,6 +123,8 @@ One file per packet under `supabase/tests/database/`. Claim a new number in the 
 | 025 | `025_collection_admin` | T-111b |
 | 030 | `030_pilot_inquiries` | T-130 (merged) |
 | 035 | `035_chat_persistence` | T-104 |
+| 036 | `036_chunk_publish` | T-113 ([#136](https://github.com/TerraOI/TerraOI/issues/136)) |
+| 037 | `037_search_corpus` | T-114 ([#136](https://github.com/TerraOI/TerraOI/issues/136)) |
 | 040 | `040_knowledge_uploads` | T-112 (merged) |
 | 041 | `041_knowledge_uploads_guard` | T-112c ([#96](https://github.com/TerraOI/TerraOI/issues/96)) |
 | 045 | `045_ingestion_jobs` | T-211 |
@@ -138,7 +140,7 @@ One file per packet under `supabase/tests/database/`. Claim a new number in the 
 | 100 | `100_lifecycle_switches` | T-304 |
 | 105 | `105_provider_health` | T-314 |
 
-T-114 and T-116 claim theirs in the daily sync.
+T-116 claims its slot in the daily sync.
 
 ## 7. Daily and weekly rhythm
 
