@@ -10,7 +10,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(66);
+select plan(71);
 
 -- Helpers report an error as its SQLSTATE instead of aborting the test transaction (010/040 idiom).
 create function pg_temp.try_insert_provider(
@@ -156,99 +156,78 @@ $$, 'RLS is enabled on model_providers too, so a future broad grant still expose
 select is_empty($$
   select 1 from pg_class where relname = 'provider_health' and not relrowsecurity
 $$, 'RLS is enabled on provider_health too, as run-audit content (§9.3)');
-select is(1::bigint, (
+select is((
   select count(*) from pg_policies
    where schemaname = 'public' and tablename = 'tenant_provider_policy'
      and policyname = 'tenant_provider_policy_member_read'
      and cmd = 'SELECT' and permissive = 'PERMISSIVE'
      and 'authenticated' = any (array(select r from unnest(string_to_array('authenticated', ',')) as r))
-), 'the one read policy exists, permissive, SELECT, for authenticated');
-select is(1::bigint,
-  (select count(*) from pg_policies where tablename = 'tenant_provider_policy' and schemaname = 'public'),
-  'no second policy can appear on tenant_provider_policy unnoticed');
+), 1::bigint, 'the one read policy exists, permissive, SELECT, for authenticated');
+select is((select count(*) from pg_policies where tablename = 'tenant_provider_policy' and schemaname = 'public'), 1::bigint, 'no second policy can appear on tenant_provider_policy unnoticed');
 
 -- ── 4. seeding the reviewed platform configuration (as the migration owner) ────────────────
+-- Why the five seed rows below are assertions and not bare selects: a bare
+-- `select try_insert_provider(...)` prints the text `ok` on its own line, and pg_prove reads that
+-- as a TAP result. That is what desynced the count on CI run 42726035516 (71 results against
+-- plan(66), "Found (37) but expected (42)"), and it hid five unasserted writes.
 -- Values mirror the reviewed defaults in src/contracts/provider-route.ts: the chain order is the
 -- cost order, and the ceiling per provider is what PLATFORM_DEFAULT_CLEARANCE implies. The session
 -- already runs as the role that applied the migrations (040's idiom: switch only when a case needs
 -- a request role, and "reset role" afterwards).
-select pg_temp.try_insert_provider('local_box', 'medium', 1, 'restricted', 1);
-select pg_temp.try_insert_provider('workers_ai', 'large', 2, 'internal', 1);
-select pg_temp.try_insert_provider('claude', 'large', 3, 'client_confidential', 1);
-select pg_temp.try_insert_provider('deepseek', 'large', 4, 'public', 1);
-select pg_temp.try_insert_provider('openrouter', 'medium', 5, 'public', 1);
-select is(5::bigint, (select count(*) from public.model_providers),
-  'the reviewed platform registry holds exactly the five providers of the §12.4 cost order');
+select is(pg_temp.try_insert_provider('local_box', 'medium', 1, 'restricted', 1), 'ok', 'local_box records at its reviewed ceiling');
+select is(pg_temp.try_insert_provider('workers_ai', 'large', 2, 'internal', 1), 'ok', 'workers_ai records at its reviewed ceiling');
+select is(pg_temp.try_insert_provider('claude', 'large', 3, 'client_confidential', 1), 'ok', 'claude records at its reviewed ceiling');
+select is(pg_temp.try_insert_provider('deepseek', 'large', 4, 'public', 1), 'ok', 'deepseek records at its reviewed ceiling');
+select is(pg_temp.try_insert_provider('openrouter', 'medium', 5, 'public', 1), 'ok', 'openrouter records at its reviewed ceiling');
+select is((select count(*) from public.model_providers), 5::bigint, 'the reviewed platform registry holds exactly the five providers of the §12.4 cost order');
 
 -- ── 5. the guards that make the configuration replayable (F40) ──────────────────────────────
-select is('23514', pg_temp.try_insert_provider('second_local_box', 'medium', 6, 'restricted', 2),
-  'two rows with different clearance_revision are refused: a half-swapped matrix cannot be replayed');
-select is('23505', pg_temp.try_insert_provider('claude', 'large', 7, 'restricted', 1),
-  'duplicate provider_key is refused by the primary key');
-select is('23505', pg_temp.try_insert_provider('box2', 'large', 3, 'public', 1),
-  'cost_rank is unique: two providers cannot claim the same place in the cost order');
-select is('23514', pg_temp.try_insert_provider('bad key', 'large', 8, 'public', 1),
-  'provider_key must match the contract key shape (keys.ts ProviderKey)');
-select is('23514', pg_temp.try_insert_provider('box3', 'enormous', 9, 'public', 1),
-  'capability_tier is the contract enum');
-select is('23514', pg_temp.try_insert_provider('box4', 'large', 10, 'secret_class', 1),
-  'max_cleared_class must be a real data class (data_class_is_valid)');
-select is('23514', pg_temp.try_insert_provider('box5', 'large', 11, 'public', 1, 'verifier-only-model', null),
-  'a verifier model without the eval set that proved it adequate is a pair violation (#9, config.ts:28-39)');
+select is(pg_temp.try_insert_provider('second_local_box', 'medium', 6, 'restricted', 2), '23514', 'two rows with different clearance_revision are refused: a half-swapped matrix cannot be replayed');
+select is(pg_temp.try_insert_provider('claude', 'large', 7, 'restricted', 1), '23505', 'duplicate provider_key is refused by the primary key');
+select is(pg_temp.try_insert_provider('box2', 'large', 3, 'public', 1), '23505', 'cost_rank is unique: two providers cannot claim the same place in the cost order');
+select is(pg_temp.try_insert_provider('bad key', 'large', 8, 'public', 1), '23514', 'provider_key must match the contract key shape (keys.ts ProviderKey)');
+select is(pg_temp.try_insert_provider('box3', 'enormous', 9, 'public', 1), '23514', 'capability_tier is the contract enum');
+select is(pg_temp.try_insert_provider('box4', 'large', 10, 'secret_class', 1), '23514', 'max_cleared_class must be a real data class (data_class_is_valid)');
+select is(pg_temp.try_insert_provider('box5', 'large', 11, 'public', 1, 'verifier-only-model', null), '23514', 'a verifier model without the eval set that proved it adequate is a pair violation (#9, config.ts:28-39)');
 
-select is('ok', pg_temp.try_route('compose', 'local_box', 1), 'compose chain position 1 records');
-select is('ok', pg_temp.try_route('compose', 'workers_ai', 2), 'compose chain position 2 records');
-select is('23505', pg_temp.try_route('compose', 'claude', 2),
-  'two providers may not hold the same position in one task chain');
-select is('23505', pg_temp.try_route('compose', 'local_box', 3),
-  'one provider may not appear twice in one task chain');
-select is('23514', pg_temp.try_route('translate', 'claude', 5),
-  'task_class is the contract enum (route/condense/compose/verify)');
-select is('23503', pg_temp.try_route('compose', 'no_such_provider', 6),
-  'a chain may not name a provider the registry does not have (F31 eligibility starts in the data)');
+select is(pg_temp.try_route('compose', 'local_box', 1), 'ok', 'compose chain position 1 records');
+select is(pg_temp.try_route('compose', 'workers_ai', 2), 'ok', 'compose chain position 2 records');
+select is(pg_temp.try_route('compose', 'claude', 2), '23505', 'two providers may not hold the same position in one task chain');
+select is(pg_temp.try_route('compose', 'local_box', 3), '23505', 'one provider may not appear twice in one task chain');
+select is(pg_temp.try_route('translate', 'claude', 5), '23514', 'task_class is the contract enum (route/condense/compose/verify)');
+select is(pg_temp.try_route('compose', 'no_such_provider', 6), '23503', 'a chain may not name a provider the registry does not have (F31 eligibility starts in the data)');
 
 -- ── 6. a tenant may narrow, never widen (§12.4, provider-route.ts narrowClearance) ─────────
 select isnt((select id::text from public.organisations order by id limit 1), '',
   'a synthetic tenant exists from supabase/seed.sql for the policy fixtures');
-select is('ok', pg_temp.try_tenant_policy(
-  (select id from public.organisations order by id limit 1), 'client_confidential', 'claude'),
-  'a narrowing the platform already cleared is accepted');
-select is('ok', pg_temp.try_tenant_policy(
-  (select id from public.organisations order by id limit 1), 'internal', 'workers_ai'),
-  'a narrowing at internal is accepted (workers_ai''s ceiling is internal)');
-select is('23514', pg_temp.try_tenant_policy(
-  (select id from public.organisations order by id limit 1), 'client_confidential', 'workers_ai'),
-  'workers_ai may not be allowed for client_confidential: the tenant cannot widen the platform matrix');
-select is('23514', pg_temp.try_tenant_policy(
-  (select id from public.organisations order by id limit 1), 'restricted', 'openrouter'),
-  'no tenant may open restricted content to a hosted provider (TOI-ADR-12)');
-select is('23503', pg_temp.try_tenant_policy(
-  (select id from public.organisations order by id limit 1), 'public', 'no_such_provider'),
-  'the policy may not name a provider outside the registry');
-select is('23514', pg_temp.try_tenant_policy(
-  (select id from public.organisations order by id limit 1), 'secret_class', 'claude'),
-  'the policy class must be a real data class');
-select is('ok', pg_temp.try_disable_provider('claude'), 'a provider can be taken offline by the owner');
-select is('23514', pg_temp.try_tenant_policy(
-  (select id from public.organisations order by id limit 1), 'public', 'claude'),
-  'a policy row naming a disabled provider is refused: enabling is configuration, not a side effect of a tenant write');
+select is(pg_temp.try_tenant_policy(
+  (select id from public.organisations order by id limit 1), 'client_confidential', 'claude'), 'ok', 'a narrowing the platform already cleared is accepted');
+select is(pg_temp.try_tenant_policy(
+  (select id from public.organisations order by id limit 1), 'internal', 'workers_ai'), 'ok', 'a narrowing at internal is accepted (workers_ai''s ceiling is internal)');
+select is(pg_temp.try_tenant_policy(
+  (select id from public.organisations order by id limit 1), 'client_confidential', 'workers_ai'), '23514', 'workers_ai may not be allowed for client_confidential: the tenant cannot widen the platform matrix');
+select is(pg_temp.try_tenant_policy(
+  (select id from public.organisations order by id limit 1), 'restricted', 'openrouter'), '23514', 'no tenant may open restricted content to a hosted provider (TOI-ADR-12)');
+select is(pg_temp.try_tenant_policy(
+  (select id from public.organisations order by id limit 1), 'public', 'no_such_provider'), '23514',
+  'a policy naming a provider outside the registry is refused by the narrow-only BEFORE-row guard, '
+  || 'which runs before the foreign key (B1: CI run 42726035516 returned 23514, not 23503)');
+select is(pg_temp.try_tenant_policy(
+  (select id from public.organisations order by id limit 1), 'secret_class', 'claude'), '23514', 'the policy class must be a real data class');
+select is(pg_temp.try_disable_provider('claude'), 'ok', 'a provider can be taken offline by the owner');
+select is(pg_temp.try_tenant_policy(
+  (select id from public.organisations order by id limit 1), 'public', 'claude'), '23514', 'a policy row naming a disabled provider is refused: enabling is configuration, not a side effect of a tenant write');
 
 -- ── 7. health rows and the fail-closed read path ───────────────────────────────────────────
-select is('ok', pg_temp.try_health('workers_ai', 'healthy', 240), 'a scheduled probe row records');
-select is('23514', pg_temp.try_health('workers_ai', 'on_fire', 240),
-  'status is the F37 vocabulary, not free text');
-select is('23514', pg_temp.try_health('workers_ai', 'degraded', -5),
-  'latency cannot be negative');
-select is('23514', pg_temp.try_health('workers_ai', 'down', 99999999),
-  'latency is bounded, so a broken probe cannot poison the route window');
+select is(pg_temp.try_health('workers_ai', 'healthy', 240), 'ok', 'a scheduled probe row records');
+select is(pg_temp.try_health('workers_ai', 'on_fire', 240), '23514', 'status is the F37 vocabulary, not free text');
+select is(pg_temp.try_health('workers_ai', 'degraded', -5), '23514', 'latency cannot be negative');
+select is(pg_temp.try_health('workers_ai', 'down', 99999999), '23514', 'latency is bounded, so a broken probe cannot poison the route window');
 
 set local role authenticated;
-select is(0::bigint, (select count(*) from public.tenant_provider_policy_v1()),
-  'with no tenant scope established the read path returns nothing, never a default tenant (§4.1)');
-select is(0::bigint, (select count(*) from public.tenant_provider_policy),
-  'the same closure holds for a direct read: RLS gates the rows before the function does');
-select is('42501', pg_temp.try_health('workers_ai', 'healthy', 100),
-  'authenticated cannot write provider_health even through a helper: the revoke is real');
+select is((select count(*) from public.tenant_provider_policy_v1()), 0::bigint, 'with no tenant scope established the read path returns nothing, never a default tenant (§4.1)');
+select is((select count(*) from public.tenant_provider_policy), 0::bigint, 'the same closure holds for a direct read: RLS gates the rows before the function does');
+select is(pg_temp.try_health('workers_ai', 'healthy', 100), '42501', 'authenticated cannot write provider_health even through a helper: the revoke is real');
 
 select * from finish();
 rollback;

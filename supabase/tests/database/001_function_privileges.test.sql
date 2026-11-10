@@ -122,6 +122,10 @@ $$, '31 no function in public is executable by anon except resolve_tenant_host(t
 -- pending #75 — so they cannot appear in a `public` allow-list; test 33 pins them closed instead.
 -- `user_may_publish_into(uuid)` and every trigger function are deliberately absent: a function that
 -- wants in must be added here on purpose, in review.
+-- T-116 (#45) adds exactly one entry below, as FAQ-0010 and AGENTS.md §4.2 require in the same PR:
+--   `tenant_provider_policy_v1()` is security invoker and RLS-gated, so it can only return the
+--   caller's own tenant, and it is the packet's only request-role grant. Its two trigger guards stay
+--   off the list on purpose, and PR-2's server-path reads will live in a non-exposed schema (#134).
 select is_empty($$
   select p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' as function
     from pg_proc p
@@ -151,7 +155,8 @@ select is_empty($$
            ('public.register_source_version_v1(uuid, text, bigint, text)'::regprocedure),
            ('public.record_upload_outcome_v1(uuid, text, text)'::regprocedure),
            ('public.create_collection_v1(uuid, text, text, text, uuid, text)'::regprocedure),
-           ('public.update_collection_v1(uuid, uuid, text)'::regprocedure)
+           ('public.update_collection_v1(uuid, uuid, text)'::regprocedure),
+           ('public.tenant_provider_policy_v1()'::regprocedure)
          ) as allowed(proc)
      )
 $$, '32 no function in public is executable by authenticated beyond the named allow-list (§4.3, #60)');
