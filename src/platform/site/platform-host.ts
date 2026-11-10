@@ -20,6 +20,12 @@ const BARE_HOST = /^[A-Za-z0-9.-]+(?::\d{1,5})?$/;
  * request URL is itself built from `Host`, so this is the value `requestHost` would check for an
  * API route. `X-Forwarded-Host` is never read.
  *
+ * This is the **platform/public surface only** — landing, privacy, pilot intake — and it stays as
+ * merged. Tenant pages do not use it: they read the proxy-set `x-toi-routed-host` through
+ * `src/platform/tenancy/page-host.ts` ([ADR-0006](../../../docs/decisions/0006-page-host-via-proxy-header.md)).
+ * Generalising this helper to tenant selection would be the cross-host replay F02 exists to fail, so
+ * ADR-0006 makes that mix a review blocker rather than leaving it to reading groups.
+ *
  * Under `next dev` (and only there; `requestHost` enforces it) localhost is served as
  * `TERRAOI_DEV_HOST`, default terraoi.app.
  */

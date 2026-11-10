@@ -22,8 +22,8 @@ request:
    - **Route handlers** read `requestHost(request)`, from `request.url`, and never a header.
    - **Pages** cannot see the request URL. `src/proxy.ts` deletes any inbound
      `x-toi-routed-host` and sets it fresh from `new URL(request.url).host` on every request;
-     pages read it only through the tenancy helper, and fail closed when it is missing. No page
-     reads `Host` or `X-Forwarded-Host`. This holds once the OpenNext spike in ADR-0006 passes;
+     pages read it only through `resolvePageTenantContext` in [`page-host.ts`](../../src/platform/tenancy/page-host.ts), which re-enters the same `requestHost` → `parseHost` path route handlers use, refuses a value that is not a bare host, and fails closed (`missing_host`) when it is missing — never a default tenant. No page
+     reads `Host` or `X-Forwarded-Host`, and a route handler reading the proxy header is a review blocker: the two trusted sources stay bound to their own surfaces (ADR-0006). This holds once the OpenNext spike in ADR-0006 passes (code landed, staging proof owed);
      until then no page resolves a tenant host.
 2. `authenticateTenantUser` (F02) requires a verified session **and** an active
    `organisation_memberships` row for that organization. Identity alone grants nothing.

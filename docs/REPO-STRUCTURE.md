@@ -27,12 +27,15 @@ Nothing else belongs at the top level. A new top-level entry needs a PR that upd
 
 ```text
 src/
+  proxy.ts             # Next 16's proxy (ADR-0006): stamps the routed host for pages; see below
   app/                 # routes, pages, API handlers only; thin; call platform modules
   components/          # React UI components (tenant-shell, chat, citations, knowledge, approvals)
   contracts/           # Zod schemas + generated database.types.ts; protected
   platform/<module>/   # one folder per platform module (list below); business logic lives here
   modules/<service>/   # service add-ons (uav, gpr) when their operational work starts
 ```
+
+`proxy.ts` and its two colocated tests are the only files allowed directly under `src/` (`SRC_ROOT_FILES` in `scripts/structure.mjs`, shared path). They sit there because Next requires the proxy entry at the `src/` root, and the repo's rule is that a test lives next to the file it covers. Nothing else may sit at that level: `middleware.ts` is rejected by the structure check, so a second entry point that touches the routed host cannot appear under a stale name. Route handlers keep reading `request.url`; only pages read the header the proxy sets ([ADR-0006](decisions/0006-page-host-via-proxy-header.md)).
 
 `src/app/` is Lane 1, except `src/app/api/jobs/` (local-box job API) and `src/app/api/knowledge/` (review, publish, revoke), which are Lane 2 and protected ([FAQ-0005](FAQ.md)). `scripts/lanes.mjs` resolves ownership by the **longest matching prefix**, so a narrower folder can belong to the other lane. Adding another such folder needs a supervisor PR that changes `lanes.mjs`, its tests, CODEOWNERS and this paragraph together.
 

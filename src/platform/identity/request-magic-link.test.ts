@@ -309,4 +309,37 @@ describe("handleMagicLinkRequest (POST /auth/magic-link)", () => {
     expect(state.sent).toHaveLength(0);
     expect(response.headers.getSetCookie()).toHaveLength(0);
   });
+
+  // ADR-0006 rule 3: the header the proxy writes for pages is not a host source for a handler. The
+  // proxy runs on `/auth/magic-link` too, so the header really can be present here — and a client
+  // can also put its own candidates in. Only `request.url` may decide the organization.
+  it("takes its tenant from request.url and ignores x-toi-routed-host even when the proxy set it", async () => {
+    const state = harness();
+    const request = new Request(`https://${HOST}/auth/magic-link`, {
+      method: "POST",
+      headers: {
+        origin: `https://${HOST}`,
+        "content-type": "application/x-www-form-urlencoded",
+        // A value a client forged, and the same header the proxy would have written for a request
+        // routed to company2. `findHost` above only knows company1, so if either header decided the
+        // host this request would end in 404 instead of a issued link.
+        "x-toi-routed-host": "company2.terraoi.app",
+        host: "company2.terraoi.app",
+        "x-forwarded-host": "company2.terraoi.app",
+      },
+      body: new URLSearchParams({
+        csrf_token: await issueCsrfToken({ host: HOST, secret: SECRET, now: NOW }),
+        email: "owner1@company1.test",
+      }).toString(),
+    });
+
+    const response = await handleMagicLinkRequest({ request, ports: state.ports });
+
+    expect(response.status).toBe(303);
+    expect(state.limiterKeys).toEqual([{ host: HOST, email: "owner1@company1.test" }]);
+    expect(state.sent[0]?.redirectTo.startsWith(`https://${HOST}/auth/callback`)).toBe(true);
+    // The hostile headers are not echoed into any decision the handler makes or returns.
+    expect(response.headers.get("location")).not.toContain("company2");
+    expect(response.headers.get("x-toi-routed-host")).toBeNull();
+  });
 });
