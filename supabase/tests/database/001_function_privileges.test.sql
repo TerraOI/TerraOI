@@ -149,16 +149,19 @@ select is_empty($$
 $$, '32 no function in public is executable by authenticated beyond the named allow-list (§4.3, #60)');
 
 -- 33 the other schemas stay shut to both request roles: `toi_identity` (session functions, #75
--- pending) and `intake` (pilot inquiries, granted only to `inquiry_writer`).
+-- pending), `intake` (pilot inquiries, granted only to `inquiry_writer`) and `job_api` (the T-211 job
+-- API, granted only to `toi_job_api` — the extension #134 asked for, added here rather than asserted
+-- only inside 045 because this suite is the one that carries function privileges; 045 pins the
+-- behaviour and the worker role's own reach).
 select is_empty($$
   select n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' as function
     from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
-   where n.nspname in ('toi_identity', 'intake')
+   where n.nspname in ('toi_identity', 'intake', 'job_api')
      and p.prokind = 'f'
      and (has_function_privilege('anon', p.oid, 'EXECUTE')
           or has_function_privilege('authenticated', p.oid, 'EXECUTE'))
-$$, '33 neither anon nor authenticated can execute anything in toi_identity or intake (§4.3)');
+$$, '33 neither anon nor authenticated can execute anything in toi_identity, intake or job_api (§4.3, #134)');
 
 -- ---------------------------------------------------------------- 34-38 Addition 1: measured, not assumed
 -- The ruling asked for a source-level closure: `alter default privileges … revoke execute on
