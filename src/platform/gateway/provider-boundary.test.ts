@@ -87,7 +87,7 @@ const repoSource = [
  * limits are written out in the guard test below.
  */
 const ADAPTERS_MODULE = /(?:^|\/)gateway\/adapters$/;
-const FACTORY_NAMES = ["createLocalBoxAdapter", "createWorkersAiAdapter"];
+const FACTORY_NAMES = ["createLocalBoxAdapter", "createWorkersAiAdapter", "createClaudeAdapter"];
 
 function oneLine(source: string): string {
   return source.replace(/\s+/g, " ").trim();
@@ -196,7 +196,8 @@ describe("the gateway is the only place a provider is reached (AGENTS.md §4.3)"
 
   it("no module outside the gateway imports the adapter factories (AGENTS.md §4.3)", () => {
     // **What this guard enforces:** no file outside `src/platform/gateway/` may obtain a *value* from
-    // `…/gateway/adapters`, or name `createLocalBoxAdapter` / `createWorkersAiAdapter` at all. Those
+    // `…/gateway/adapters`, or name `createLocalBoxAdapter` / `createWorkersAiAdapter` /
+    // `createClaudeAdapter` at all. Those
     // factories are the only place a provider URL, a secret header and a bare `fetch` meet; importing
     // them from a route or an agent would reach a provider without clearance, without a reservation and
     // without an attempt record, and no other test in this repo would notice.
@@ -243,6 +244,7 @@ describe("the gateway is the only place a provider is reached (AGENTS.md §4.3)"
     }
     const forbidden = [
       'import { createWorkersAiAdapter } from "@/platform/gateway/adapters";',
+      'import { createClaudeAdapter } from "@/platform/gateway/adapters";',
       'import * as adapters from "@/platform/gateway/adapters";',
       'import { type AdapterCallOutcome, createLocalBoxAdapter } from "@/platform/gateway/adapters";',
       'const adapter = require("@/platform/gateway/adapters").createLocalBoxAdapter;',
@@ -266,6 +268,8 @@ describe("the gateway is the only place a provider is reached (AGENTS.md §4.3)"
     const factories = readFileSync(join(ROOT, GATEWAY, "adapters.ts"), "utf8");
     expect(factories).toContain("createLocalBoxAdapter");
     expect(factories).toContain("createWorkersAiAdapter");
+    // The Claude adapter added by T-115f is under the same rule, not a fourth way out.
+    expect(factories).toContain("createClaudeAdapter");
     // And the classifier is not vacuous: it reports the factory names where they appear.
     expect(adapterModuleRefs(factories).length).toBeGreaterThan(0);
     const tests = readFileSync(join(ROOT, GATEWAY, "adapters.test.ts"), "utf8");
