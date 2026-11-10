@@ -409,8 +409,11 @@ reset role;
 
 insert into t_out values
   ('put_member_no_permission', pg_temp.try_put(
-     '{"mode":"customer","displayName":"Company1 Geotechnics","documentPrefix":"CO1",'
-     || '"primary":"#007F78","onPrimary":"#FFFFFF","accent":"#A48748","logoName":"logo.svg"}'::jsonb,
+     -- One literal, not two joined ones: `'a' || 'b'::jsonb` resolves as text || jsonb and the
+     -- concatenation is cast to jsonb at the call, which is what CI's "invalid input syntax for
+     -- type json" was. A JSON string may carry newlines, so the literal simply spans two lines.
+     '{"mode":"customer","displayName":"Company1 Geotechnics","documentPrefix":"CO1",
+       "primary":"#007F78","onPrimary":"#FFFFFF","accent":"#A48748","logoName":"logo.svg"}'::jsonb,
      '[]'::jsonb));
 
 insert into public.role_permissions (organisation_id, role_id, area, level) values
