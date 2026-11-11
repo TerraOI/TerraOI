@@ -220,9 +220,10 @@ export async function withTenantRpc(
     return { ok: false, kind: "backend_failure", reason: thrownReason(error) };
   }
 
-  const envelope = asRecord(parseJson(text));
   if (!response.ok) {
-    const refused = tenancySqlState(envelope?.["code"]);
+    // Only a failed answer is read as a diagnosis, and only for its SQLSTATE: an RPC row that happens
+    // to carry a `code` column equal to a SQLSTATE must not be mistaken for a refusal.
+    const refused = tenancySqlState(asRecord(parseJson(text))?.["code"]);
     if (refused !== undefined) {
       // The SQLSTATE is the fact, and it outranks the status: a scope refusal must never be read as
       // "no rows", whatever number PostgREST chose to answer it with.
@@ -234,8 +235,6 @@ export async function withTenantRpc(
       reason: response.status >= 500 ? "server_error" : "rejected",
     };
   }
-  // A 2xx body is data, never a diagnosis: an RPC row that happens to carry a `code` column equal to
-  // a SQLSTATE must not be mistaken for a refusal, so nothing here looks at `code` on the success path.
   if (text.trim().length === 0) return { ok: true, data: null };
   const data = parseJson(text);
   if (data === undefined) return { ok: false, kind: "backend_failure", reason: "invalid_response" };
