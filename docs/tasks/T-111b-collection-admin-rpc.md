@@ -20,9 +20,13 @@ Merged migrations; `src/app/` and `src/components/` (the page is [T-202](./T-202
 
 ## Contract
 - `create_collection_v1(p_key, p_name, p_service, p_project_id, p_data_class)` and
-  `update_collection_v1(p_collection_id, p_name, p_description)`: security invoker, `set_tenant_scope`,
-  caller holds `knowledge.admin` at `admin`.
-- `update_collection_v1` changes **name and description only**; it cannot touch `data_class`,
+  `update_collection_v1(p_collection_id, p_name)`: `security definer` with a pinned `search_path`
+  ([#156](https://github.com/TerraOI/TerraOI/issues/156)); tenant from `current_organisation_id()`, caller from `auth.uid()`, never an argument;
+  caller holds `knowledge.admin` at `admin`, checked inside. The update finds its row by id **and**
+  `organisation_id` in one predicate, so another tenant's id is refused like a missing one.
+- No project membership is required to create or rename ([#153](https://github.com/TerraOI/TerraOI/issues/153)); the read path still requires it,
+  and `025` asserts a non-member admin reads zero rows of the collection it created. The RPC returns the id only.
+- `update_collection_v1` changes **the name only** ([#154](https://github.com/TerraOI/TerraOI/issues/154): no `description` column exists); it cannot touch `data_class`,
   `project_id` or `organisation_id`.
 - One safe error code per refusal.
 
