@@ -11,6 +11,7 @@ These supersede anything below that disagrees.
 - **Server-path database roles** ([#134](https://github.com/TerraOI/TerraOI/issues/134)): one `NOLOGIN` role per server path, each granted `IN ROLE` to its own login user and reached through its own Hyperdrive binding (staging first): `toi_job_api` over **`JOB_DB`** (T-211) and `toi_gateway_config` over **`CONFIG_DB`** (T-116). The owner creates each login user and password, the Hyperdrive config and its `wrangler.jsonc` binding.
 - **Worker credentials** ([#134](https://github.com/TerraOI/TerraOI/issues/134)): one per executor (each box, and the cloud worker). The owner issues each token through T-211's reviewed owner script, which stores only the hash; the box token goes on the box, the cloud token in a `wrangler secret`. Never in the repository.
 - **Storage signing key** ([#146](https://github.com/TerraOI/TerraOI/issues/146)): the owner sets the Supabase service-role key as a `wrangler secret` on the `workers/` (job API) deployment only — never on the app Worker, in `.dev.vars` of the app, or in CI — and rotates it on any suspected leak.
+- **`workers/` deployment** ([#152](https://github.com/TerraOI/TerraOI/issues/152)): the owner creates the second Worker (staging first), deploys it from T-211's wrangler config, and adds the service binding from the app Worker to it. The signing key above goes on this Worker only.
 
 ## Steps
 - [x] Supabase **staging** project; note its project ref (TerraOI-Staging, separate from production; W45 register)

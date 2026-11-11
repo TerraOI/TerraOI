@@ -10,6 +10,8 @@ These supersede anything below that disagrees.
 - **Retarget is the cloud worker's** ([#134](https://github.com/TerraOI/TerraOI/issues/134)): `retarget_extract_job_v1` is allowed on the caller's own leased `extract` job with a valid fence, `cloud_worker → local_box` only; it moves the job to `queued`, clears the lease pair and bumps `lease_fence`. The box never retargets.
 - **Cloud executor** ([#135](https://github.com/TerraOI/TerraOI/issues/135)): the lease guard is `j.executor = <the credential's executor>` (a box never leases a cloud job, nor the reverse); `complete_parse_job_v1` writes `extraction_artifacts` with `producer` = the credential's executor. This packet owns the cloud executor loop in `workers/`: lease, read bytes, call T-212's extractor and mapper, complete or retarget. Bytes are read through the `ObjectStore` port with a fake in tests until [#146](https://github.com/TerraOI/TerraOI/issues/146) is ruled; no credential, key or bucket is chosen in this PR.
 - **Object bytes** ([#146](https://github.com/TerraOI/TerraOI/issues/146), ADR-0011 in this PR): a service-role key, held as a `wrangler secret` on the `workers/` deployment only, used for one call: `createSignedUrl(bucket, key, 60)` on the leased job's object. The key comes from a new `job_api.object_ref_for_lease_v1(token_hash, job_id, lease_token, fence)` (same compare as the other job-API functions, `toi_job_api` only), never from request input. The URL is returned once and never stored or logged; it is minted only for an executor the version's class clears (ADR-0005 §8). Tests: an import-boundary test fails if anything outside `workers/` references the signing module; pgTAP `045` shows another tenant's job, an expired lease, a stale fence and a revoked credential return no row. This supersedes the "fake until #146" line above.
+- **Byte-path policy** ([#152](https://github.com/TerraOI/TerraOI/issues/152), ADR-0011 amendment): which executor may read object bytes and write artifacts is its own policy, not the §12.4 model matrix. Both `cloud_worker` and `local_box` clear `public`, `internal` and `client_confidential`; `restricted` is never ingested; no third-party OCR route exists in M1. `job_api.executor_clears_class` encodes it, and `045` asserts both executors clear `client_confidential`, neither clears `restricted`, and an unknown executor clears nothing.
+- **Deployment** ([#152](https://github.com/TerraOI/TerraOI/issues/152)): `workers/` is a separate Worker deployment with its own wrangler config and the only home of the service-role key. The app Worker's `src/app/api/jobs/` routes (FAQ-0005) reach the signing code only through a Cloudflare service binding; the `workers/` Worker exposes no public signing route.
 - **pgTAP `045` also adds** (#134, #135): `toi_job_api` selects no table and has no privilege in `public`; a revoked credential's renew and complete match zero rows; a box credential cannot lease another tenant's job or a `cloud_worker` job, nor a cloud credential a `local_box` job; retarget works only on the caller's own leased `extract` job; the abandoned holder's renew matches zero rows after reclaim. `001` test 33 extends to "no request role reaches `job_api`".
 - **pgTAP `045` adds:** cap → `failed` and the next job leases; expired lease reclaimed and the old worker's completion matches zero rows; abandoned lease refused by the expiry arm; duplicate dispatch creates no job; the reconciler lists a stuck job and a job-less version; no request role reads it.
 
@@ -54,7 +56,9 @@ Rulings that bind this packet (2026-11-08):
   with its own `revoke … from anon, authenticated, service_role`. A re-parse writes a new artifact set,
   never a new version.
 - **[#66](https://github.com/TerraOI/TerraOI/issues/66):** this packet adds `retarget_extract_job_v1`. It moves
-  only stage `extract`, only `cloud_worker → local_box`, only while `queued` (never once leased).
+  only stage `extract`, only `cloud_worker → local_box`, called by the cloud worker on **its own leased** job
+  with a valid fence; it moves the job to `queued`, clears the lease pair and bumps `lease_fence`
+  ([#134](https://github.com/TerraOI/TerraOI/issues/134)).
   T-212 supplies the routing decision and writes nothing to `ingestion_jobs`; capture keeps queueing
   `extract`/`cloud_worker` by default.
 
@@ -73,8 +77,8 @@ Rulings that bind this packet (2026-11-08):
 - [ ] failure: the source is revoked mid-job → the next worker call aborts, the queued artifact is
       deleted and no chunk is written; box offline → the version waits in `extracting` as "queued for
       OCR" and is **never** re-routed to a third-party OCR service
-- [ ] negative (#66): `retarget_extract_job_v1` refuses another tenant's job, an already-leased job, a
-      non-`extract` stage and any target other than `local_box`
+- [ ] negative (#66, #134): `retarget_extract_job_v1` refuses another tenant's job, a job leased by another
+      credential or with a stale fence, a non-`extract` stage and any target other than `local_box`
 
 ## Done evidence
 `pnpm db:test`, `pnpm verify`; staging through the staging tunnel: upload a synthetic scanned PDF for
