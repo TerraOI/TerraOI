@@ -1101,7 +1101,8 @@ insert into t_done
          '95000000-0000-4000-8000-0000000000b1',
          (select lease_token from t_lease where n = 11), (select fence from t_lease where n = 11),
          '71000000-0000-4000-8000-000000000002', 'extract', 1,
-         '[{"artifact_index":0,"body_text":"Synthetic client_confidential extract text.","locator":{"page":1}}]'::jsonb);
+         '[{"artifact_index":0,"body_text":"Synthetic client_confidential extract text.","locator":{"page":1}}]'::jsonb,
+         null, null);
 select is((select outcome from t_done where case_name = 'complete_cc_cloud'), 'completed',
   '139 and the same lease may write the artifact set: the ruled table says "reads bytes, writes '
   || 'artifacts" for both executors, and complete_parse_job_v1 carries the matching clearance arm — a '
