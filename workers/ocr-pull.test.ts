@@ -397,6 +397,14 @@ describe("workers/ocr-pull.ts — the cloud executor (#135, ADR-0011)", () => {
       expect(source, `${file} must not create a listener`).not.toMatch(/createServer|\.listen\s*\(|createHttpServer|serve\s*\(/);
       expect(source, `${file} must not import a server or socket module`).not.toMatch(/from\s+["']node:(http|https|net|tls|dns|worker_threads)["']/);
     }
+    // And no loop or signer names a platform host. The merged resolver classifies **every** other name
+    // under the platform domain as a tenant (`src/platform/tenancy/host.ts:51-55`), so a hostname baked
+    // into this code is infrastructure invented in a fallback — the base URL is deployment
+    // configuration, and T-004 §20.8 is who owns the routes.
+    for (const file of ["workers/ocr-pull.ts", "workers/object-signing.ts", "localbox/ocr-pull.ts"]) {
+      const source = readFileSync(new URL(`../${file}`, import.meta.url), "utf8");
+      expect(source, `${file} must not name a platform host`).not.toMatch(/terraoi\.app/);
+    }
   });
 
   it("sends nothing at all when the deployment holds no credential", async () => {

@@ -429,6 +429,27 @@ describe("localbox/ocr-pull.ts — the tenant box (plan §13, F32, ADR-0011)", (
     expect(seenObjectCalls).toHaveLength(0);
   });
 
+  it("an uninstalled box reaches no host at all: the base URL is a required setting, not a fallback", async () => {
+    // No default job-API host may exist in this code: the merged host resolver treats any name under
+    // the platform domain as a tenant, and no decision owns an API hostname (T-004 §20.8 lists routes;
+    // plan §13 says the tunnel URL is installed per box). So an unconfigured worker refuses to start.
+    const events: BoxEvent[] = [];
+    const deps = createBoxWorkerDeps({
+      env: { TOI_WORKER_TOKEN: WORKER_TOKEN },
+      extractor: { async extract() { return { outcome: "extracted", artifacts: ONE_ARTIFACT }; } },
+      log: (event) => events.push(event),
+    });
+    const outcome = await runBoxPullIteration(deps);
+    expect(outcome).toEqual({ action: "configuration_missing" });
+    expect(seenJobApiCalls).toHaveLength(0);
+    expect(seenObjectCalls).toHaveLength(0);
+
+    const outcomes = await runBoxPullLoop(deps, { maxIterations: 5, pollIntervalMs: 0, sleep: async () => undefined });
+    expect(outcomes.map((iteration) => iteration.action)).toEqual(["configuration_missing"]);
+    expect(seenJobApiCalls).toHaveLength(0);
+    expect(JSON.stringify(events)).not.toMatch(/http/);
+  });
+
   it("a lease answer that is not the closed shape is a wait, not a crash", async () => {
     stubs["/jobs/lease"] = { status: 200, body: { found: true, jobId: 42 } };
     const events: BoxEvent[] = [];

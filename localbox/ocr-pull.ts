@@ -110,7 +110,14 @@ export type CompleteOutcome =
 export type AbortOutcome = { outcome: "aborted" } | { outcome: "refused" };
 
 /** The closed failure kinds of the transport. An upstream body is never part of one. */
-export type TransportFailure = "unauthorized" | "unavailable" | "malformed" | "network" | "url_refused";
+export type TransportFailure =
+  | "unauthorized"
+  | "unavailable"
+  | "malformed"
+  | "network"
+  | "url_refused"
+  /** This box is not installed correctly: no base URL, or no credential to present. */
+  | "not_configured";
 
 export class JobApiTransportError extends Error {
   readonly kind: TransportFailure;
@@ -192,6 +199,8 @@ export interface BoxWorkerDeps {
 /** Closed, structured events. No URL, no credential, no object path, no document words. */
 export type BoxEvent =
   | { kind: "credential_unavailable" }
+  /** This box has no tunnel base or no credential: an install problem, not a queue condition. */
+  | { kind: "configuration_missing" }
   | { kind: "no_work" }
   | { kind: "leased"; jobId: string; attempt: number; dataClass: DataClass }
   | { kind: "lease_row_rejected"; jobId: string }
@@ -211,6 +220,8 @@ export type BoxEvent =
 
 export type IterationOutcome =
   | { action: "credential_missing" }
+  /** No base URL installed, or no credential: a human must fix the box, not the queue. */
+  | { action: "configuration_missing" }
   | { action: "no_work" }
   | { action: "lease_row_rejected" }
   | { action: "lease_lost" }
@@ -359,8 +370,14 @@ export function createHttpBoxJobApi(options: {
 
   async function post(path: string, credential: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
     if (base.length === 0 || credential.length === 0) {
-      // Nothing to ask, nothing to present: fail before the socket rather than probing a default host.
-      throw new JobApiTransportError("unavailable");
+      // **No default host, on purpose.** The tunnel base is a per-install setting (plan §13), and no
+      // merged decision owns a platform API hostname: the host resolver classifies *every* other name
+      // under the platform domain as a tenant (`src/platform/tenancy/host.ts:51-55`), so an
+      // `api`-prefixed fallback would be routed as a workspace called "api" and answer "not available
+      // at this address". A default here would invent infrastructure and then hide it, which is how a
+      // box becomes "broken" three months out. An uninstalled box says so instead — before any socket,
+      // and before any credential moves.
+      throw new JobApiTransportError("not_configured");
     }
     let response: Response;
     try {
@@ -752,6 +769,12 @@ export async function runBoxPullIteration(deps: BoxWorkerDeps): Promise<Iteratio
     return abortWith("source_revoked");
   } catch (cause) {
     if (cause instanceof JobApiTransportError) {
+      if (cause.kind === "not_configured") {
+        // A box with no tunnel base or no credential does not poll: it stops and says which. This is
+        // the fail-closed answer to an uninstalled worker — no default host is reachable from here.
+        deps.log({ kind: "configuration_missing" });
+        return { action: "configuration_missing" };
+      }
       if (cause.kind === "unauthorized") {
         // Revoked or mis-scoped credential: stop, and let whoever issued it act. Polling on a
         // rejected credential is how a box becomes a denial of service against its own platform.
@@ -794,7 +817,13 @@ export async function runBoxPullLoop(
     if (options.stop?.() === true) break;
     const outcome = await runBoxPullIteration(deps);
     outcomes.push(outcome);
-    if (outcome.action === "credential_refused" || outcome.action === "lease_lost") break;
+    if (
+      outcome.action === "credential_refused" ||
+      outcome.action === "lease_lost" ||
+      outcome.action === "configuration_missing"
+    ) {
+      break;
+    }
     if (taken + 1 < maxIterations) await sleep(pollIntervalMs);
   }
   return outcomes;
