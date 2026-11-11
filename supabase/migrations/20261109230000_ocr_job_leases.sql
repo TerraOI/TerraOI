@@ -125,7 +125,10 @@ as $fn$
                'class_not_cleared_for_cloud']::text[]
 $fn$;
 
--- Executor clearance, one place (see §9 for the one arm that is a stated interim, not a ruling).
+-- Byte-path policy, one place (#152, ruled while this PR sat open; the table is ADR-0011's amendment).
+-- This is **not** §12.4's model-clearance matrix: that answers which model provider may see text, and
+-- our own Worker is not a provider. This answers which compute path may read object bytes and write
+-- parse output. Plan §7.2 line 386 routes extraction by document **type**, never by class.
 create or replace function job_api.executor_clears_class(p_executor text, p_class text)
 returns boolean language sql stable set search_path = job_api, public, pg_temp
 as $fn$
@@ -134,13 +137,16 @@ as $fn$
     when p_executor is null or p_class is null or p_class = 'restricted' then false
     -- The box is the tenant''s own hardware (plan §13): it clears every class M1 ingests.
     when p_executor = 'local_box' then p_class in ('public', 'internal', 'client_confidential')
-    -- Stated interim, not a widening: §12.4''s default matrix lists no cloud provider for
-    -- client_confidential (src/contracts/provider-route.ts:81 — local_box, claude), and ADR-0007
-    -- widened the matrix for **embeddings only** (docs/decisions/0007-e1-embedding-clearance.md:14).
-    -- A client_confidential extract therefore retargets to the box. If the supervisor rules that
-    -- extraction inside our own bounded worker clears it, this one line changes, in a new migration,
-    -- and 045 assertions 62-63 flip with it.
-    when p_executor = 'cloud_worker' then p_class in ('public', 'internal')
+    -- Ruled on #152 (option 2): the cloud worker clears the same three classes. Nothing new sees the
+    -- bytes — they already live in Supabase Storage, and every chunk, answer and retrieved passage for
+    -- a client_confidential collection already passes through this same Worker (plan line 812, the E1
+    -- rationale). What the model matrix protects stays protected: artifacts and the chunks derived
+    -- from them carry client_confidential, F31 still refuses Workers AI / DeepSeek / OpenRouter for
+    -- compose and verify, and embedding stays under ADR-0007. Widening this arm further — a third-party
+    -- OCR route, plan §7.2''s "named alternative" — needs its own recorded decision, never a code edit.
+    when p_executor = 'cloud_worker' then p_class in ('public', 'internal', 'client_confidential')
+    -- Any other executor name clears nothing: the set is closed by this function, so a new value in
+    -- `worker_credentials.executor` cannot arrive with clearance by default (#135).
     else false
   end;
 $fn$;
