@@ -118,7 +118,7 @@ begin
       using errcode = '28000';
   end if;
   if p_organisation_id <> v_scope then
-    raise exception 'search_corpus_v1: p_organisation_id % does not match this transaction''s tenant scope (§4.1)'
+    raise exception 'search_corpus_v1: p_organisation_id % does not match this transaction''s tenant scope (§4.1)', p_organisation_id
       using errcode = '28000';
   end if;
   if v_user is null then
@@ -406,14 +406,7 @@ $$;
 comment on function public.search_corpus_v1(
   uuid, text[], uuid, uuid[], text, extensions.vector, uuid, date, text[], integer
 ) is
-  'T-114 hybrid reader (plan §8.2): full-text and vector candidates fused by reciprocal rank, under the querying role''s RLS (SECURITY INVOKER, #136). Tenant from the transaction scope and membership from auth.uid(), never from an argument; p_organisation_id is cross-checked and refused when it disagrees. Filters narrow (collections, services, project); an invalid project raises. The index identity is resolved and pinned, never assumed; with no query vector the labelled lexical_only lane answers. Returns text plus locators and ranking diagnostics — never a character span (ADR-0008). Reads only: no write path here (T-113 owns chunk writes and the publish switch).';
-
-comment on column public.search_corpus_v1.o_body_text is
-  'The chunk body as stored (ADR-0008 rule 4: SQL returns text). The Worker derives a citation span from this and the quote it verified; this function has no span parameter and returns no offset.';
-comment on column public.search_corpus_v1.o_evidence_kind is
-  '''chunk'' for an evidence row, ''diagnostics'' for the single row emitted when there is no evidence — so "empty" and "failed" cannot be confused (§8.2).';
-comment on column public.search_corpus_v1.o_diagnostics is
-  'Bounded coverage diagnostics: counts, flags, the resolved index identity and the applied filters. Never an id or title of a row the caller may not read.';
+  'T-114 hybrid reader (plan §8.2): full-text and vector candidates fused by reciprocal rank, under the querying role''s RLS (SECURITY INVOKER, #136). Tenant from the transaction scope and membership from auth.uid(), never from an argument; p_organisation_id is cross-checked and refused when it disagrees. Filters narrow (collections, services, project); an invalid project raises. The index identity is resolved and pinned, never assumed; with no query vector the labelled lexical_only lane answers. Reads only: no write path here (T-113 owns chunk writes and the publish switch). Output columns: o_body_text is the chunk body as stored — ADR-0008 rule 4 means this function returns text and never an offset, so the Worker derives the citation span from it; o_evidence_kind is ''chunk'' for an evidence row and ''diagnostics'' for the single row emitted when there is no evidence, so "empty" and "failed" cannot be confused (§8.2); o_diagnostics is bounded coverage reporting (counts, flags, the resolved index identity, the applied filters) and never an id or title of a row the caller may not read.';
 
 -- ---------------------------------------------------------------- grants, per function by full signature
 -- FAQ-0010 and 20261105210000_intake_service_role.sql:10-11: PostgreSQL hands EXECUTE on a new `public`
