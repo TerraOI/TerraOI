@@ -26,10 +26,11 @@ create extension if not exists pgtap with schema extensions;
 
 -- Each pgTAP file is its own `begin; … rollback;`, and `supabase test db` runs the directory in file
 -- name order (000 → 045 → 050), so this file sees the seed and every earlier file's rollback.
--- `plan(131)` equals the number of assertions this file executes: 131 numbered messages, 1..131, each
+-- `plan(139)` equals the number of assertions this file executes: 139 numbered messages, 1..139, each
 -- one top-level assertion statement. Verified mechanically against the file before pushing; #143's
--- review this morning was the plan-count trap, and `is(have, want)` is the argument order used here.
-select plan(133);
+-- review was the plan-count trap, and `is(have, want)` is the argument order used here. The last six
+-- (134-139) are the byte-path policy the supervisor ruled on #152 while this PR sat open.
+select plan(139);
 
 -- ---------------------------------------------------------------- helpers
 create function pg_temp.syn_hash(p_seed text) returns text
@@ -858,12 +859,14 @@ reset role;
 -- ================================================================ the reconciler
 select is(job_api.executor_clears_class('local_box', 'client_confidential')::text, 'true',
   '113 the box clears every class M1 ingests');
-select is(job_api.executor_clears_class('cloud_worker', 'client_confidential')::text, 'false',
-  '114 the cloud executor does not, on §12.4''s default matrix exactly as merged: provider-route.ts:81 '
-  || 'lists local_box and claude for client_confidential, and ADR-0007:14 widened that matrix for '
-  || 'embeddings only. This is the one stated interim in the migration — if the supervisor rules that '
-  || 'extraction inside our own bounded worker clears it, that arm and this assertion change together, '
-  || 'in a new migration, and the cloud worker stops retargeting confidential scans');
+select is(job_api.executor_clears_class('cloud_worker', 'client_confidential')::text, 'true',
+  '114 and so does the cloud executor. This expectation was **flipped by the supervisor on #152** while '
+  || '#149 sat open: the byte path is its own policy, not §12.4''s model matrix, which lists model '
+  || 'providers and our own Worker is not one (plan §7.2 line 386 routes by document type, not by class). '
+  || 'What the matrix protects is untouched: chunks keep carrying client_confidential, F31 still refuses '
+  || 'Workers AI / DeepSeek / OpenRouter for compose and verify, and embedding stays under ADR-0007. See '
+  || 'ADR-0011''s amendment for the table; the consequence in the loop is that the cloud worker no '
+  || 'longer has to retarget a confidential scan to the box');
 select ok(job_api.executor_clears_class('cloud_worker', 'internal')
           and not job_api.executor_clears_class('local_box', 'restricted'),
   '115 internal clears the cloud path, and nothing clears restricted (§12.4)');
@@ -1032,6 +1035,70 @@ select is((select count(*) from public.ingestion_jobs
               and index_generation = 1)::text, '1',
   '133 and it created no second job row: one row per (tenant, version, stage, parser, index), with '
   || 'attempt deliberately outside the key (knowledge_core.sql:398, #68, #16 N3)');
+
+-- ================================================================ 134-139 the byte-path policy, ruled
+-- ================================================================ on #152 while this PR sat open
+-- "Which compute path may read the object bytes and write parse output" is its own policy, not §12.4's
+-- model matrix: both executors clear `public`, `internal` and `client_confidential`; `restricted` is
+-- never ingested, so it never reaches a byte path; no third-party OCR or extraction service has a route
+-- in M1. The table itself is ADR-0011's amendment, and the arm is one named function, so widening the
+-- table later is a recorded decision rather than a code change (#152, closing that sentence).
+select ok(not job_api.executor_clears_class('cloud_worker', 'restricted')
+          and not job_api.executor_clears_class('local_box', 'restricted'),
+  '134 neither executor clears restricted: the class is never ingested in M1, so there is no byte path '
+  || 'for it to refuse (data_class_is_ingestible_in_m1, knowledge_core.sql:70-74, #152; the job-row '
+  || 'CHECK itself is pinned in 020_knowledge.test.sql:736-737)');
+select ok(not job_api.executor_clears_class('rpa_robot', 'internal')
+          and not job_api.executor_clears_class('rpa_robot', 'client_confidential')
+          and not job_api.executor_clears_class(null, 'internal'),
+  '135 an executor this API does not name clears nothing, and a null executor clears nothing: the '
+  || 'executor set is closed by the function, so a new executor value cannot arrive with clearance by '
+  || 'default (#135''s "one credential, one executor" needs this arm to mean anything)');
+
+-- Inserted here rather than with the fixtures, so no earlier lease assertion moves: this is the case
+-- the #152 ruling changes in practice — a client_confidential extract job under a **cloud** credential.
+insert into public.ingestion_jobs (
+  id, organisation_id, source_version_id, stage, executor, status, data_class, parser_generation,
+  index_generation, attempt, lease_fence, created_at
+) values (
+  '95000000-0000-4000-8000-0000000000a9', '11111111-1111-4111-8111-111111111111',
+  '71000000-0000-4000-8000-000000000002', 'extract', 'cloud_worker', 'queued', 'client_confidential',
+  't211i', 1, 1, 0, now() - interval '90 seconds'
+);
+insert into t_lease
+  select 11, o_found, o_job_id, o_organisation_id, o_source_version_id, o_stage, o_executor,
+         o_parser_generation, o_index_generation, o_data_class, o_lease_token, o_fence, o_attempt
+    from job_api.lease_parse_job_v1(pg_temp.syn_hash('cloud-c1'), 'extract', 300);
+select is((select data_class from t_lease where n = 11), 'client_confidential',
+  '136 the cloud credential''s lease takes the client_confidential extract job (a2 has been retargeted '
+  || 'to the box, a4 is failed, a5 succeeded, a6 is over the cap): the class clears the byte path, so '
+  || 'this is work the cloud worker does rather than a retarget it must make (#152)');
+insert into t_act
+  select 'objref_cc_cloud', null, null, null, null, null, o_found, o_object_ref, o_data_class
+    from job_api.object_ref_for_lease_v1(pg_temp.syn_hash('cloud-c1'),
+         '95000000-0000-4000-8000-0000000000a9',
+         (select lease_token from t_lease where n = 11), (select fence from t_lease where n = 11));
+select is((select found::text from t_act where case_name = 'objref_cc_cloud'), 'true',
+  '137 and the object key is handed over under that live lease: the clearance arm of '
+  || 'object_ref_for_lease_v1 no longer refuses the cloud path for a confidential version (#146 as '
+  || 'amended by #152); the four refusals above (expired lease, stale fence, foreign tenant, revoked '
+  || 'credential) are untouched');
+select is((select object_ref from t_act where case_name = 'objref_cc_cloud'),
+  (select object_ref from public.source_versions where id = '71000000-0000-4000-8000-000000000002'),
+  '138 the key is still the version''s own, read from the row the lease points at: widening a class '
+  || 'changes who may ask, never where the answer comes from, and a URL is still never minted in SQL');
+insert into t_done
+  select 'complete_cc_cloud', o_outcome, o_artifact_count, o_event_id
+    from job_api.complete_parse_job_v1(pg_temp.syn_hash('cloud-c1'),
+         '95000000-0000-4000-8000-0000000000a9',
+         (select lease_token from t_lease where n = 11), (select fence from t_lease where n = 11),
+         '71000000-0000-4000-8000-000000000002', 'extract', 1,
+         '[{"artifact_index":0,"body_text":"Synthetic client_confidential extract text.","locator":{"page":1}}]'::jsonb);
+select is((select outcome from t_done where case_name = 'complete_cc_cloud'), 'completed',
+  '139 and the same lease may write the artifact set: the ruled table says "reads bytes, writes '
+  || 'artifacts" for both executors, and complete_parse_job_v1 carries the matching clearance arm — a '
+  || 'class that cleared the read but not the write would be a broken policy, and it is asserted '
+  || 'together on purpose (#152)');
 
 select * from finish();
 rollback;
