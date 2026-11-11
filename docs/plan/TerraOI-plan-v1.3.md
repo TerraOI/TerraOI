@@ -1183,6 +1183,7 @@ Demo target: on the staging host for company1, sign in by magic link → upload 
 | T-203 | Chat UX: expert picker, evidence panel, citation open (F24), conversation history (F17), mobile drawer | T-213 | Review queue, publication policy, revoke (F14) |
 | T-204 | Brand contract in all 3 modes on login, shell, chat, errors and email | T-214 | Project-scoped ACLs through retrieval, citations and history |
 | | | T-111b | Collection admin RPC: `create_collection_v1`, `update_collection_v1` (#41) |
+| T-101c | `withTenantRpc` (F03): every scoped RPC called with the organisation from `TenantContext` and the user's token (#163) | | |
 | | | T-215 | Verifier pass 2, Claude adapter, compose retry on the next tier |
 | | | T-216 | Query condensation (F30) and exact lookup |
 

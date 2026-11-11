@@ -3,6 +3,10 @@
 Lane: 2 · Week: 2 · Protected: yes (`supabase/migrations/`) · Depends on: T-111 · Status: ready
 Plan refs: §6.1, §6.2; FAQ-0004; decided in [#41](https://github.com/TerraOI/TerraOI/issues/41)
 
+## Supervisor rulings to apply (2026-11-11)
+These supersede anything below that disagrees.
+- **Tenant scope** ([#163](https://github.com/TerraOI/TerraOI/issues/163), FAQ-0011): both RPCs take `p_organisation_id uuid` **first** and begin with `perform public.set_tenant_scope(p_organisation_id);`, so they are `volatile`: `create_collection_v1(p_organisation_id, p_key, p_name, p_service, p_project_id, p_data_class)` and `update_collection_v1(p_organisation_id, p_collection_id, p_name)`. `025` pins those signatures, and `001`'s allow-list carries them.
+
 ## Goal
 Tenant admins create collections and rename them through one scoped write path, so T-202's collection
 page never writes a knowledge table (FAQ-0004). The RPC enforces the tenant, project and data-class
@@ -19,8 +23,8 @@ Merged migrations; `src/app/` and `src/components/` (the page is [T-202](./T-202
 `src/contracts/` beyond the generated types.
 
 ## Contract
-- `create_collection_v1(p_key, p_name, p_service, p_project_id, p_data_class)` and
-  `update_collection_v1(p_collection_id, p_name)`: `security definer` with a pinned `search_path`
+- `create_collection_v1(p_organisation_id, p_key, p_name, p_service, p_project_id, p_data_class)` and
+  `update_collection_v1(p_organisation_id, p_collection_id, p_name)`: `security definer` with a pinned `search_path`
   ([#156](https://github.com/TerraOI/TerraOI/issues/156)); tenant from `current_organisation_id()`, caller from `auth.uid()`, never an argument;
   caller holds `knowledge.admin` at `admin`, checked inside. The update finds its row by id **and**
   `organisation_id` in one predicate, so another tenant's id is refused like a missing one.
