@@ -63,7 +63,7 @@
 --     counts come from the same RLS-filtered scan, so a hidden corpus is not observable through them
 --     (§8.2: employee-facing messages must not disclose inaccessible records).
 --   * `p_authority_filters` is refused rather than ignored, exactly as ruled on #161 (answer (A)):
---     Source authority has no column in the merged schema (§7.1's taxonomy has no table yet), so
+--     source authority has no column in the merged schema (§7.1's taxonomy has no table yet), so
 --     accepting the parameter and searching without it would return more rows than the caller asked
 --     for. `NULL` or `'{}'` means no filter and answers normally; a **non-empty** array raises 22023;
 --     and the `authority_filters_applied` diagnostic is a literal `false` in every row — never a value
@@ -152,8 +152,8 @@ begin
   -- A transaction that arrived already scoped to a *different* organisation is refused, not re-pointed:
   -- `set_tenant_scope` would accept it (a member of two tenants may choose either), but a reader must not
   -- re-point a transaction another RPC in the same request already scoped — the host-derived context and
-  -- the argument are never allowed to disagree (§4.1). Header bullet 2 states the code choice (28000)
-  -- and why 42501 stays reserved for the object-level claims further down.
+  -- the argument are never allowed to disagree (§4.1). The tenant-scope bullet in the header above states
+  -- the code choice (28000) and why 42501 stays reserved for the object-level claims further down.
   if v_arrived_scope is not null and v_arrived_scope <> p_organisation_id then
     raise exception 'search_corpus_v1: this transaction is already scoped to organization %, so it cannot search %: the scope is not an argument to override (§4.1, #163)',
       v_arrived_scope, p_organisation_id using errcode = '28000';
@@ -422,7 +422,7 @@ with candidates as (
       -- built, and a caller that passed `NULL` or `'{}'` asked for no filter — so the only answer this
       -- field can honestly give is "no authority filter was applied". Deriving it from the argument is
       -- how a dropped filter starts reading as a satisfied constraint. It stays `false` when an empty
-      -- array is accepted (037:74-75 pin both halves), and the PR that first stores an authority value
+      -- array is accepted (037:68-69 pin both halves), and the PR that first stores an authority value
       -- changes it in a *new* migration.
       'authority_filters_applied', false
     ),
@@ -486,7 +486,7 @@ $$;
 comment on function public.search_corpus_v1(
   uuid, text[], uuid, uuid[], text, extensions.vector, uuid, date, text[], integer
 ) is
-  'T-114 hybrid reader (plan §8.2): full-text and vector candidates fused by reciprocal rank, under the querying role''s RLS (SECURITY INVOKER, #136). Tenant: the first statement is perform public.set_tenant_scope(p_organisation_id) (#163, FAQ-0011, plan §4.3:245-247), so the scope is established inside this call under the caller''s own identity — p_organisation_id selects one of the tenants auth.uid() is an active member of and confers nothing by itself, and a transaction already scoped to a different organisation is refused (28000, the same class set_tenant_scope uses; 42501 is reserved here for foreign project or index ids). The function is volatile because set_config is volatile. Filters narrow (collections, services, project); an invalid project raises. p_effective_on is a **UTC calendar day** — the cut is published_at < the first instant of the next UTC day, never a session-time-zone date cast — with historical_gap when readable versions were published later and coverage_unknown when nothing qualifies at that date; p_authority_filters accepts NULL or ''{}'' and refuses a non-empty array (22023), and filters.authority_filters_applied is the constant false because no authority column exists yet (#161). The index identity is resolved and pinned, never assumed; with no query vector the labelled lexical_only lane answers. Reads only: no write path here (T-113 owns chunk writes and the publish switch). Output columns: o_body_text is the chunk body as stored — ADR-0008 rule 4 means this function returns text and never an offset, so the Worker derives the citation span from it; o_evidence_kind is ''chunk'' for an evidence row and ''diagnostics'' for the single row emitted when there is no evidence, so "empty" and "failed" cannot be confused (§8.2); o_diagnostics is bounded coverage reporting (counts, flags, the resolved index identity, the applied filters) and never an id or title of a row the caller may not read.';
+  'T-114 hybrid reader (plan §8.2): full-text and vector candidates fused by reciprocal rank, under the querying role''s RLS (SECURITY INVOKER, #136). Tenant: the first statement is perform public.set_tenant_scope(p_organisation_id) (#163, FAQ-0011, plan §4.3:245-247), so the scope is established inside this call under the caller''s own identity — p_organisation_id selects one of the tenants auth.uid() is an active member of and confers nothing by itself, and a transaction already scoped to a different organisation is refused (28000, the same class set_tenant_scope uses; 42501 is reserved here for foreign project or index ids). The function is volatile because set_config is volatile. Filters narrow (collections, services, project); an invalid project raises. p_effective_on is a UTC calendar day — the cut is published_at < the first instant of the next UTC day, never a session-time-zone date cast — with historical_gap when readable versions were published later and coverage_unknown when nothing qualifies at that date; p_authority_filters accepts NULL or ''{}'' and refuses a non-empty array (22023), and filters.authority_filters_applied is the constant false because no authority column exists yet (#161). The index identity is resolved and pinned, never assumed; with no query vector the labelled lexical_only lane answers. Reads only: no write path here (T-113 owns chunk writes and the publish switch). Output columns: o_body_text is the chunk body as stored — ADR-0008 rule 4 means this function returns text and never an offset, so the Worker derives the citation span from it; o_evidence_kind is ''chunk'' for an evidence row and ''diagnostics'' for the single row emitted when there is no evidence, so "empty" and "failed" cannot be confused (§8.2); o_diagnostics is bounded coverage reporting (counts, flags, the resolved index identity, the applied filters) and never an id or title of a row the caller may not read.';
 
 -- ---------------------------------------------------------------- grants, per function by full signature
 -- FAQ-0010 and 20261105210000_intake_service_role.sql:10-11: PostgreSQL hands EXECUTE on a new `public`
