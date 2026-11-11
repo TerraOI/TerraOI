@@ -7,6 +7,7 @@ Plan refs: §7.2 steps 1–3, §9.2.1, §6.2; F09, F10, F12
 These supersede anything below that disagrees.
 - **Follow-up PR** ([#40](https://github.com/TerraOI/TerraOI/issues/40)): delete the stored object when a capture is quarantined or fails, per the #40 ruling.
 - **T-112c** ([#96](https://github.com/TerraOI/TerraOI/issues/96)): a new migration (never edit the merged one) so that the `completed` replay in `register_source_version_v1` filters `organisation_id` and checks `source_is_readable`/`collection_is_readable`, answering with the same generic refusal as the dedup and race branches; and the session guard pins `expires_at` and makes `completed`, `quarantined`, `failed` and `expired` final (only `awaiting_upload` may change state). pgTAP in slot `041`. Lane 2, protected, week 2.
+- **Capture RPCs take the organisation** ([#163](https://github.com/TerraOI/TerraOI/issues/163), FAQ-0011), in T-112c's migration: `begin_upload_session_v1`, `register_source_version_v1` and `record_upload_outcome_v1` are replaced by versions that take `p_organisation_id uuid` first and begin with `perform public.set_tenant_scope(p_organisation_id);`. The old signatures are dropped (no adapter calls them, `upload-adapters.ts:19-21`), and the new ones go on `001`'s allow-list. `UploadStore.beginSession` keeps `organisationId` and drops `userId`: the user comes from the token.
 
 ## Goal
 An authorized member starts an upload, the object lands in private storage under a server-chosen

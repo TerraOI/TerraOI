@@ -46,7 +46,7 @@ Two builders work in parallel, one per lane. **Edit only your lane's paths plus 
 
 Breaking any of these is a blocking review finding, whatever the tests say.
 
-1. **Tenant only from `TenantContext`.** The organization comes from the verified request host plus the user's current membership (plan §4.1). Never take it from a request body, query string, header, cookie value, model output or client state.
+1. **Tenant only from `TenantContext`.** The organization comes from the verified request host plus the user's current membership (plan §4.1). Never take it from a request body, query string, header, cookie value, model output or client state. Scoped RPCs receive it as `p_organisation_id` from `withTenantRpc` and set the scope as their first statement ([FAQ-0011](docs/FAQ.md)).
 2. **RLS on every tenant table**, with negative tests: another tenant, another project, a deactivated member. Access goes through scoped RPCs (plan §4.3). Service-role/admin keys are used only in documented server paths, with a comment and an ADR. Every new function in `public` is revoked from `public, anon, authenticated` by full signature in the migration that creates it; a request-role grant goes on `001`'s allow-list in the same PR ([FAQ-0010](docs/FAQ.md)).
 3. **All model calls go through the gateway** (`src/platform/gateway/`). No direct provider SDK calls elsewhere. The gateway enforces data-class clearance (plan §12.4); never bypass or "temporarily" relax it.
 4. **Data class propagates.** Anything derived from a source (chunks, summaries, answers, eval cases, caches) carries the highest data class among its inputs (plan §6.2).

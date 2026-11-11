@@ -9,6 +9,7 @@ These supersede anything below that disagrees.
 - **Seed** ([#39](https://github.com/TerraOI/TerraOI/issues/39)): one `contributor` role with `knowledge.write`, its permission row and one membership grant, plus the matching fixture in `040_knowledge_uploads.test.sql`.
 - **Brand fallback banner** ([#62](https://github.com/TerraOI/TerraOI/issues/62)): admins see a banner when the tenant brand fell back (`brand.fallback` log event).
 - **`policy_revision` writer** ([#98](https://github.com/TerraOI/TerraOI/issues/98)): ship `public.bump_policy_revision()` (after-statement trigger, `security definer`, pinned `search_path`, EXECUTE revoked from request roles) and attach it to `organisation_memberships`, `roles`, `role_permissions`, group membership and `organisations` status changes; replace the table comment at `tenancy_core.sql:34` ("a monotonic stamp … recorded for audit and used as a cache key; access is always re-derived"); pgTAP in `013` asserts each write moves it and a no-op does not.
+- **Tenant scope** ([#163](https://github.com/TerraOI/TerraOI/issues/163), FAQ-0011): every scoped RPC this packet calls goes through `withTenantRpc` (T-101c), which injects `p_organisation_id` from `TenantContext`. No page or component passes an organisation id.
 
 ## Goal
 A tenant admin invites people, grants roles, creates projects and creates collections **with a data

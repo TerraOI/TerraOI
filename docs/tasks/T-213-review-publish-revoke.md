@@ -7,6 +7,7 @@ Plan refs: §7.2 steps 7–9, §7.5 (revocation within 60 s), §6.2, §16 (tenan
 These supersede anything below that disagrees.
 - **Reclass** ([#21](https://github.com/TerraOI/TerraOI/issues/21)): `review_reclass_v1` raises a collection and every descendant below the new class in one transaction with one audit row; pgTAP for the cascade, never-below-collection, refused `restricted` and tenant-wide `client_confidential` raises, another tenant refused, and E2 vector removal.
 - **`policy_revision`** ([#98](https://github.com/TerraOI/TerraOI/issues/98)): attach T-202's `bump_policy_revision()` to publish and revoke; assert the move in `050`.
+- **Tenant scope** ([#163](https://github.com/TerraOI/TerraOI/issues/163), FAQ-0011): every tenant-scoped RPC this packet adds takes `p_organisation_id uuid` **first** and begins with `perform public.set_tenant_scope(p_organisation_id);`, so it is `volatile`. Its TypeScript caller goes through `withTenantRpc` (T-101c). pgTAP pins the signature, the volatility, and a refusal for an organisation the caller is not a member of.
 
 ## Goal
 Knowledge becomes publishable under policy instead of automatically: versions that need a human wait in

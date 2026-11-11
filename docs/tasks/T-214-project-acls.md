@@ -6,6 +6,7 @@ Plan refs: §6.2 (read predicate, derived outputs), §8.2, §16 (tenant/source A
 ## Supervisor rulings to apply (2026-11-09)
 These supersede anything below that disagrees.
 - **`policy_revision`** ([#98](https://github.com/TerraOI/TerraOI/issues/98)): attach T-202's `bump_policy_revision()` to the project ACL tables; assert the move in `060`.
+- **Tenant scope** ([#163](https://github.com/TerraOI/TerraOI/issues/163), FAQ-0011): every tenant-scoped RPC this packet adds takes `p_organisation_id uuid` **first** and begins with `perform public.set_tenant_scope(p_organisation_id);`, so it is `volatile`. Its TypeScript caller goes through `withTenantRpc` (T-101c). pgTAP pins the signature, the volatility, and a refusal for an organisation the caller is not a member of.
 
 ## Goal
 Project is a real information boundary, not a label: one access decision decides what retrieval
