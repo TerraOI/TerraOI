@@ -1,6 +1,6 @@
 # T-101c `withTenantRpc`: one call, one transaction, the tenant from `TenantContext` (F03)
 
-Lane: 1 · Week: 2 · Protected: yes (`src/platform/tenancy/`) · Depends on: T-101 (merged), T-102 (the user's access token) · Status: in progress (wyuinline) — claimed: test-first build of `src/platform/tenancy/tenant-rpc.ts` plus its loopback harness in this PR
+Lane: 1 · Week: 2 · Protected: yes (`src/platform/tenancy/`) · Depends on: T-101 (merged), T-102 (the user's access token) · Status: in progress (wyuinline) — **code complete; staging evidence owed**: the helper and its loopback harness are open as [PR #167](https://github.com/TerraOI/TerraOI/pull/167), and the staging read below waits on T-102's sign-in, which is the T-004 §20.8 human step
 Plan refs: §4.1, §4.3 (lines 245-249), §11 F03; ADR-0003 §7; FAQ-0011; decided in [#163](https://github.com/TerraOI/TerraOI/issues/163)
 
 ## Goal
