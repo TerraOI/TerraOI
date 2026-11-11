@@ -1,6 +1,6 @@
 # T-114 `search_corpus_v1`: hybrid retrieval under RLS
 
-Lane: 2 (shared path) · Week: 1 · Protected: yes (`supabase/migrations/`) · Depends on: T-111, T-113 · Status: ready
+Lane: 2 (shared path) · Week: 1 · Protected: yes (`supabase/migrations/`) · Depends on: T-111, T-113 · Status: in progress (wyuinline) — `search_corpus_v1` hybrid reader RPC plus pgTAP slot 037 and the `001` allow-list row; the typed client and the Recall@10 harness ride in the stacked PR.
 Plan refs: §8.1–§8.3, §6.2; F16, F08
 
 ## Supervisor rulings to apply (2026-11-09)
