@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { createTenantContext, type TenantContext } from "@/contracts/tenant-context";
 
-import { withTenantRpc, SAFE_TENANT_RPC_MESSAGE, type FetchImpl, type TenantRpcConfig } from "./tenant-rpc";
+import { withTenantRpc, SAFE_TENANT_RPC_MESSAGE, type FetchImpl, type TenantRpcArgs, type TenantRpcConfig } from "./tenant-rpc";
 
 /**
  * T-101c acceptance tests (FAQ-0011, plan §4.3:245-249, §11 F03, decided in #163).
@@ -141,11 +141,19 @@ describe("the call shape: one request, the org from TenantContext, the user's ow
 
   it("even a poisoned args object that got past the compiler cannot pick the tenant", async () => {
     const t = transport(() => jsonResponse(200, null));
-    const forged = { p_query: "x", p_organisation_id: ORG_B } as unknown as Record<string, unknown>;
+    const forged = { p_query: "x", p_organisation_id: ORG_B } as unknown as TenantRpcArgs;
     await withTenantRpc(CTX_A, "search_corpus_v1", forged, TOKEN_1, configFor(t.fetchImpl));
     const body = JSON.parse((t.sent[0] as Sent).body) as Record<string, unknown>;
     expect(body["p_organisation_id"]).toBe(ORG_A);
     expect(JSON.stringify(body)).not.toContain(ORG_B);
+  });
+
+  it("a context whose organisation is not an id is not sent at all", async () => {
+    const t = transport(() => jsonResponse(200, null));
+    const broken = { ...CTX_A, organisationId: `${ORG_B} or anything else` };
+    const outcome = await withTenantRpc(broken, "search_corpus_v1", { p_query: "x" }, TOKEN_1, configFor(t.fetchImpl));
+    expect(outcome).toMatchObject({ ok: false, kind: "not_configured", reason: "context_invalid" });
+    expect(t.sent).toHaveLength(0);
   });
 
   it("an RPC name that is not a bare identifier sends nothing at all", async () => {
@@ -172,6 +180,26 @@ describe("the call shape: one request, the org from TenantContext, the user's ow
       const outcome = await withTenantRpc(CTX_A, "read_something_v1", {}, token, configFor(t.fetchImpl));
       expect(outcome, String(token)).toMatchObject({ ok: false, kind: "not_configured", reason: "access_token_unbound" });
     }
+    expect(t.sent).toHaveLength(0);
+  });
+
+  it("a base that is not an http(s) origin is refused, and plaintext off loopback is refused", async () => {
+    for (const base of ["not a url", "ftp://example.invalid", "http://db.internal:5432"]) {
+      const t = transport(() => jsonResponse(200, null));
+      const outcome = await withTenantRpc(CTX_A, "read_something_v1", {}, TOKEN_1, { postgrestBaseUrl: base, fetchImpl: t.fetchImpl });
+      expect(outcome, base).toMatchObject({ ok: false, kind: "not_configured", reason: "postgrest_base_invalid" });
+      expect(t.sent, base).toHaveLength(0);
+    }
+    // Loopback http is the §6a harness shape, so it must stay usable.
+    const t = transport(() => jsonResponse(200, null));
+    await withTenantRpc(CTX_A, "read_something_v1", {}, TOKEN_1, { postgrestBaseUrl: "http://127.0.0.1:54321", fetchImpl: t.fetchImpl });
+    expect(t.sent).toHaveLength(1);
+  });
+
+  it("a token that cannot be a header value is refused before the socket", async () => {
+    const t = transport(() => jsonResponse(200, null));
+    const outcome = await withTenantRpc(CTX_A, "read_something_v1", {}, `${TOKEN_1}\r\nx-injected: 1`, configFor(t.fetchImpl));
+    expect(outcome).toMatchObject({ ok: false, kind: "not_configured", reason: "access_token_invalid" });
     expect(t.sent).toHaveLength(0);
   });
 });
