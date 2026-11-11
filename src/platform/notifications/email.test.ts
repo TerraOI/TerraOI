@@ -6,6 +6,7 @@ import {
   tenantEmailLink,
   type EmailMessage,
   type EmailTransport,
+  type SendEmailResult,
 } from "./email";
 import { fakeEmailTransport } from "./email-fixtures";
 
@@ -177,6 +178,10 @@ describe("sendEmail — links must live on the resolved tenant host (plan §4.1 
     `//${"company2.terraoi.app"}/auth/callback?code=abc123`,
     `https://${HOST}:8443/auth/callback?code=abc123`,
     `https://${HOST}.evil.test/auth/callback`,
+    // The scheme's case is not a defence: an email client linkifies these exactly like the lowercase
+    // form, so the scan has to be case-insensitive.
+    `HTTPS://company2.terraoi.app/auth/callback?code=abc123`,
+    `HtTpS://company2.terraoi.app/auth/callback?code=abc123`,
   ];
 
   for (const [index, link] of foreign.entries()) {
@@ -195,6 +200,17 @@ describe("sendEmail — links must live on the resolved tenant host (plan §4.1 
       transport,
     );
     expect(result.status).toBe("sent");
+  });
+
+  it("fails closed on a scheme it cannot read even when the host is the tenant's", async () => {
+    // Deliberate: `HTTPS://company1.terraoi.app/x` points at the right place, and normalizing the
+    // scheme would mean this port vouches for a form it did not parse. Templates (T-204) write
+    // lowercase `https://`, so refusing is the cheap direction to be wrong in.
+    for (const text of [`HTTPS://${HOST}/auth/callback`, `HtTpS://${HOST}/auth/callback`]) {
+      const { transport } = transportFor();
+      expect(await sendEmail(message({ text }), transport)).toEqual({ status: "rejected", reason: "link_host" });
+      expect(transport.sent).toHaveLength(0);
+    }
   });
 
   it("a transport whose tenantHost is not a resolved tenant host sends nothing", async () => {
@@ -232,6 +248,70 @@ describe("sendEmail — header injection is refused at the port", () => {
       reason: "subject",
     });
     expect(transport.sent).toHaveLength(0);
+  });
+});
+
+describe("sendEmail — a refusal is never a way to ask whether an address is ours", () => {
+  // plan §4.2 keeps "does this address belong to a member" in the identity layer; this port has no
+  // account lookup in front of it, and `notifications-boundary.test.ts` is what keeps that true. What
+  // this file pins is the other half of the same rule: the answer never names an address, and the
+  // vocabulary never says anything about a person. The caller (T-102, T-201) owns the user-facing words.
+  const addresses = ["owner1@company1.test", "nobody@company2.test", "does-not-exist@terraoi.app"];
+
+  it("the same syntax refusal for every address, so the code cannot be probed for existence", async () => {
+    for (const to of addresses) {
+      const { transport } = transportFor();
+      expect(await sendEmail(message({ to: `${to}\r\nX-Foo: bar` }), transport)).toEqual({
+        status: "rejected",
+        reason: "recipient",
+      });
+      expect(transport.sent).toHaveLength(0);
+    }
+  });
+
+  it("refuses a recipient list, so this port cannot be aimed at a crowd", async () => {
+    for (const to of [
+      "owner1@company1.test, owner2@company1.test",
+      "owner1@company1.test;owner2@company1.test",
+      "owner1@company1.test owner2@company1.test",
+      "Company1 Owner <owner1@company1.test>",
+    ]) {
+      const { transport } = transportFor();
+      expect(await sendEmail(message({ to }), transport)).toEqual({ status: "rejected", reason: "recipient" });
+      expect(transport.sent).toHaveLength(0);
+    }
+  });
+
+  it("neither a result nor a log line names the recipient or the reply-to address", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const outcomes: SendEmailResult[] = [];
+      outcomes.push(await sendEmail(message({ to: "owner1@company1.test\r\nX-Foo: bar" }), transportFor().transport));
+      outcomes.push(await sendEmail(message({ replyTo: "support@terraoi.app\r\nBcc: someone@other.example" }), transportFor().transport));
+      outcomes.push(await sendEmail(message({ to: "nope" }), transportFor().transport));
+      const rejected = fakeEmailTransport({
+        outcome: "rejected",
+        reason: "invalid_recipient",
+        credential: "synthetic-provider-token",
+      });
+      outcomes.push(
+        await sendEmail(message(), { ...rejected, fromAddress: FROM, sendingDomain: DOMAIN, tenantHost: HOST }),
+      );
+
+      for (const result of outcomes) {
+        const serialized = JSON.stringify(result);
+        expect(serialized).not.toContain("owner1@company1.test");
+        expect(serialized).not.toContain("owner1");
+        expect(serialized).not.toContain("support@terraoi.app");
+        expect(serialized).not.toContain("mail.terraoi.app");
+      }
+      const logged = errors.mock.calls.map((call) => call.map((arg) => String(arg)).join(" ")).join("\n");
+      expect(logged).not.toContain("@company1.test");
+      expect(logged).not.toContain("@terraoi.app");
+      expect(logged).toContain("email");
+    } finally {
+      errors.mockRestore();
+    }
   });
 });
 

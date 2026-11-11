@@ -146,8 +146,15 @@ function domainOf(address: string): string {
   return at < 0 ? address : address.slice(at + 1);
 }
 
-/** Absolute and protocol-relative URLs in a body. A bare domain in prose is not a link. */
-const LINK_CANDIDATES = /https?:\/\/[^\s"'<>`)\]}]+|(?<![\w:])\/\/[^\s"'<>`)\]}]+/g;
+/**
+ * Absolute and protocol-relative URLs in a body. A bare domain in prose is not a link.
+ *
+ * The `i` flag is not decoration: an email client linkifies `HTTPS://company2.terraoi.app/x` exactly
+ * like the lowercase form, so a scan that only read lowercase schemes would wave a foreign link
+ * through. Same rule for `HtTpS://`. A protocol-relative `//host/path` is matched only when no `//`
+ * scheme precedes it, which is what the lookbehind is for.
+ */
+const LINK_CANDIDATES = /https?:\/\/[^\s"'<>`)\]}]+|(?<![\w:])\/\/[^\s"'<>`)\]}]+/gi;
 
 function linksAreOnTenantHost(text: string, html: string | undefined, tenantHost: string): boolean {
   const expectedOrigin = `https://${tenantHost}`;
@@ -168,6 +175,9 @@ function linksAreOnTenantHost(text: string, html: string | undefined, tenantHost
       // …and the host must also match character for character. `URL` silently lower-cases the host, so
       // origin equality alone would accept `https://Company1.terraoi.app` or a Unicode-look-alike case
       // variant; the resolved tenant host is already lowercase, so an exact prefix is the strict rule.
+      // The same exactness refuses a link written `HTTPS://company1.terraoi.app/x`: the host is right,
+      // but a scheme this port cannot read is not a scheme it will vouch for, so it fails closed
+      // instead of normalizing. Templates (T-204) write lowercase `https://`.
       const prefix = `https://${tenantHost}`;
       if (!absolute.startsWith(prefix)) return false;
       const remainder = absolute.slice(prefix.length);
