@@ -400,7 +400,9 @@ select (select code from outcome)::text,
        null::text, null::integer, null::text, 1::integer, null::integer, null::integer,
        null::boolean, null::numeric,
        d.body
-  from diagnostics d;
+  from diagnostics d
+ where not exists (select 1 from ranked_rows);
+end;
 $$;
 
 comment on function public.search_corpus_v1(
