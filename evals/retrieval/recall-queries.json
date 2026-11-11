@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "synthetic": true,
+  "provenance": "T-114 Recall@10 fixture set (plan §8.3). Every query, chunk id and figure is invented: SYNTH-* ids, no client document, no quoted sentence from any corpus (AGENTS.md §4.7). A real run binds these query texts to real chunk ids in a staging or CI database before any number from them is a baseline.",
+  "cases": [
+    {
+      "queryId": "SYNTH-Q01",
+      "queryText": "SYNTH-KX-9 payload re-calibration interval",
+      "expectedChunkIds": ["SYNTH-C012"],
+      "forbiddenChunkIds": ["SYNTH-C901"],
+      "note": "Exact equipment model: §8.1 step 4, the deterministic-lookup signal. C901 is the same text in a collection this user may not read."
+    },
+    {
+      "queryId": "SYNTH-Q02",
+      "queryText": "provision SYNTH-4412/B survey handover",
+      "expectedChunkIds": ["SYNTH-C031", "SYNTH-C034"],
+      "forbiddenChunkIds": [],
+      "note": "A provision number plus the word that appears beside it in both chunks of the synthetic handover note."
+    },
+    {
+      "queryId": "SYNTH-Q03",
+      "queryText": "GPR antenna centre frequency tolerance 400 MHz",
+      "expectedChunkIds": ["SYNTH-C041"],
+      "forbiddenChunkIds": [],
+      "note": "A figure in a table row; the synthetic GPR manual's tolerance table, page 7."
+    },
+    {
+      "queryId": "SYNTH-Q04",
+      "queryText": "who signs off a flight-risk waiver before a company survey",
+      "expectedChunkIds": ["SYNTH-C052", "SYNTH-C078"],
+      "forbiddenChunkIds": [],
+      "note": "Cross-document: the policy chunk names the role, the procedure chunk names the form."
+    },
+    {
+      "queryId": "SYNTH-Q05",
+      "queryText": "maximum sustained wind speed for SYNTH-M2 operations",
+      "expectedChunkIds": ["SYNTH-C063"],
+      "forbiddenChunkIds": ["SYNTH-C064"],
+      "note": "C064 is the superseded 2019 limit for the same airframe; a retrieval that returns it answers the wrong date."
+    },
+    {
+      "queryId": "SYNTH-Q06",
+      "queryText": "battery pack transport state of charge limit",
+      "expectedChunkIds": ["SYNTH-C071"],
+      "forbiddenChunkIds": ["SYNTH-C902"],
+      "note": "C902 is a captured-but-unpublished version of the same chunk: readable by an editor, unsearchable (§7.2)."
+    },
+    {
+      "queryId": "SYNTH-Q07",
+      "queryText": "calibration certificate expiry handling",
+      "expectedChunkIds": ["SYNTH-C083", "SYNTH-C084"],
+      "forbiddenChunkIds": [],
+      "note": "Two adjacent chunks both carry the rule; either alone is a partial answer."
+    },
+    {
+      "queryId": "SYNTH-Q08",
+      "queryText": "SYNTH-T7 thermal survey flight altitude band",
+      "expectedChunkIds": ["SYNTH-C091"],
+      "forbiddenChunkIds": [],
+      "note": "Phrase signal in the synthetic vendor manual, section 'Flight planning'."
+    },
+    {
+      "queryId": "SYNTH-Q09",
+      "queryText": "ground penetrating radar line spacing on clay subsoil",
+      "expectedChunkIds": ["SYNTH-C102"],
+      "forbiddenChunkIds": [],
+      "note": "Soil-specific parameter: the neighbouring chunk gives the sand figure and is a near-miss, not a bait."
+    },
+    {
+      "queryId": "SYNTH-Q10",
+      "queryText": "incident report deadline after a lost aircraft",
+      "expectedChunkIds": ["SYNTH-C111", "SYNTH-C112"],
+      "forbiddenChunkIds": ["SYNTH-C903"],
+      "note": "C903 belongs to another organization: the same sentence seeded in a different tenant to make a cross-tenant leak fail loudly."
+    },
+    {
+      "queryId": "SYNTH-Q11",
+      "queryText": "does the maintenance log need a countersignature",
+      "expectedChunkIds": ["SYNTH-C121"],
+      "forbiddenChunkIds": [],
+      "note": "A yes/no question whose answer sits in one clause of one chunk; the label for the must-refuse lane is carried by Q12."
+    },
+    {
+      "queryId": "SYNTH-Q12",
+      "queryText": "SYNTH-KX-9 firmware rollback procedure",
+      "expectedChunkIds": ["SYNTH-C133"],
+      "forbiddenChunkIds": [],
+      "note": "The answer exists in one appendix chunk only, and no lexical term in the question appears in it verbatim: the case the vector lane is supposed to earn its cost on."
+    }
+  ]
+}
