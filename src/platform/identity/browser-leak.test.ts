@@ -150,6 +150,9 @@ describe("no Supabase token reaches the browser on the sign-in routes (#37 hard 
     const cookies = response.headers.getSetCookie();
     expect(cookies.some((cookie) => cookie.startsWith("__Host-toi_login_state="))).toBe(true);
     expect(cookies.join("\n")).not.toMatch(JWT_IN_TEXT);
+    // The request half grants no session: a session cookie appears only after the callback verifies
+    // the code, so the login-state response must not even name it (#37).
+    expect(wire).not.toContain("__Host-toi_session=");
   });
 
   it("GET /auth/callback: the pair arrives from the provider and only an opaque id leaves", async () => {
