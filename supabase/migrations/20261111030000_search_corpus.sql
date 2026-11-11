@@ -279,6 +279,11 @@ with candidates as (
     from visible f
     left join lexical l on l.chunk_id = f.chunk_id
     left join vector_lane e on e.chunk_id = f.chunk_id
+    -- A chunk joins the answer only if a lane actually ranked it. `visible` is the corpus the caller
+    -- may read, not a candidate set: leaving the unmatched rows in would emit every readable chunk with
+    -- an rrf of zero beside the real hits, so a search that matched nothing would still "find" rows and
+    -- the empty-versus-failure split of §8.2 would collapse (037 assertions 20, 21, 63).
+    where l.lane_rank is not null or e.lane_rank is not null
 ), ranked_rows as (
   -- `exact_match` breaks a tie between the lanes: a deterministic hit outranks a semantic neighbour at
   -- the same fused score, which is §8.1 step 4 read literally, and the tie-break has to be written down
