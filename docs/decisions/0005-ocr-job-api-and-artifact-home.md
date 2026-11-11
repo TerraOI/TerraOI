@@ -375,14 +375,16 @@ section and the migration win**; the sketches stay for the review trail.
   credential is refused by the executor arm, so the box never retargets. §5's `status = 'queued'` arm
   is gone; what makes it safe is the same thing §5 warned about — the fence bump — which #99 established
   for the sweep and this repeats for retarget.
-- `job_api.executor_clears_class(executor, class)` holds the one **stated interim**: `local_box` clears
-  every class M1 ingests; `cloud_worker` does **not** clear `client_confidential`, because §12.4's
-  default matrix as merged lists `local_box, claude` for that class
-  ([`src/contracts/provider-route.ts:81`](../../src/contracts/provider-route.ts)) and
-  [ADR-0007:14](0007-e1-embedding-clearance.md) widened that matrix for embeddings only. Nothing in
-  this ADR or this migration widens it for extraction; if the supervisor rules that extraction inside
-  our own bounded worker clears it, that one arm and the clearance assertions in pgTAP `045` change together, in a new
-  migration.
+- `job_api.executor_clears_class(executor, class)` is the **byte-path policy**, and it is its own policy
+  rather than §12.4's model-clearance matrix. That interim note is **removed on the supervisor's ruling
+  ([#152](https://github.com/TerraOI/TerraOI/issues/152))**: both `local_box` and `cloud_worker` clear
+  `public`, `internal` and `client_confidential`; `restricted` is never ingested so it never reaches a
+  byte path; an executor this function does not name clears nothing; and no third-party OCR or
+  extraction route exists in M1. The matrix in `src/contracts/provider-route.ts:81` and
+  [ADR-0007:14](0007-e1-embedding-clearance.md) are unchanged — they answer which *model provider* may
+  see text, and our own Worker is not a provider. The table, its reasoning and the deployment shape are
+  [ADR-0011's amendment](0011-object-bytes-for-the-extraction-workers.md); widening it later is a
+  recorded decision, never a code edit.
 
 **Threat-model paragraph the §8 list still needs.** Three things are true at once, and the review should
 see all three rather than one:

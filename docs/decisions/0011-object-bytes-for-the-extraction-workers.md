@@ -28,7 +28,7 @@ no, a stale fence no, another tenant's job no, a revoked credential no.
 - **A new secret is a human step, not a repository change.** Binding it, and the `JOB_DB` Hyperdrive pairing ADR-0005 §6 needs, are T-004 §20.8 owner actions; until they exist the worker surface is unreachable and the staging evidence in T-211's packet cannot be produced. `supabase/config.toml:13` is only the local truth about which schemas are exposed, so the dashboard check ADR-0005 §9 asks for still applies.
 - **No contract change.** `IngestionJobPayload` stays key-free, so no `src/contracts/` edit and no `database.types.ts` regeneration decision here beyond what the migration itself implies (FAQ-0009).
 - **No dependency added by this ADR.** The client that signs the URL (Supabase Storage) is a dependency **PR-2** must list with its reason (AGENTS §6); PR-1 ships SQL, pgTAP and the owner script only.
-- **One open topology question, deliberately not decided here.** The box talks to the job API (`src/app/api/jobs/`), while the ruling puts the signing key on the extraction deployment (`workers/`). PR-2 must choose between the job API delegating to that deployment and the box calling the extraction deployment directly. Both keep the key off the box and both keep the mint under the lease compare; the choice is a deployment-topology call, and ADR-0005 §9's tunnel/access step is where it lands.
+- **One open topology question, answered by the amendment at the end of this file.** The box reaches the app Worker at `src/app/api/jobs/` (FAQ-0005); the signing key stays on the `workers/` deployment, and that Worker reaches the mint through a Cloudflare service binding to it. Ruled on [#152](https://github.com/TerraOI/TerraOI/issues/152) while #149 and #158 sat open, so PR-2 does not choose: both halves keep the key off the box and the mint under the lease compare, and ADR-0005 §9's tunnel/access human step is where the shape is recorded.
 
 ## Alternatives considered
 
@@ -37,3 +37,23 @@ no, a stale fence no, another tenant's job no, a revoked credential no.
 - **Putting `object_ref` in the job payload.** Rejected: the payload is a queue message that outlives leases and retries, and the contract forbids it (`ingestion-job.ts:13-17`). A key in the message also cannot be revoked when the lease expires.
 - **A per-tenant storage token or bucket policy.** Not rejected on the merits — deferred, and named above as the follow-up decision that would make the leaked-key residual a closed question rather than a bounded one.
 - **Reusing the user's own token for the read** (the #38 capture shape). Rejected for this path: the worker has no employee session, and minting one for a machine is the ADR-0005 §3 Option 1 cost the supervisor did not choose.
+
+## Amendment (2026-11-11, [#152](https://github.com/TerraOI/TerraOI/issues/152)): the byte path is its own policy, and the deployment is named
+
+Recorded ruling, not a new decision: both questions below were raised by #149 and answered by the supervisor on #152 while #149 and #158 sat open. Nothing here is a builder's inference, and nothing else in this ADR changes — the containment of Decision 1, the lease compare of Decision 2, the 60-second hand-over of Decision 3, the stated residual of Decision 4 and the no-secret-on-the-box rule of Decision 5 all stand.
+
+**1. Which compute path may read object bytes and write parse output is a policy of its own.** Decision 3's phrase "minted only for an executor the version's class clears" means **this** policy, not [ADR-0005 §8](0005-ocr-job-api-and-artifact-home.md)'s / plan §12.4's model-clearance matrix: that matrix lists model *providers*, and TerraOI's own bounded Worker is not one. Plan §7.2 line 386 routes extraction by document **type**, with no class condition attached.
+
+| Class | `cloud_worker` reads bytes, writes artifacts | `local_box` | Third-party OCR or extraction service |
+|---|---|---|---|
+| `public` | yes | yes | no route exists in M1 |
+| `internal` | yes | yes | no route exists in M1 |
+| `client_confidential` | yes | yes | no route exists in M1 |
+| `restricted` | never ingested (capture refuses it) | — | — |
+
+- It stays one named function, `job_api.executor_clears_class(executor, class)`, in the same migration: the ruled arm is `p_class in ('public', 'internal', 'client_confidential')` for **both** executors; `restricted` clears nothing for anyone, and an executor the function does not name clears nothing.
+- pgTAP `045` pins it: both executors clear `client_confidential` (113-114), neither clears `restricted` (134), an unknown or null executor clears nothing (135), and a cloud lease on a `client_confidential` extract job is handed the object key (136-137) and may write the artifact set (139). The four refusals of Decision 2 — another tenant's job, an expired lease, a stale fence, a revoked credential — are unchanged, and the lease compare itself did not move.
+- What the model matrix protects stays protected: artifacts and the chunks derived from them carry the class, F31 still refuses Workers AI, DeepSeek and OpenRouter for compose and verify, and embedding stays under [ADR-0007](0007-e1-embedding-clearance.md). **This amendment widens no model route.**
+- **Widening this table later is never a code change.** A third-party OCR route — plan §7.2's "named alternative" — needs its own recorded decision first.
+
+**2. The deployment is named, which closes the bullet left open in Consequences.** `workers/` is a **separate Worker deployment** with its own wrangler config (`workers/wrangler.jsonc`, added by T-211 PR-2), and it is the only home of the service-role key. The app Worker's `src/app/api/jobs/` routes (FAQ-0005) stay the box-facing surface, and they reach the signing code **only through a Cloudflare service binding**; the `workers/` Worker exposes no public signing route. T-004 §20.8 carries the second deploy target and its secret path so nobody adds the key to the app Worker. The consequence for the pull loops: the box's client speaks `/api/jobs/*` on the platform, and the short-lived URL it is handed is minted by the other deployment — and no code in `localbox/` can reach Storage, which is what `workers/import-boundary.test.ts` keeps machine-checked.
