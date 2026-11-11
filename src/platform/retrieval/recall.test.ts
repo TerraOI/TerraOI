@@ -10,6 +10,7 @@ import {
   parseRecallFixture,
   runRecallHarness,
   scoreLane,
+  type ParsedFixture,
   type RecallCase,
 } from "./recall";
 
@@ -29,7 +30,7 @@ function rawFixture(): unknown {
   return JSON.parse(readFileSync(`${ROOT}/evals/retrieval/recall-queries.json`, "utf8"));
 }
 
-function loadFixture(): { cases: RecallCase[] } {
+function loadFixture(): ParsedFixture {
   return parseRecallFixture(rawFixture());
 }
 
@@ -75,8 +76,10 @@ describe("Recall@k arithmetic", () => {
     // Both expected ids sit at rows 14 and 15: outside Recall@10, inside a wider cut. §8.3 asks for 10,
     // and the RPC never returns more than 25, so anything past that is not a question M1 can answer.
     const rows = Array.from({ length: 13 }, (_, index) => `N${index}`).concat(["C1", "C2"]);
-    expect(scoreLane(cases, { Q1: rows, Q2: [] }, "hybrid", 15).cases[0].recall).toBe(1);
-    expect(scoreLane(cases, { Q1: rows, Q2: [] }, "hybrid", 10).cases[0].recall).toBe(0);
+    const wide = scoreLane(cases, { Q1: rows, Q2: [] }, "hybrid", 15);
+    const tight = scoreLane(cases, { Q1: rows, Q2: [] }, "hybrid", 10);
+    expect(wide.cases[0]?.recall).toBe(1);
+    expect(tight.cases[0]?.recall).toBe(0);
     expect(() => scoreLane(cases, {}, "hybrid", 0)).toThrow(/between 1 and 25/);
     expect(() => scoreLane(cases, {}, "hybrid", 26)).toThrow(/between 1 and 25/);
   });
