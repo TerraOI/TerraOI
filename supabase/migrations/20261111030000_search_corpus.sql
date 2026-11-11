@@ -46,12 +46,22 @@
 --     applied filters. Never an id, title or count of a row the caller may not read — the visible
 --     counts come from the same RLS-filtered scan, so a hidden corpus is not observable through them
 --     (§8.2: employee-facing messages must not disclose inaccessible records).
---   * `p_authority_filters` is refused rather than ignored. Source authority has no column in the
---     merged schema (§7.1's taxonomy has no table yet), so accepting the parameter and searching
---     without it would return more rows than the caller asked for. Flagged to the supervisor in the PR
---     body instead of inventing a column or a meaning here. `p_effective_on` is evaluated against
---     `source_versions.published_at` for the same reason: no effective-interval columns exist yet, and
---     a version that was published after the date asked about cannot support an answer about it.
+--   * `p_authority_filters` is refused rather than ignored, exactly as ruled on #161 (answer (A)):
+--     Source authority has no column in the merged schema (§7.1's taxonomy has no table yet), so
+--     accepting the parameter and searching without it would return more rows than the caller asked
+--     for. `NULL` or `'{}'` means no filter and answers normally; a **non-empty** array raises 22023;
+--     and the `authority_filters_applied` diagnostic is a literal `false` in every row — never a value
+--     derived from what the caller passed, so no caller can read a dropped filter as a satisfied
+--     constraint. The PR that first stores an authority value replaces the refusal and the flag in a
+--     **new** migration and updates `037`'s assertions; the packet records that handover.
+--   * `p_effective_on` is evaluated against `source_versions.published_at` for the same reason (no
+--     effective-interval columns exist yet — #161 answer (D)), and the ruled form of the comparison is
+--     `published_at < ((p_effective_on + 1)::timestamp at time zone 'UTC')`: the date the caller asks
+--     for names a **UTC calendar day**, so the cut falls at the first instant of the next UTC day.
+--     `cast(published_at as date)` was the first cut and is wrong here — it depends on the session's
+--     `TimeZone`, so the same call answers differently in two venues. `historical_gap` is set when
+--     readable versions were published **after** that day; `coverage_unknown` when nothing qualifies at
+--     it. Tenant-local dates belong to the locale work (#67, slot `015`), not to this reader.
 --   * No new index. §8.3 starts from a measured exact-search baseline for pilot-sized corpora: the GIN
 --     over the generated `search_vector` (knowledge_core.sql:275) and the composite
 --     `(organisation_id, index_id, chunk_id)` key serve the pilot corpus, and HNSW plus
@@ -234,8 +244,15 @@ with candidates as (
      -- (§8.1 step 3: bindings plus accessible tenant-wide knowledge; never the reverse).
      and (p_project_id is null or col.project_id is null or col.project_id = p_project_id)
 ), visible as (
+  -- #161 (D), with the supervisor's time-zone precision: `p_effective_on` names a UTC calendar day.
+  -- `p_effective_on + 1` is a date; `::timestamp` makes it midnight with no zone attached; `at time
+  -- zone 'UTC'` says that midnight *is* UTC, so the boundary is the first instant of the next UTC day
+  -- and `<` keeps the whole asked day, 23:30 UTC included. The first cut here was
+  -- `cast(published_at as date) <= p_effective_on`, which compares in the *session's* TimeZone and so
+  -- lets the venue decide the answer; the ruling replaces it for exactly that reason.
   select * from candidates
-   where p_effective_on is null or cast(published_at as date) <= p_effective_on
+   where p_effective_on is null
+      or published_at < ((p_effective_on + 1)::timestamp at time zone 'UTC')
 ), lexical as (
   select chunk_id,
          row_number() over (order by lexical_score desc, exact_match desc, chunk_id) as lane_rank
@@ -304,8 +321,15 @@ with candidates as (
             f.lexical_rank nulls last, f.vector_rank nulls last, f.chunk_id
    limit v_limit
 ), scope_stats as (
-  select count(*) filter (where p_effective_on is not null
-                          and cast(published_at as date) > p_effective_on) as later_versions
+  -- #161 (D): `historical_gap` is the distance between the asked day and the corpus that exists now —
+  -- readable versions published **after** that day. It is written as the exact negation of the
+  -- `visible` cut (`>=` the first instant of the next UTC day) so a version can never fall into neither
+  -- bucket and make the flag quietly wrong. Counted by *version*: the claim is about what was published
+  -- later, not about how many chunks a later version happened to be split into.
+  select count(distinct source_version_id) filter (
+           where p_effective_on is not null
+             and published_at >= ((p_effective_on + 1)::timestamp at time zone 'UTC')
+         ) as later_versions
     from candidates
 ), coverage as (
   select count(*)::int as chunks_visible,
@@ -359,6 +383,13 @@ with candidates as (
       'collections_narrowed', p_collection_ids is not null,
       'project_applied', p_project_id is not null,
       'effective_on', p_effective_on,
+      -- #161 (A), literally and always: this flag is a constant `false`, never a function of what the
+      -- caller passed. A non-empty `p_authority_filters` already raised 22023 before this row could be
+      -- built, and a caller that passed `NULL` or `'{}'` asked for no filter — so the only answer this
+      -- field can honestly give is "no authority filter was applied". Deriving it from the argument is
+      -- how a dropped filter starts reading as a satisfied constraint. It stays `false` when an empty
+      -- array is accepted (037:74-75 pin both halves), and the PR that first stores an authority value
+      -- changes it in a *new* migration.
       'authority_filters_applied', false
     ),
     'limits', jsonb_build_object('limit', v_limit,
@@ -421,7 +452,7 @@ $$;
 comment on function public.search_corpus_v1(
   uuid, text[], uuid, uuid[], text, extensions.vector, uuid, date, text[], integer
 ) is
-  'T-114 hybrid reader (plan §8.2): full-text and vector candidates fused by reciprocal rank, under the querying role''s RLS (SECURITY INVOKER, #136). Tenant from the transaction scope and membership from auth.uid(), never from an argument; p_organisation_id is cross-checked and refused when it disagrees. Filters narrow (collections, services, project); an invalid project raises. The index identity is resolved and pinned, never assumed; with no query vector the labelled lexical_only lane answers. Reads only: no write path here (T-113 owns chunk writes and the publish switch). Output columns: o_body_text is the chunk body as stored — ADR-0008 rule 4 means this function returns text and never an offset, so the Worker derives the citation span from it; o_evidence_kind is ''chunk'' for an evidence row and ''diagnostics'' for the single row emitted when there is no evidence, so "empty" and "failed" cannot be confused (§8.2); o_diagnostics is bounded coverage reporting (counts, flags, the resolved index identity, the applied filters) and never an id or title of a row the caller may not read.';
+  'T-114 hybrid reader (plan §8.2): full-text and vector candidates fused by reciprocal rank, under the querying role''s RLS (SECURITY INVOKER, #136). Tenant from the transaction scope and membership from auth.uid(), never from an argument; p_organisation_id is cross-checked and refused when it disagrees. Filters narrow (collections, services, project); an invalid project raises. p_effective_on is a **UTC calendar day** — the cut is published_at < the first instant of the next UTC day, never a session-time-zone date cast — with historical_gap when readable versions were published later and coverage_unknown when nothing qualifies at that date; p_authority_filters accepts NULL or ''{}'' and refuses a non-empty array (22023), and filters.authority_filters_applied is the constant false because no authority column exists yet (#161). The index identity is resolved and pinned, never assumed; with no query vector the labelled lexical_only lane answers. Reads only: no write path here (T-113 owns chunk writes and the publish switch). Output columns: o_body_text is the chunk body as stored — ADR-0008 rule 4 means this function returns text and never an offset, so the Worker derives the citation span from it; o_evidence_kind is ''chunk'' for an evidence row and ''diagnostics'' for the single row emitted when there is no evidence, so "empty" and "failed" cannot be confused (§8.2); o_diagnostics is bounded coverage reporting (counts, flags, the resolved index identity, the applied filters) and never an id or title of a row the caller may not read.';
 
 -- ---------------------------------------------------------------- grants, per function by full signature
 -- FAQ-0010 and 20261105210000_intake_service_role.sql:10-11: PostgreSQL hands EXECUTE on a new `public`
