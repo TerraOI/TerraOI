@@ -254,10 +254,18 @@ with candidates as (
          row_number() over (order by distance asc, chunk_id) as lane_rank
     from (
       select ce.chunk_id,
+             -- The metric comes from the pinned row, never from a default, and the function names are
+             -- the ones pgvector actually exposes at SQL level: `l2_distance`, `cosine_distance` and
+             -- `vector_negative_inner_product`, which are exactly what the operators <->, <=> and <#>
+             -- resolve to. There is no `vector_l2_distance` or `vector_cosine_distance` function: the
+             -- first cut of this line asked for those and CI's database job answered `function
+             -- extensions.vector_l2_distance(extensions.vector, extensions.vector) does not exist`,
+             -- which is also why the calls are schema-qualified - this function pins its search_path
+             -- to public, pg_temp (§4.3), so an unqualified pgvector name would not resolve either.
              case v_index.metric
-               when 'l2' then extensions.vector_l2_distance(ce.embedding, p_query_embedding)
+               when 'l2' then extensions.l2_distance(ce.embedding, p_query_embedding)
                when 'ip' then extensions.vector_negative_inner_product(ce.embedding, p_query_embedding)
-               else extensions.vector_cosine_distance(ce.embedding, p_query_embedding)
+               else extensions.cosine_distance(ce.embedding, p_query_embedding)
              end as distance
         from public.chunk_embeddings ce
         join visible vv on vv.chunk_id = ce.chunk_id
