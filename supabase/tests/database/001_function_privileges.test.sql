@@ -117,6 +117,7 @@ $$, '31 no function in public is executable by anon except resolve_tenant_host(t
 --     update_collection_v1 — a tenant admin's write path, granted to `authenticated` and still gated
 --     inside the function on `knowledge.admin` at `admin`. The two signatures take `p_organisation_id`
 --     first and establish the scope themselves (#163, FAQ-0011), so both rows are re-pinned here
+--   retrieval (`search_corpus.sql`): search_corpus_v1, the reader-only hybrid RPC (#136)
 -- The session functions the ruling also lists live in `toi_identity`, not `public`
 -- (`20261107024000_session_store.sql:122-219`), and that migration grants them to **no role** at all
 -- pending #75 — so they cannot appear in a `public` allow-list; test 33 pins them closed instead.
@@ -151,7 +152,8 @@ select is_empty($$
            ('public.register_source_version_v1(uuid, text, bigint, text)'::regprocedure),
            ('public.record_upload_outcome_v1(uuid, text, text)'::regprocedure),
            ('public.create_collection_v1(uuid, text, text, text, uuid, text)'::regprocedure),
-           ('public.update_collection_v1(uuid, uuid, text)'::regprocedure)
+           ('public.update_collection_v1(uuid, uuid, text)'::regprocedure),
+           ('public.search_corpus_v1(uuid, text[], uuid, uuid[], text, extensions.vector, uuid, date, text[], integer)'::regprocedure)
          ) as allowed(proc)
      )
 $$, '32 no function in public is executable by authenticated beyond the named allow-list (§4.3, #60)');
