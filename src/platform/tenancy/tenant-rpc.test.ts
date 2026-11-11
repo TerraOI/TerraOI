@@ -122,6 +122,9 @@ describe("the call shape: one request, the org from TenantContext, the user's ow
     const t = transport(() => jsonResponse(200, null));
     await withTenantRpc(CTX_A, "read_something_v1", {}, TOKEN_1, configFor(t.fetchImpl));
     const call = t.sent[0] as Sent;
+    // The machine check for "exactly one credential header": `accept` and `content-type` describe the
+    // payload, `authorization` is the user, and nothing else is sent. A second credential — hosted or
+    // otherwise — has to be an explicit decision here, not a quiet addition.
     expect(Object.keys(call.headers).sort()).toEqual(["accept", "authorization", "content-type"]);
     expect(call.headers["authorization"]).toBe(`Bearer ${TOKEN_1}`);
   });

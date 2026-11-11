@@ -24,7 +24,11 @@ import type { TenantContext } from "@/contracts/tenant-context";
  * 3. **Hold a credential.** The bearer on the request is the caller's user access token, passed in
  *    per call and read at call time. Nothing here touches a deployment secret, a publishable key or
  *    a privileged key, and nothing here has a default host: the PostgREST base is configuration, and
- *    an unbound base means no request leaves the process.
+ *    an unbound base means no request leaves the process. Exactly one header carries a credential.
+ *    Whether a hosted gateway must also be handed its publishable key is **not this helper's call**:
+ *    the only precedent on `main` is the Auth REST contract in `identity/adapters.ts`, a different
+ *    API. If the first staging call turns out to need a second header, that is one line in one
+ *    function and a supervisor decision, not a credential to invent here.
  * 4. **Repeat what the database said.** A PostgREST error body can name a role, a schema, a pooler
  *    host or a row. Its `code` classifies; the rest stops here, so it cannot reach a run record, a
  *    log line or an employee-visible message.

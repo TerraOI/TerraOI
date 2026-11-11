@@ -18,8 +18,11 @@ import { withTenantRpc, type TenantRpcConfig } from "./tenant-rpc";
  * exactly one request; and a tenancy refusal or a 5xx over a real socket is reported without the
  * database's own words.
  *
- * What it does not prove: a read against the real tenant database on staging. That evidence is owed
- * (T-102's sign-in is the T-004 §20.8 human step), and no acceptance box naming staging is ticked.
+ * What it does not prove: a read against the real tenant database on staging, and not the hosted
+ * Supabase Data API either — this listener is PostgREST-shaped and the helper sends one credential,
+ * so the `apikey` question a hosted gateway may raise stays with the supervisor (see the module docs).
+ * That evidence is owed (T-102's sign-in is the T-004 §20.8 human step), and no acceptance box naming
+ * staging is ticked.
  */
 
 const ORG_A = "11111111-1111-4111-8111-111111111111";
