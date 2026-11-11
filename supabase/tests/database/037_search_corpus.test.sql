@@ -28,7 +28,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(63);
+select plan(64);
 
 -- ---------------------------------------------------------------- helpers
 create function pg_temp.syn_hash(p_seed text) returns text
@@ -650,6 +650,22 @@ select is((select (diagnostics -> 'signals' ->> 'max_data_class')
 select is((select count(*)::int from t_rows where case_name = 'b1_foreign_term'
              and evidence_kind = 'diagnostics'), 1::int,
   '63 exactly one diagnostics row accompanies an empty result, so the caller never has to guess between empty and failed (§8.2)');
+
+-- ---------------------------------------------------------------- 64 the vector lane names pgvector right
+-- pgTAP fails here by *name*, and that is the whole point of the assertion. A misspelled distance
+-- function inside the RPC is a plan-time `function ... does not exist` (42883) that only surfaces on
+-- the first call opening the vector lane - CI saw exactly that on 2026-11-11 - and a scratch harness
+-- whose stand-in declares whatever name the migration asked for cannot see it at all. These three are
+-- also the procedures the operators <->, <=> and <#> resolve to. Which one runs is decided by the
+-- resolved index row's `metric` and never by a default, because incomparable vectors are refused
+-- rather than averaged (§12.4, TOI-ADR-13; assertion 40 pins the dimension half).
+select ok(
+      to_regprocedure('extensions.l2_distance(extensions.vector, extensions.vector)') is not null
+  and to_regprocedure('extensions.cosine_distance(extensions.vector, extensions.vector)') is not null
+  and to_regprocedure('extensions.vector_negative_inner_product(extensions.vector, extensions.vector)') is not null
+  and to_regprocedure('extensions.vector_l2_distance(extensions.vector, extensions.vector)') is null
+  and to_regprocedure('extensions.vector_cosine_distance(extensions.vector, extensions.vector)') is null,
+  '64 pgvector exports exactly the distance functions the vector lane calls and not the vector_-prefixed names it does not have, so a future rename fails by name here instead of at the first vector query (§8.3, §12.4)');
 
 select * from finish();
 rollback;
