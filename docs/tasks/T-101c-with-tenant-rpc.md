@@ -1,6 +1,6 @@
 # T-101c `withTenantRpc`: one call, one transaction, the tenant from `TenantContext` (F03)
 
-Lane: 1 · Week: 2 · Protected: yes (`src/platform/tenancy/`) · Depends on: T-101 (merged), T-102 (the user's access token) · Status: ready
+Lane: 1 · Week: 2 · Protected: yes (`src/platform/tenancy/`) · Depends on: T-101 (merged), T-102 (the user's access token) · Status: in progress (wyuinline) — claimed: test-first build of `src/platform/tenancy/tenant-rpc.ts` plus its loopback harness in this PR
 Plan refs: §4.1, §4.3 (lines 245-249), §11 F03; ADR-0003 §7; FAQ-0011; decided in [#163](https://github.com/TerraOI/TerraOI/issues/163)
 
 ## Goal
