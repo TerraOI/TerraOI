@@ -1,6 +1,6 @@
 # T-111b Collection admin RPC (`create_collection_v1`, `update_collection_v1`)
 
-Lane: 2 · Week: 2 · Protected: yes (`supabase/migrations/`) · Depends on: T-111 · Status: in progress (wyuinline)
+Lane: 2 · Week: 2 · Protected: yes (`supabase/migrations/`) · Depends on: T-111 · Status: in progress (wyuinline) — open as [PR #157](https://github.com/TerraOI/TerraOI/pull/157) at `23ac4cf`, carrying the #153/#154/#156/#163 rulings (both RPCs take `p_organisation_id` first and set the scope themselves, FAQ-0011); CI green, `database` job: `All tests successful. Files=9, Tests=381 … Result: PASS` with `025_collection_admin.test.sql ..... ok` (53 assertions). Not `done`: protected path, needs the supervisor's `APPROVED` on the final head.
 Plan refs: §6.1, §6.2; FAQ-0004; decided in [#41](https://github.com/TerraOI/TerraOI/issues/41)
 
 ## Supervisor rulings to apply (2026-11-11)
