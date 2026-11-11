@@ -83,6 +83,10 @@ $fn$;
 
 -- One-hot vector against the pinned 1024 dimensions: cosine order is then exactly "which chunk owns
 -- which spike", so a test can name the vector lane's first candidate instead of hoping about models.
+-- It hands back text, so each call site that reaches the RPC's vector-typed parameter names the type
+-- out loud (spike_vector(n)::extensions.vector): Postgres resolves a function call through implicit
+-- casts only, so a text expression never finds search_corpus_v1's extensions.vector parameter. The
+-- merged 020_knowledge.test.sql:254 and :268 cast the same way at the vector boundary.
 create function pg_temp.spike_vector(p_at integer, p_dims integer default 1024) returns text
 language plpgsql security invoker as $fn$
 declare
@@ -100,7 +104,7 @@ set local role authenticated;
 create temp table t_out (case_name text, result text);
 create temp table t_rows (case_name text, result_status text, evidence_kind text, chunk_id uuid,
                          collection_id uuid, organisation_id uuid, data_class text, lane text,
-                         rank int, lexical_rank int, vector_rank int, exact_match boolean,
+                         rank int, lexical_rank int, vector_rank int, exact_match boolean, locator jsonb,
                          rrf numeric, diagnostics jsonb);
 create temp table t_count (case_name text, n int);
 reset role;
@@ -191,33 +195,33 @@ insert into t_out values ('scope_a1', pg_temp.try_scope('11111111-1111-4111-8111
 -- deterministic-lookup precedence is the only thing that can decide the tie (§8.1 step 4).
 insert into t_rows
   select 'exact_first', o_result_status, o_evidence_kind, o_chunk_id, o_collection_id, o_organisation_id,
-         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_rrf_score, o_diagnostics
+         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_locator, o_rrf_score, o_diagnostics
     from public.search_corpus_v1('11111111-1111-4111-8111-111111111111', array['uav-compliance']::text[], null, null,
-         'SQ-118', pg_temp.spike_vector(2), '91000000-0000-4000-8000-000000000001', null, null, 10);
+         'SQ-118', pg_temp.spike_vector(2)::extensions.vector, '91000000-0000-4000-8000-000000000001', null, null, 10);
 -- The same query with no embedding at all: the degraded lane, labelled rather than failed (§8.1 step 6).
 insert into t_rows
   select 'lexical_only', o_result_status, o_evidence_kind, o_chunk_id, o_collection_id, o_organisation_id,
-         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_rrf_score, o_diagnostics
+         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_locator, o_rrf_score, o_diagnostics
     from public.search_corpus_v1('11111111-1111-4111-8111-111111111111', array['uav-compliance']::text[], null, null,
          'SQ-118', null, null, null, null, 10);
 -- A term no chunk contains, with a vector: only the vector lane can answer, so a `vector` row here
 -- proves the second lane is real and not the first one wearing another label.
 insert into t_rows
   select 'vector_only', o_result_status, o_evidence_kind, o_chunk_id, o_collection_id, o_organisation_id,
-         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_rrf_score, o_diagnostics
+         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_locator, o_rrf_score, o_diagnostics
     from public.search_corpus_v1('11111111-1111-4111-8111-111111111111', array['uav-compliance']::text[], null, null,
-         'quadrant', pg_temp.spike_vector(3), '91000000-0000-4000-8000-000000000001', null, null, 10);
+         'quadrant', pg_temp.spike_vector(3)::extensions.vector, '91000000-0000-4000-8000-000000000001', null, null, 10);
 -- A term several chunks share, so fusion has something to combine.
 insert into t_rows
   select 'both_lanes', o_result_status, o_evidence_kind, o_chunk_id, o_collection_id, o_organisation_id,
-         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_rrf_score, o_diagnostics
+         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_locator, o_rrf_score, o_diagnostics
     from public.search_corpus_v1('11111111-1111-4111-8111-111111111111', array['uav-compliance']::text[], null, null,
-         'aircraft', pg_temp.spike_vector(4), '91000000-0000-4000-8000-000000000001', null, null, 10);
+         'aircraft', pg_temp.spike_vector(4)::extensions.vector, '91000000-0000-4000-8000-000000000001', null, null, 10);
 -- A valid project the caller may read but no collection is bound to: the tenant-wide corpus stays and
 -- other projects' corpora drop out (§8.1 step 3: narrowing, never broadening).
 insert into t_rows
   select 'project_field_notes', o_result_status, o_evidence_kind, o_chunk_id, o_collection_id, o_organisation_id,
-         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_rrf_score, o_diagnostics
+         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_locator, o_rrf_score, o_diagnostics
     from public.search_corpus_v1('11111111-1111-4111-8111-111111111111', array[]::text[],
          '41000000-0000-4000-8000-000000000002', null, 'aircraft', null, null, null, null, 10);
 reset role;
@@ -278,22 +282,22 @@ set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000b1';
 insert into t_out values ('scope_b1', pg_temp.try_scope('22222222-2222-4222-8222-222222222222'));
 insert into t_rows
   select 'b1_foreign_term', o_result_status, o_evidence_kind, o_chunk_id, o_collection_id, o_organisation_id,
-         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_rrf_score, o_diagnostics
+         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_locator, o_rrf_score, o_diagnostics
     from public.search_corpus_v1('22222222-2222-4222-8222-222222222222', array[]::text[], null, null,
          'SQ-118', null, null, null, null, 10);
 insert into t_rows
   select 'b1_hybrid', o_result_status, o_evidence_kind, o_chunk_id, o_collection_id, o_organisation_id,
-         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_rrf_score, o_diagnostics
+         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_locator, o_rrf_score, o_diagnostics
     from public.search_corpus_v1('22222222-2222-4222-8222-222222222222', array[]::text[], null, null,
-         'SQ-118', pg_temp.spike_vector(2), '92000000-0000-4000-8000-000000000001', null, null, 10);
+         'SQ-118', pg_temp.spike_vector(2)::extensions.vector, '92000000-0000-4000-8000-000000000001', null, null, 10);
 insert into t_rows
   select 'b1_own_term', o_result_status, o_evidence_kind, o_chunk_id, o_collection_id, o_organisation_id,
-         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_rrf_score, o_diagnostics
+         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_locator, o_rrf_score, o_diagnostics
     from public.search_corpus_v1('22222222-2222-4222-8222-222222222222', array['gpr']::text[], null, null,
-         'couplant', pg_temp.spike_vector(5), '92000000-0000-4000-8000-000000000001', null, null, 10);
+         'couplant', pg_temp.spike_vector(5)::extensions.vector, '92000000-0000-4000-8000-000000000001', null, null, 10);
 insert into t_rows
   select 'b1_foreign_collection', o_result_status, o_evidence_kind, o_chunk_id, o_collection_id, o_organisation_id,
-         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_rrf_score, o_diagnostics
+         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_locator, o_rrf_score, o_diagnostics
     from public.search_corpus_v1('22222222-2222-4222-8222-222222222222', array[]::text[], null,
          array['51000000-0000-4000-8000-000000000001']::uuid[], 'couplant', null, null, null, null, 10);
 reset role;
@@ -326,19 +330,19 @@ set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a2';
 insert into t_out values ('scope_a2', pg_temp.try_scope('11111111-1111-4111-8111-111111111111'));
 insert into t_rows
   select 'a2_grid', o_result_status, o_evidence_kind, o_chunk_id, o_collection_id, o_organisation_id,
-         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_rrf_score, o_diagnostics
+         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_locator, o_rrf_score, o_diagnostics
     from public.search_corpus_v1('11111111-1111-4111-8111-111111111111', array[]::text[], null, null,
-         'grid', pg_temp.spike_vector(3), '91000000-0000-4000-8000-000000000001', null, null, 10);
+         'grid', pg_temp.spike_vector(3)::extensions.vector, '91000000-0000-4000-8000-000000000001', null, null, 10);
 insert into t_rows
   select 'a2_own', o_result_status, o_evidence_kind, o_chunk_id, o_collection_id, o_organisation_id,
-         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_rrf_score, o_diagnostics
+         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_locator, o_rrf_score, o_diagnostics
     from public.search_corpus_v1('11111111-1111-4111-8111-111111111111', array[]::text[], null, null,
          'SQ-119', null, null, null, null, 10);
 insert into t_out values ('a2_narrow_unreadable', pg_temp.try_search('11111111-1111-4111-8111-111111111111',
   array[]::text[], null, array['51000000-0000-4000-8000-000000000002']::uuid[], 'SQ-120', null, null, null, null, 10));
 insert into t_rows
   select 'a2_narrow_unreadable_rows', o_result_status, o_evidence_kind, o_chunk_id, o_collection_id, o_organisation_id,
-         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_rrf_score, o_diagnostics
+         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_locator, o_rrf_score, o_diagnostics
     from public.search_corpus_v1('11111111-1111-4111-8111-111111111111', array[]::text[], null,
          array['51000000-0000-4000-8000-000000000002']::uuid[], 'SQ-120', null, null, null, null, 10);
 reset role;
@@ -347,9 +351,9 @@ set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
 insert into t_rows
   select 'a1_grid', o_result_status, o_evidence_kind, o_chunk_id, o_collection_id, o_organisation_id,
-         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_rrf_score, o_diagnostics
+         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_locator, o_rrf_score, o_diagnostics
     from public.search_corpus_v1('11111111-1111-4111-8111-111111111111', array[]::text[], null, null,
-         'grid', pg_temp.spike_vector(3), '91000000-0000-4000-8000-000000000001', null, null, 10);
+         'grid', pg_temp.spike_vector(3)::extensions.vector, '91000000-0000-4000-8000-000000000001', null, null, 10);
 reset role;
 
 select is((select count(*)::int from t_rows where case_name = 'a2_grid' and evidence_kind = 'chunk'
@@ -398,7 +402,7 @@ set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
 insert into t_rows
   select 'a1_regate', o_result_status, o_evidence_kind, o_chunk_id, o_collection_id, o_organisation_id,
-         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_rrf_score, o_diagnostics
+         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_locator, o_rrf_score, o_diagnostics
     from public.search_corpus_v1('11111111-1111-4111-8111-111111111111', array[]::text[], null, null,
          'SQ-119', null, null, null, null, 10);
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a3';
@@ -440,11 +444,18 @@ insert into t_out values
      'aircraft', pg_temp.spike_vector(3), null, null, null, 10)),
   ('foreign_index', pg_temp.try_search('11111111-1111-4111-8111-111111111111', array[]::text[], null, null,
      'aircraft', pg_temp.spike_vector(3), '92000000-0000-4000-8000-000000000001', null, null, 10));
+reset role;
+
+-- Owner-run, exactly as 040_knowledge_uploads.test.sql:411 and :428 do it: a member holds no UPDATE on
+-- embedding_indexes, so retiring a generation has to come from the privileged side (§4.3). The scope
+-- set above is SET LOCAL for this transaction, so the call below still runs scoped.
 update public.embedding_indexes set status = 'retired' where id = '91000000-0000-4000-8000-000000000001';
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
 insert into t_out values ('retired_index', pg_temp.try_search('11111111-1111-4111-8111-111111111111',
   array[]::text[], null, null, 'aircraft', pg_temp.spike_vector(3), '91000000-0000-4000-8000-000000000001', null, null, 10));
-update public.embedding_indexes set status = 'active' where id = '91000000-0000-4000-8000-000000000001';
 reset role;
+update public.embedding_indexes set status = 'active' where id = '91000000-0000-4000-8000-000000000001';
 
 select is((select result from t_out where case_name = 'a2_bad_project'), '42501',
   '35 a project id the caller is not a member of is an error, not a filter that quietly disappears and widens the search (§8.2)');
@@ -479,7 +490,7 @@ set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
 insert into t_out values ('scope_a1d', pg_temp.try_scope('11111111-1111-4111-8111-111111111111'));
 insert into t_rows
   select 'unpublished', o_result_status, o_evidence_kind, o_chunk_id, o_collection_id, o_organisation_id,
-         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_rrf_score, o_diagnostics
+         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_locator, o_rrf_score, o_diagnostics
     from public.search_corpus_v1('11111111-1111-4111-8111-111111111111', array[]::text[], null, null,
          'SQ-121', null, null, null, null, 10);
 insert into t_count select 'readable_unpublished', (select count(*)::int from public.knowledge_chunks
@@ -494,12 +505,12 @@ set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
 insert into t_out values ('scope_a1e', pg_temp.try_scope('11111111-1111-4111-8111-111111111111'));
 insert into t_rows
   select 'revoked_hybrid', o_result_status, o_evidence_kind, o_chunk_id, o_collection_id, o_organisation_id,
-         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_rrf_score, o_diagnostics
+         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_locator, o_rrf_score, o_diagnostics
     from public.search_corpus_v1('11111111-1111-4111-8111-111111111111', array[]::text[], null, null,
-         'SQ-118', pg_temp.spike_vector(2), '91000000-0000-4000-8000-000000000001', null, null, 10);
+         'SQ-118', pg_temp.spike_vector(2)::extensions.vector, '91000000-0000-4000-8000-000000000001', null, null, 10);
 insert into t_rows
   select 'revoked_other', o_result_status, o_evidence_kind, o_chunk_id, o_collection_id, o_organisation_id,
-         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_rrf_score, o_diagnostics
+         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_locator, o_rrf_score, o_diagnostics
     from public.search_corpus_v1('11111111-1111-4111-8111-111111111111', array[]::text[], null, null,
          'chainage', null, null, null, null, 10);
 reset role;
@@ -524,6 +535,14 @@ select is((select count(*)::int from t_rows where case_name = 'revoked_other' an
              and chunk_id = '81000000-0000-4000-8000-000000000102'), 1::int,
   '48 a source the caller can still read is unaffected by that revocation, so the reader did not over-react into a shut-off (§8.1)');
 
+-- 46-48 mutated a fixture, so put it back before the effective-date block reads it: the same
+-- mutate / assert / restore shape as the retired-index block at :448-454. Without this the 49-53 block
+-- contradicts its own comment: 0101 and 0105 are the only material published before 2024-06-01
+-- (version 710000000001, published_at 2024-02-01), and 46 had already revoked them. That is why
+-- assertion 49 could never pass as this block was written - the fix is the fixture, not the assertion.
+update public.knowledge_sources set lifecycle_state = 'active', revoked_at = null
+  where id = '61000000-0000-4000-8000-000000000101';
+
 -- ---------------------------------------------------------------- 49-53 effective date and coverage
 -- 0101/0105 sit in a version published 2024-02-01; 0103, seed 81…0003 and seed 81…0005 published now.
 -- `aircraft` appears in 0101, 0103, 0105, 81…0003 and 81…0005, so an effective date in the middle of
@@ -533,17 +552,17 @@ set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
 insert into t_out values ('scope_a1f', pg_temp.try_scope('11111111-1111-4111-8111-111111111111'));
 insert into t_rows
   select 'effective_2024_06', o_result_status, o_evidence_kind, o_chunk_id, o_collection_id, o_organisation_id,
-         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_rrf_score, o_diagnostics
+         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_locator, o_rrf_score, o_diagnostics
     from public.search_corpus_v1('11111111-1111-4111-8111-111111111111', array[]::text[], null, null,
          'aircraft', null, null, date '2024-06-01', null, 10);
 insert into t_rows
   select 'effective_2020_01', o_result_status, o_evidence_kind, o_chunk_id, o_collection_id, o_organisation_id,
-         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_rrf_score, o_diagnostics
+         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_locator, o_rrf_score, o_diagnostics
     from public.search_corpus_v1('11111111-1111-4111-8111-111111111111', array[]::text[], null, null,
          'aircraft', null, null, date '2020-01-01', null, 10);
 insert into t_rows
   select 'no_effective', o_result_status, o_evidence_kind, o_chunk_id, o_collection_id, o_organisation_id,
-         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_rrf_score, o_diagnostics
+         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_locator, o_rrf_score, o_diagnostics
     from public.search_corpus_v1('11111111-1111-4111-8111-111111111111', array[]::text[], null, null,
          'aircraft', null, null, null, null, 10);
 reset role;
@@ -590,9 +609,9 @@ insert into t_out values
      'zzzplacetoken', null, null, null, null, 10));
 insert into t_rows
   select 'limit_one', o_result_status, o_evidence_kind, o_chunk_id, o_collection_id, o_organisation_id,
-         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_rrf_score, o_diagnostics
+         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_locator, o_rrf_score, o_diagnostics
     from public.search_corpus_v1('11111111-1111-4111-8111-111111111111', array[]::text[], null, null,
-         'aircraft', pg_temp.spike_vector(4), '91000000-0000-4000-8000-000000000001', null, null, 1);
+         'aircraft', pg_temp.spike_vector(4)::extensions.vector, '91000000-0000-4000-8000-000000000001', null, null, 1);
 reset role;
 
 select is((select result from t_out where case_name = 'empty_text'), '22023',
