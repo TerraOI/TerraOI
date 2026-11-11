@@ -1057,26 +1057,34 @@ select ok(not job_api.executor_clears_class('rpa_robot', 'internal')
 
 -- Inserted here rather than with the fixtures, so no earlier lease assertion moves: this is the case
 -- the #152 ruling changes in practice — a client_confidential extract job under a **cloud** credential.
+-- Fresh on both unique keys, deliberately: `ingestion_jobs_pkey` is the row's own id (a9 is taken by the
+-- revoked-credential group above — reusing it aborts this file with a duplicate-key error, which pgTAP
+-- then reports as "planned 139 but ran 135", i.e. every assertion after it is unproven, not passed), and
+-- the stage key `(organisation_id, source_version_id, stage, parser_generation, index_generation)`
+-- (knowledge_core.sql:398, the key #68 and #66 lean on) is stepped around with version `...0002` plus a
+-- parser generation no other fixture in this file uses.
 insert into public.ingestion_jobs (
   id, organisation_id, source_version_id, stage, executor, status, data_class, parser_generation,
   index_generation, attempt, lease_fence, created_at
 ) values (
-  '95000000-0000-4000-8000-0000000000a9', '11111111-1111-4111-8111-111111111111',
+  '95000000-0000-4000-8000-0000000000b1', '11111111-1111-4111-8111-111111111111',
   '71000000-0000-4000-8000-000000000002', 'extract', 'cloud_worker', 'queued', 'client_confidential',
-  't211i', 1, 1, 0, now() - interval '90 seconds'
+  't211k', 1, 1, 0, now() - interval '90 seconds'
 );
 insert into t_lease
   select 11, o_found, o_job_id, o_organisation_id, o_source_version_id, o_stage, o_executor,
          o_parser_generation, o_index_generation, o_data_class, o_lease_token, o_fence, o_attempt
     from job_api.lease_parse_job_v1(pg_temp.syn_hash('cloud-c1'), 'extract', 300);
-select is((select data_class from t_lease where n = 11), 'client_confidential',
-  '136 the cloud credential''s lease takes the client_confidential extract job (a2 has been retargeted '
-  || 'to the box, a4 is failed, a5 succeeded, a6 is over the cap): the class clears the byte path, so '
+select is((select job_id::text || '/' || data_class from t_lease where n = 11),
+  '95000000-0000-4000-8000-0000000000b1/client_confidential',
+  '136 the cloud credential''s lease takes the client_confidential extract job and nothing else was '
+  || 'eligible: a2 was retargeted to the box, a4 is failed, a5 succeeded, a6 is over the cap, and a9 is '
+  || 'a box row this credential cannot take (#135''s executor arm). The class clears the byte path, so '
   || 'this is work the cloud worker does rather than a retarget it must make (#152)');
 insert into t_act
   select 'objref_cc_cloud', null, null, null, null, null, o_found, o_object_ref, o_data_class
     from job_api.object_ref_for_lease_v1(pg_temp.syn_hash('cloud-c1'),
-         '95000000-0000-4000-8000-0000000000a9',
+         '95000000-0000-4000-8000-0000000000b1',
          (select lease_token from t_lease where n = 11), (select fence from t_lease where n = 11));
 select is((select found::text from t_act where case_name = 'objref_cc_cloud'), 'true',
   '137 and the object key is handed over under that live lease: the clearance arm of '
@@ -1090,7 +1098,7 @@ select is((select object_ref from t_act where case_name = 'objref_cc_cloud'),
 insert into t_done
   select 'complete_cc_cloud', o_outcome, o_artifact_count, o_event_id
     from job_api.complete_parse_job_v1(pg_temp.syn_hash('cloud-c1'),
-         '95000000-0000-4000-8000-0000000000a9',
+         '95000000-0000-4000-8000-0000000000b1',
          (select lease_token from t_lease where n = 11), (select fence from t_lease where n = 11),
          '71000000-0000-4000-8000-000000000002', 'extract', 1,
          '[{"artifact_index":0,"body_text":"Synthetic client_confidential extract text.","locator":{"page":1}}]'::jsonb);
