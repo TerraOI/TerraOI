@@ -57,6 +57,9 @@ let stubs: Record<string, Stub> = {};
 let objectStatus = 200;
 let objectBody = "synthetic scanned page bytes";
 
+// The box's lease row carries `client_confidential` on purpose: under the byte-path policy the
+// supervisor ruled on #152, the box clears every class M1 ingests, so a confidential scan is normal
+// box work (pgTAP 045 assertion 113 is the SQL authority).
 function leaseStub(overrides: Record<string, unknown> = {}): Stub {
   return {
     status: 200,
@@ -84,11 +87,11 @@ function urlStub(): Stub {
 
 function resetStubs(): void {
   stubs = {
-    "/jobs/lease": leaseStub(),
-    "/jobs/renew": { status: 200, body: { outcome: "renewed", expiresAt: new Date(Date.now() + 60_000).toISOString(), fence: 1 } },
-    "/jobs/object-url": urlStub(),
-    "/jobs/complete": { status: 200, body: { outcome: "completed", artifactCount: 1 } },
-    "/jobs/abort": { status: 200, body: { outcome: "aborted" } },
+    "/api/jobs/lease": leaseStub(),
+    "/api/jobs/renew": { status: 200, body: { outcome: "renewed", expiresAt: new Date(Date.now() + 60_000).toISOString(), fence: 1 } },
+    "/api/jobs/object-url": urlStub(),
+    "/api/jobs/complete": { status: 200, body: { outcome: "completed", artifactCount: 1 } },
+    "/api/jobs/abort": { status: 200, body: { outcome: "aborted" } },
   };
   seenJobApiCalls.length = 0;
   seenObjectCalls.length = 0;
@@ -196,7 +199,7 @@ describe("localbox/ocr-pull.ts — the tenant box (plan §13, F32, ADR-0011)", (
   it("never asks for a job it is not allowed to run: stage extract, lease seconds in range", async () => {
     const outcome = await runBoxPullIteration(depsOf());
     expect(outcome.action).toBe("completed");
-    const lease = seenJobApiCalls.find((call) => call.path === "/jobs/lease")!;
+    const lease = seenJobApiCalls.find((call) => call.path === "/api/jobs/lease")!;
     expect(lease.method).toBe("POST");
     expect(lease.body["stage"]).toBe("extract");
     expect(Number(lease.body["leaseSeconds"])).toBeGreaterThanOrEqual(60);
@@ -232,7 +235,7 @@ describe("localbox/ocr-pull.ts — the tenant box (plan §13, F32, ADR-0011)", (
     const outcome = await runBoxPullIteration(depsOf({ extractor }));
     expect(outcome.action).toBe("completed");
 
-    const leaseCall = seenJobApiCalls.find((call) => call.path === "/jobs/lease")!;
+    const leaseCall = seenJobApiCalls.find((call) => call.path === "/api/jobs/lease")!;
     // The job message the box works from has no key and no URL: those keys are not in the shape the
     // client reads, and the contract's own `.strict()` shape is what the cloud test pins.
     const leaseBody = JSON.stringify(leaseCall.body);
@@ -247,7 +250,7 @@ describe("localbox/ocr-pull.ts — the tenant box (plan §13, F32, ADR-0011)", (
   });
 
   it("refuses a job API that streams the bytes through itself (ADR-0011 rejected that)", async () => {
-    stubs["/jobs/object-url"] = {
+    stubs["/api/jobs/object-url"] = {
       status: 200,
       body: { found: true, url: `${jobApiOrigin}/bytes/${OBJECT_REF}?token=${URL_TOKEN}`, expiresInSeconds: 60 },
     };
@@ -267,7 +270,7 @@ describe("localbox/ocr-pull.ts — the tenant box (plan §13, F32, ADR-0011)", (
       "not-a-url",
       `file:///tmp/${OBJECT_REF}`,
     ]) {
-      stubs["/jobs/object-url"] = { status: 200, body: { found: true, url: bad, expiresInSeconds: 60 } };
+      stubs["/api/jobs/object-url"] = { status: 200, body: { found: true, url: bad, expiresInSeconds: 60 } };
       const events: BoxEvent[] = [];
       const outcome = await runBoxPullIteration(depsOf({ log: (event) => events.push(event) }));
       expect(outcome.action, `${bad} must be refused`).toBe("object_unavailable");
@@ -277,28 +280,28 @@ describe("localbox/ocr-pull.ts — the tenant box (plan §13, F32, ADR-0011)", (
   });
 
   it("refuses a URL whose claimed lifetime outlives the lease that produced it", async () => {
-    stubs["/jobs/object-url"] = { status: 200, body: { found: true, url: `${objectOrigin}/bytes/x?token=${URL_TOKEN}`, expiresInSeconds: 4000 } };
+    stubs["/api/jobs/object-url"] = { status: 200, body: { found: true, url: `${objectOrigin}/bytes/x?token=${URL_TOKEN}`, expiresInSeconds: 4000 } };
     expect((await runBoxPullIteration(depsOf())).action).toBe("object_unavailable");
     expect(seenObjectCalls).toHaveLength(0);
   });
 
   it("a cloud_worker row is never touched by the box: the executors are separate credentials (#135)", async () => {
-    stubs["/jobs/lease"] = leaseStub({ executor: "cloud_worker" });
+    stubs["/api/jobs/lease"] = leaseStub({ executor: "cloud_worker" });
     const outcome = await runBoxPullIteration(depsOf());
     expect(outcome.action).toBe("lease_row_rejected");
-    expect(seenJobApiCalls.map((call) => call.path)).toEqual(["/jobs/lease"]);
+    expect(seenJobApiCalls.map((call) => call.path)).toEqual(["/api/jobs/lease"]);
     expect(seenObjectCalls).toHaveLength(0);
   });
 
   it("refuses a lease row that is not a contract message, and sends nothing else", async () => {
-    stubs["/jobs/lease"] = leaseStub({ dataClass: "restricted" });
+    stubs["/api/jobs/lease"] = leaseStub({ dataClass: "restricted" });
     const outcome = await runBoxPullIteration(depsOf());
     expect(outcome.action).toBe("lease_row_rejected");
-    expect(seenJobApiCalls.map((call) => call.path)).toEqual(["/jobs/lease"]);
+    expect(seenJobApiCalls.map((call) => call.path)).toEqual(["/api/jobs/lease"]);
   });
 
   it("a revoked credential stops the loop after one call instead of hammering the job API", async () => {
-    stubs["/jobs/lease"] = { status: 401, body: { error: "this body is never echoed" } };
+    stubs["/api/jobs/lease"] = { status: 401, body: { error: "this body is never echoed" } };
     const outcomes = await runBoxPullLoop(depsOf(), {
       maxIterations: 5,
       pollIntervalMs: 0,
@@ -308,10 +311,10 @@ describe("localbox/ocr-pull.ts — the tenant box (plan §13, F32, ADR-0011)", (
     expect(seenJobApiCalls).toHaveLength(1);
     const events: BoxEvent[] = [];
     // A transport failure names its kind and echoes nothing: the server body does not travel.
-    stubs["/jobs/renew"] = { status: 401, body: { error: "an internal host and a pool name" } };
+    stubs["/api/jobs/renew"] = { status: 401, body: { error: "an internal host and a pool name" } };
     const deps = depsOf({ log: (event) => events.push(event) });
     await expect(deps.jobApi.renew({ credential: WORKER_TOKEN, ...HOLDER, leaseSeconds: 60 })).rejects.toBeInstanceOf(JobApiTransportError);
-    stubs["/jobs/renew"] = { status: 503, body: { message: "an internal host and a pool name" } };
+    stubs["/api/jobs/renew"] = { status: 503, body: { message: "an internal host and a pool name" } };
     const error = await deps.jobApi.renew({ credential: WORKER_TOKEN, ...HOLDER, leaseSeconds: 60 }).catch((cause: unknown) => cause);
     expect(error).toBeInstanceOf(JobApiTransportError);
     expect((error as JobApiTransportError).kind).toBe("unavailable");
@@ -320,19 +323,19 @@ describe("localbox/ocr-pull.ts — the tenant box (plan §13, F32, ADR-0011)", (
   });
 
   it("an expired lease discards the box's completion instead of retrying it", async () => {
-    stubs["/jobs/renew"] = { status: 200, body: { outcome: "refused" } };
+    stubs["/api/jobs/renew"] = { status: 200, body: { outcome: "refused" } };
     const outcomes = await runBoxPullLoop(depsOf(), { maxIterations: 4, pollIntervalMs: 0, sleep: async () => undefined });
     expect(outcomes.map((outcome) => outcome.action)).toEqual(["lease_lost"]);
-    expect(seenJobApiCalls.map((call) => call.path)).toEqual(["/jobs/lease", "/jobs/object-url", "/jobs/renew"]);
-    expect(seenJobApiCalls.some((call) => call.path === "/jobs/complete")).toBe(false);
+    expect(seenJobApiCalls.map((call) => call.path)).toEqual(["/api/jobs/lease", "/api/jobs/object-url", "/api/jobs/renew"]);
+    expect(seenJobApiCalls.some((call) => call.path === "/api/jobs/complete")).toBe(false);
     expect(seenObjectCalls).toHaveLength(1);
   });
 
   it("the object is refused under a live lease: the job aborts with a named reason, not a retry", async () => {
-    stubs["/jobs/object-url"] = { status: 200, body: { found: false } };
+    stubs["/api/jobs/object-url"] = { status: 200, body: { found: false } };
     const outcome = await runBoxPullIteration(depsOf());
     expect(outcome).toEqual({ action: "aborted", reason: "object_missing" });
-    const abort = seenJobApiCalls.find((call) => call.path === "/jobs/abort")!;
+    const abort = seenJobApiCalls.find((call) => call.path === "/api/jobs/abort")!;
     expect(abort.body["reason"]).toBe("object_missing");
     expect(abort.body["fence"]).toBe(1);
     expect(JSON.stringify(abort.body)).not.toContain(OBJECT_REF);
@@ -342,7 +345,7 @@ describe("localbox/ocr-pull.ts — the tenant box (plan §13, F32, ADR-0011)", (
     objectBody = "x".repeat(8192);
     const outcome = await runBoxPullIteration(depsOf({ maxObjectBytes: 1024 }));
     expect(outcome).toEqual({ action: "aborted", reason: "unsupported_document" });
-    expect(seenJobApiCalls.some((call) => call.path === "/jobs/complete")).toBe(false);
+    expect(seenJobApiCalls.some((call) => call.path === "/api/jobs/complete")).toBe(false);
     expect(MAX_OBJECT_BYTES).toBe(20 * 1024 * 1024);
   });
 
@@ -350,16 +353,16 @@ describe("localbox/ocr-pull.ts — the tenant box (plan §13, F32, ADR-0011)", (
     objectStatus = 503;
     const outcome = await runBoxPullIteration(depsOf());
     expect(outcome.action).toBe("object_unavailable");
-    expect(seenJobApiCalls.some((call) => call.path === "/jobs/abort")).toBe(false);
-    expect(seenJobApiCalls.some((call) => call.path === "/jobs/complete")).toBe(false);
+    expect(seenJobApiCalls.some((call) => call.path === "/api/jobs/abort")).toBe(false);
+    expect(seenJobApiCalls.some((call) => call.path === "/api/jobs/complete")).toBe(false);
   });
 
   it("a source revoked mid-job stops the box: no artifact travels, and the job aborts", async () => {
-    stubs["/jobs/complete"] = { status: 200, body: { outcome: "refused" } };
+    stubs["/api/jobs/complete"] = { status: 200, body: { outcome: "refused" } };
     const outcome = await runBoxPullIteration(depsOf());
     expect(outcome).toEqual({ action: "aborted", reason: "source_revoked" });
-    expect(seenJobApiCalls.filter((call) => call.path === "/jobs/abort")).toHaveLength(1);
-    const complete = seenJobApiCalls.find((call) => call.path === "/jobs/complete")!;
+    expect(seenJobApiCalls.filter((call) => call.path === "/api/jobs/abort")).toHaveLength(1);
+    const complete = seenJobApiCalls.find((call) => call.path === "/api/jobs/complete")!;
     expect(complete.body["artifacts"]).toHaveLength(1);
     expect(complete.body["jobId"]).toBe(JOB_ID);
     expect(complete.body["fence"]).toBe(1);
@@ -367,10 +370,10 @@ describe("localbox/ocr-pull.ts — the tenant box (plan §13, F32, ADR-0011)", (
   });
 
   it("the same completion delivered twice is a no-op", async () => {
-    stubs["/jobs/complete"] = { status: 200, body: { outcome: "already_completed", artifactCount: 1 } };
+    stubs["/api/jobs/complete"] = { status: 200, body: { outcome: "already_completed", artifactCount: 1 } };
     expect(await runBoxPullIteration(depsOf())).toEqual({ action: "already_completed", artifactCount: 1 });
-    expect(seenJobApiCalls.filter((call) => call.path === "/jobs/complete")).toHaveLength(1);
-    expect(seenJobApiCalls.some((call) => call.path === "/jobs/abort")).toBe(false);
+    expect(seenJobApiCalls.filter((call) => call.path === "/api/jobs/complete")).toHaveLength(1);
+    expect(seenJobApiCalls.some((call) => call.path === "/api/jobs/abort")).toBe(false);
   });
 
   it("an artifact set the artifact home would refuse never leaves the box", async () => {
@@ -382,7 +385,7 @@ describe("localbox/ocr-pull.ts — the tenant box (plan §13, F32, ADR-0011)", (
       depsOf({ extractor: { async extract() { return { outcome: "extracted", artifacts: bad }; } } }),
     );
     expect(outcome).toEqual({ action: "aborted", reason: "quality_failed" });
-    const complete = seenJobApiCalls.find((call) => call.path === "/jobs/complete");
+    const complete = seenJobApiCalls.find((call) => call.path === "/api/jobs/complete");
     expect(complete).toBeUndefined();
   });
 
@@ -391,7 +394,7 @@ describe("localbox/ocr-pull.ts — the tenant box (plan §13, F32, ADR-0011)", (
       depsOf({ extractor: { async extract() { return { outcome: "unsupported", reason: "unsupported_document" }; } } }),
     );
     expect(outcome).toEqual({ action: "aborted", reason: "unsupported_document" });
-    expect(seenJobApiCalls.some((call) => call.path === "/jobs/abort")).toBe(true);
+    expect(seenJobApiCalls.some((call) => call.path === "/api/jobs/abort")).toBe(true);
   });
 
   it("nothing the box emits can carry the credential, the URL, or the object it read", async () => {
@@ -451,7 +454,7 @@ describe("localbox/ocr-pull.ts — the tenant box (plan §13, F32, ADR-0011)", (
   });
 
   it("a lease answer that is not the closed shape is a wait, not a crash", async () => {
-    stubs["/jobs/lease"] = { status: 200, body: { found: true, jobId: 42 } };
+    stubs["/api/jobs/lease"] = { status: 200, body: { found: true, jobId: 42 } };
     const events: BoxEvent[] = [];
     const outcome = await runBoxPullIteration(depsOf({ log: (event) => events.push(event) }));
     expect(outcome.action).toBe("job_api_malformed");
@@ -460,7 +463,7 @@ describe("localbox/ocr-pull.ts — the tenant box (plan §13, F32, ADR-0011)", (
 
   it("polls until it is told to stop, and never on a credential it lost", async () => {
     let polls = 0;
-    stubs["/jobs/lease"] = {
+    stubs["/api/jobs/lease"] = {
       status: 200,
       body: { found: false },
     };
@@ -473,6 +476,6 @@ describe("localbox/ocr-pull.ts — the tenant box (plan §13, F32, ADR-0011)", (
     });
     expect(outcomes.map((outcome) => outcome.action)).toEqual(["no_work", "no_work", "no_work"]);
     expect(polls).toBe(2);
-    expect(seenJobApiCalls.filter((call) => call.path === "/jobs/lease")).toHaveLength(3);
+    expect(seenJobApiCalls.filter((call) => call.path === "/api/jobs/lease")).toHaveLength(3);
   });
 });

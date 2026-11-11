@@ -253,8 +253,11 @@ class FakeJobApi implements JobApiPort {
     const row = await this.present(args.credential);
     if (!row || !this.holds(row, args)) return { found: false as const };
     if (this.sourceRevoked) return { found: false as const };
-    // `job_api.executor_clears_class` (#135, ADR-0005 §10c): cloud_worker clears public and internal.
-    if (row.executor === "cloud_worker" && row.dataClass === "client_confidential") return { found: false as const };
+    // `job_api.executor_clears_class` as ruled on #152: **both** executors clear public, internal and
+    // client_confidential, so the only content arm left that answers no-row is the version's state
+    // (revoked / deleting / deleted), which is executor-independent. pgTAP `045` 113-114 and 134-139 are
+    // the authority on that function; the double keeps that state arm (`sourceRevoked`) so the loop's
+    // reaction to it stays testable.
     return { found: true as const, objectRef: row.objectRef, dataClass: row.dataClass, executor: row.executor };
   }
 
@@ -651,10 +654,41 @@ describe("workers/ocr-pull.ts — the cloud executor (#135, ADR-0011)", () => {
     expect(signCalls).toHaveLength(0);
   });
 
-  it("an object this executor may not see is refused under the lease, and the job is not retried in place", async () => {
+  it("a client_confidential job runs on the cloud path: the byte path is its own policy (#152)", async () => {
+    // Ruled while these PRs sat open: `job_api.executor_clears_class` is not §12.4's model matrix, and
+    // both executors clear public, internal and client_confidential. The authority is pgTAP `045`
+    // 113-114 + 134-139; what this test pins is the loop's side — no forced retarget for a confidential
+    // scan, so the pilot corpus is extractable without a box in the staging story.
     const jobApi = new FakeJobApi([queuedJob({ dataClass: "client_confidential" })]);
     const outcome = await runCloudWorkerIteration(depsOf({ jobApi }));
+    expect(outcome.action).toBe("completed");
+    expect(jobApi.calls).not.toContain("retarget");
+    expect(signCalls).toHaveLength(1);
+    expect(objectCalls).toHaveLength(1);
+    expect(jobApi.artifactRows).toHaveLength(1);
+    expect(jobApi.artifactRows[0]!.producer).toBe("cloud_worker");
+  });
+
+  it("a version that stopped being readable under a live lease yields no key, and the job is not retried in place", async () => {
+    // The one content arm that survives the #152 widening, and it is executor-independent: the merged
+    // `object_ref_for_lease_v1` answers no row for a revoked / deleting / deleted parent version.
+    const jobApi = new FakeJobApi();
+    jobApi.sourceRevoked = true;
+    const outcome = await runCloudWorkerIteration(depsOf({ jobApi }));
     expect(outcome).toEqual({ action: "aborted", reason: "object_missing" });
+    expect(signCalls).toHaveLength(0);
+    expect(objectCalls).toHaveLength(0);
+    expect(jobApi.artifactRows).toHaveLength(0);
+  });
+
+  it("restricted never reaches a byte path: the contract refuses the row before anything is minted", async () => {
+    // Defence in depth, not the gate: the schema refuses a restricted job row (045 134 and the
+    // `…_data_class_ingestible_in_m1` CHECK), and `IngestionJobPayload`'s own superRefine refuses the
+    // message, so neither loop can even get as far as asking for an object.
+    const jobApi = new FakeJobApi([queuedJob({ dataClass: "restricted" })]);
+    const outcome = await runCloudWorkerIteration(depsOf({ jobApi }));
+    expect(outcome).toEqual({ action: "lease_row_rejected" });
+    expect(jobApi.calls).toEqual(["lease"]);
     expect(signCalls).toHaveLength(0);
     expect(objectCalls).toHaveLength(0);
     expect(jobApi.artifactRows).toHaveLength(0);

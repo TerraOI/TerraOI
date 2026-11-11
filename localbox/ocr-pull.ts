@@ -33,9 +33,12 @@ import type { FetchImpl } from "@/platform/gateway/adapters";
  *   `JobApiTransportError`, which carries a kind and nothing else — the same discipline the gateway
  *   adapters apply to a provider error.
  *
- * The HTTP surface below (`/jobs/*`) is the shape this client speaks; the handler that answers it,
- * with the `JOB_DB` adapter and the mint, is PR-3 of this packet. Its responses are deliberately
- * narrow: the client validates them and treats an unusable shape as a wait, never as a crash.
+ * The HTTP surface below (`/api/jobs/*`) is the shape this client speaks, because the supervisor ruled
+ * on [#152](https://github.com/TerraOI/TerraOI/issues/152) that the app Worker's `src/app/api/jobs/`
+ * routes (FAQ-0005) stay the box-facing surface. Writing those handlers — and the Cloudflare service
+ * binding by which they reach the mint, which lives on the separate `workers/` deployment and nowhere
+ * else — is PR-3 of this packet. The box never learns that distinction: it posts to a base URL and gets
+ * back a narrow answer, deliberately validated: an unusable shape is a wait, never a crash.
  */
 
 /** The merged lease floor and ceiling (`job_api.max_lease_seconds()`); OCR is slower than a parse. */
@@ -422,7 +425,7 @@ export function createHttpBoxJobApi(options: {
 
   return {
     async lease({ credential, stage, leaseSeconds }) {
-      const answer = await post("/jobs/lease", credential, { stage, leaseSeconds });
+      const answer = await post("/api/jobs/lease", credential, { stage, leaseSeconds });
       if (answer["found"] === false) return null;
       if (answer["found"] !== true) throw new JobApiTransportError("malformed");
 
@@ -476,7 +479,7 @@ export function createHttpBoxJobApi(options: {
     },
 
     async renew({ credential, jobId, leaseToken, fence, leaseSeconds }) {
-      const answer = await post("/jobs/renew", credential, { jobId, leaseToken, fence, leaseSeconds });
+      const answer = await post("/api/jobs/renew", credential, { jobId, leaseToken, fence, leaseSeconds });
       const outcome = stringOf(answer, "outcome");
       if (outcome === undefined || !RENEW_OUTCOMES.includes(outcome)) throw new JobApiTransportError("malformed");
       if (outcome === "refused") return { outcome: "refused" };
@@ -487,7 +490,7 @@ export function createHttpBoxJobApi(options: {
     },
 
     async objectUrl({ credential, jobId, leaseToken, fence }) {
-      const answer = await post("/jobs/object-url", credential, { jobId, leaseToken, fence });
+      const answer = await post("/api/jobs/object-url", credential, { jobId, leaseToken, fence });
       if (answer["found"] === false) return { found: false };
       if (answer["found"] !== true) throw new JobApiTransportError("malformed");
       const url = stringOf(answer, "url");
@@ -501,7 +504,7 @@ export function createHttpBoxJobApi(options: {
     },
 
     async complete({ credential, jobId, leaseToken, fence, sourceVersionId, stage, indexGeneration, artifacts, notes, confidence }) {
-      const answer = await post("/jobs/complete", credential, {
+      const answer = await post("/api/jobs/complete", credential, {
         jobId,
         leaseToken,
         fence,
@@ -522,7 +525,7 @@ export function createHttpBoxJobApi(options: {
     },
 
     async abort({ credential, jobId, leaseToken, fence, reason }) {
-      const answer = await post("/jobs/abort", credential, { jobId, leaseToken, fence, reason });
+      const answer = await post("/api/jobs/abort", credential, { jobId, leaseToken, fence, reason });
       const outcome = stringOf(answer, "outcome");
       if (outcome === undefined || !ABORT_OUTCOMES.includes(outcome)) throw new JobApiTransportError("malformed");
       if (outcome === "aborted") return { outcome: "aborted" };
