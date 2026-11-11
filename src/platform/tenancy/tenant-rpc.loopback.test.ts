@@ -232,7 +232,7 @@ describe("loopback: what crossed the socket is the user's own credential", () =>
   it("a 42501 refusal over a real socket maps the same way, never as an empty result", async () => {
     const outcome = await withTenantRpc(CTX_A, "refuse_42501_v1", {}, USER_TOKEN, config());
     if (outcome.ok) throw new Error(`tenancy refusal arrived as data: ${JSON.stringify(outcome)}`);
-    expect(outcome).toEqual({ kind: "tenancy", sqlstate: "42501" });
+    expect(outcome).toEqual({ ok: false, kind: "tenancy", sqlstate: "42501" });
   });
 
   it("a 500 and a connection failure both become backend_failure with the response text held back", async () => {

@@ -157,10 +157,19 @@ describe("the call shape: one request, the org from TenantContext, the user's ow
   });
 
   it("an RPC name that is not a bare identifier sends nothing at all", async () => {
-    for (const name of ["search corpus", "../other", "rpc;x", "Search_Corpus", "", "set_tenant_scope"]) {
+    for (const name of ["search corpus", "../other", "rpc;x", "Search_Corpus", ""]) {
       const t = transport(() => jsonResponse(200, null));
       const outcome = await withTenantRpc(CTX_A, name, { p_query: "x" }, TOKEN_1, configFor(t.fetchImpl));
       expect(outcome, name).toMatchObject({ ok: false, kind: "not_configured", reason: "rpc_name_invalid" });
+      expect(t.sent, name).toHaveLength(0);
+    }
+  });
+
+  it("the scope helpers are not callable as an RPC of their own (FAQ-0011)", async () => {
+    for (const name of ["set_tenant_scope", "clear_tenant_scope"]) {
+      const t = transport(() => jsonResponse(200, null));
+      const outcome = await withTenantRpc(CTX_A, name, { p_query: "x" }, TOKEN_1, configFor(t.fetchImpl));
+      expect(outcome, name).toMatchObject({ ok: false, kind: "not_configured", reason: "scope_helper_forbidden" });
       expect(t.sent, name).toHaveLength(0);
     }
   });
@@ -321,10 +330,23 @@ describe("concurrency (F03): two contexts through the same helper stay independe
 describe("the module keeps the rules it claims (the `provider-boundary.test.ts` idiom)", () => {
   const source = readFileSync(fileURLToPath(new URL("./tenant-rpc.ts", import.meta.url)), "utf8");
 
-  it("never dials set_tenant_scope, never sets a session variable, and keeps no module-level mutable", () => {
-    expect(source).not.toMatch(/set_tenant_scope/);
+  it("sets no session variable, forges no claims, and keeps no module-level mutable", () => {
     expect(source).not.toMatch(/set_config|request\.jwt/i);
     expect(source).not.toMatch(/^(?:let|var)\s/m); // no per-process scope: a module-level mutable is a review finding
+  });
+
+  it("names the scope helpers exactly once, in the list that refuses them, and dials one path only", () => {
+    // The behavioural pin is the test above (a caller cannot name them; one call is one request).
+    // This one pins the shape: the two names appear in the refusal list and nowhere else, and the
+    // request path is built from `/rpc/` plus the caller's named RPC — so no second, scope-shaped
+    // request can be assembled in this file.
+    const mentions = source.match(/(?:set|clear)_tenant_scope/g) ?? [];
+    expect(mentions).toEqual(["set_tenant_scope", "clear_tenant_scope"]);
+    const namingLines = source.split("\n").filter((line) => /_tenant_scope/.test(line));
+    expect(namingLines).toHaveLength(1);
+    expect(namingLines[0]).toMatch(/FORBIDDEN_RPC/);
+    expect(source.match(/\/rpc\//g)).toHaveLength(1);
+    expect(source).toContain("/rpc/${name}");
   });
 
   it("reads no credential of its own and carries no default host", () => {
