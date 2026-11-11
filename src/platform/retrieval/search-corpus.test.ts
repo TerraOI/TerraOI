@@ -1,4 +1,5 @@
-import { createServer, type AddressInfo, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -8,6 +9,7 @@ import { createTenantContext, type TenantContext } from "@/contracts/tenant-cont
 import {
   createSearchCorpusClient,
   unavailableSearchCorpusClient,
+  type CorpusRefusal,
   type FetchImpl,
   type SearchCorpusCall,
   type SearchCorpusResult,
@@ -241,9 +243,14 @@ function posted(calls: Captured[], index = 0): Record<string, unknown> {
   return JSON.parse(call.body) as Record<string, unknown>;
 }
 
-function failureOf(result: SearchCorpusResult): { status: string; reason?: string; origin?: string } {
-  if (result.ok) throw new Error("expected a refusal, got evidence");
-  return { status: result.status, reason: result.refusal?.reason, origin: result.refusal?.origin };
+function refusalOf(result: SearchCorpusResult): CorpusRefusal {
+  if (result.ok || !("refusal" in result)) throw new Error("expected a refusal that names why");
+  return result.refusal;
+}
+
+function failureOf(result: SearchCorpusResult): { status: string; reason?: string; origin?: string; sqlState?: string | null } {
+  const found = refusalOf(result);
+  return { status: result.status, reason: found.reason, origin: found.origin, sqlState: found.sqlState };
 }
 
 // ---------------------------------------------------------------- refuses before any network call
@@ -258,7 +265,7 @@ describe("search_corpus_v1 client: local refusals (no socket opened)", () => {
     );
     expect(calls).toHaveLength(0);
     expect(failureOf(result)).toMatchObject({ status: "index_unavailable", reason: "dimension_mismatch", origin: "local" });
-    if (!result.ok) expect(result.refusal?.reachedDatabase).toBe(false);
+    expect(refusalOf(result).reachedDatabase).toBe(false);
   });
 
   it("a query vector without the pinned index identity is refused, as the RPC refuses it", async () => {
@@ -342,16 +349,16 @@ describe("search_corpus_v1 client: what the call asks for", () => {
   });
 
   it("takes the tenant only from TenantContext: no call shape carries another organisation", async () => {
-    // The call has no organisationId field, so the only tenant available is the resolved context.
-    // The RPC cross-checks it against the transaction scope and refuses a disagreement (28000).
+    // `SearchCorpusCall` has no organisationId field, so the only tenant a caller can name is the one
+    // already resolved into TenantContext — and that is what reaches the wire.
     const { fetchImpl, calls } = rowsTransport([chunkRow()]);
     const search = client(fetchImpl).search;
-    const result = await search({ ...baseCall(), context: context({ organisationId: OTHER_ORG }) });
+    await search({ ...baseCall(), context: context({ organisationId: OTHER_ORG }) });
     expect(posted(calls).p_organisation_id).toBe(OTHER_ORG);
-    // And when the database says the scope disagrees, that is a failure, never an empty answer.
+    // And when the database says the scope disagrees with the caller's membership, that is a refusal
+    // the caller must not be able to mistake for "nothing in the corpus matched".
     const refused = sqlstateTransport("28000", "search_corpus_v1: p_organisation_id does not match this transaction's tenant scope (§4.1)");
     const refusal = await client(refused.fetchImpl).search(baseCall());
-    expect(result.ok || refusal.ok).toBe(false);
     expect(failureOf(refusal)).toMatchObject({ status: "backend_failure", reason: "tenancy", sqlState: "28000" });
   });
 
@@ -370,9 +377,11 @@ describe("search_corpus_v1 client: what the call asks for", () => {
   });
 
   it("sends the vector and the pinned index id together, as one pinned identity", async () => {
+    // A 4-dimension pin so the vector on the wire is readable; the rule is about pairing, not size.
+    const tiny = EmbeddingIndex.parse({ ...INDEX, dimensions: 4 });
     const { fetchImpl, calls } = rowsTransport([chunkRow()]);
     await client(fetchImpl).search(
-      baseCall({ embeddingIndexId: INDEX_ID, embeddingIndex: INDEX, queryEmbedding: [0.25, -1, 0, 3.5] }),
+      baseCall({ embeddingIndexId: INDEX_ID, embeddingIndex: tiny, queryEmbedding: [0.25, -1, 0, 3.5] }),
     );
     const body = posted(calls);
     expect(body.p_embedding_index_id).toBe(INDEX_ID);
@@ -454,7 +463,17 @@ describe("search_corpus_v1 client: rows, evidence and diagnostics", () => {
   });
 
   it("a degraded lexical_only lane is labelled, not a failure (§8.1 step 6)", async () => {
-    const { fetchImpl } = rowsTransport([chunkRow({ o_lane: "lexical", o_index_generation: null })]);
+    // The embedding route was unavailable, so the caller sent no vector: the RPC answers on the
+    // labelled lane and says so in the diagnostics. Still authorized, still an answer.
+    const degradedDiagnostics = {
+      ...DIAGNOSTICS,
+      retrieval_mode: "lexical_only",
+      lanes: { ...DIAGNOSTICS.lanes, vector: { ...DIAGNOSTICS.lanes.vector, queried: false, matched: 0, index_id: null, index_key: null, model: null, dimensions: null, metric: null, generation: null } },
+      signals: { ...DIAGNOSTICS.signals, index_unavailable: true },
+    };
+    const { fetchImpl } = rowsTransport([
+      chunkRow({ o_lane: "lexical", o_index_generation: null, o_vector_rank: null, o_diagnostics: degradedDiagnostics }),
+    ]);
     const result = await client(fetchImpl).search(baseCall());
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -488,10 +507,9 @@ describe("search_corpus_v1 client: refusals and transport", () => {
     };
     const result = await client(leaking).search(baseCall());
     expect(failureOf(result)).toMatchObject({ status: "backend_failure", reason: "transport", origin: "transport" });
-    if (!result.ok) {
-      expect(result.refusal?.detail).not.toContain("hunter2");
-      expect(result.refusal?.detail.length).toBeLessThanOrEqual(300);
-    }
+    const detail = refusalOf(result).detail;
+    expect(detail).not.toContain("hunter2");
+    expect(detail.length).toBeLessThanOrEqual(300);
   });
 
   it("a 503 from the Data API is a failure with the status preserved, not an empty corpus", async () => {
@@ -501,9 +519,10 @@ describe("search_corpus_v1 client: refusals and transport", () => {
   });
 
   it("rejects a row set that contradicts the RPC contract instead of answering from it", async () => {
-    // ok + no chunk rows, an unknown data class, and a chunk row beside a diagnostics row are all
-    // things the migration guarantees cannot happen; a client that guessed would be inventing rows.
-    const malformed: unknown[][] = [
+    // ok + no chunk rows, an unknown data class, a non-array body, and a chunk row beside a
+    // diagnostics row are all things the migration guarantees cannot happen; a client that guessed
+    // would be inventing rows.
+    const malformed: unknown[] = [
       [diagnosticsRow("ok")],
       [chunkRow({ o_data_class: "secret_squirrel" })],
       [chunkRow(), diagnosticsRow("no_accessible_evidence")],
@@ -534,6 +553,8 @@ let server: Server;
 let base = "";
 const wire: Captured[] = [];
 let replyBody: unknown = [chunkRow()];
+/** PostgREST answers a raised SQLSTATE with a 4xx and the state in the body, never with a 200. */
+let replyStatus = 200;
 
 beforeAll(async () => {
   server = createServer((req: IncomingMessage, res: ServerResponse) => {
@@ -545,7 +566,7 @@ beforeAll(async () => {
         headers[name] = Array.isArray(value) ? value.join(",") : (value ?? "");
       }
       wire.push({ url: req.url ?? "", method: req.method ?? "", headers, body: Buffer.concat(chunks).toString("utf8") });
-      res.writeHead(200, { "content-type": "application/json" });
+      res.writeHead(replyStatus, { "content-type": "application/json" });
       res.end(JSON.stringify(replyBody));
     });
   });
@@ -564,6 +585,7 @@ describe("the client against a loopback listener: what actually crossed the sock
     // the `authenticated` grant all behave as the migration assumes. The canary sits in the same env
     // bag a real deployment would have; the client type has no field that could carry it.
     process.env.SUPABASE_SERVICE_ROLE_KEY = SERVICE_ROLE_CANARY;
+    replyStatus = 200;
     replyBody = [chunkRow()];
     const search = createSearchCorpusClient({ dataApiBaseUrl: base, publishableKey: PUBLISHABLE });
     const result = await search.search(
@@ -590,6 +612,7 @@ describe("the client against a loopback listener: what actually crossed the sock
   });
 
   it("a SQLSTATE refusal over the socket answers with the taxonomy name, and the query text stays in the body", async () => {
+    replyStatus = 400;
     replyBody = { code: "42501", message: "search_corpus_v1: project is not readable in this scope (§4.2)" };
     const search = createSearchCorpusClient({ dataApiBaseUrl: base, publishableKey: PUBLISHABLE });
     const result = await search.search(baseCall({ accessToken: USER_TOKEN, projectId: PROJECT }));
