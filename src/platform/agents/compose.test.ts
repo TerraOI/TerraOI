@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { Answer, type Claim, type ClaimType } from "@/contracts/answer";
+import { Answer, type ClaimType } from "@/contracts/answer";
 import type { DataClass } from "@/contracts/data-class";
 import { DEFAULT_TASK_CHAIN_ORDER, PLATFORM_DEFAULT_CLEARANCE } from "@/contracts/provider-route";
 
