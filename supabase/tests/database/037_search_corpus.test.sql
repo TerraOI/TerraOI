@@ -21,6 +21,7 @@
 --   81…0103 Site A (client_confidential), published now, text "grid", vector spike 3
 --   81…0104 `received`, never published, text holds "SQ-121"
 --   81…0105 tenant-wide, same version as 0101, text "aircraft", vector spike 3
+--   81…0106 tenant-wide, version published 2024-03-05 **23:30 UTC**, text holds "daystamp", NO vector
 --   seed 81…0003 tenant-wide published now "aircraft", vector spike 4
 --   seed 81…0004 Site A published now "grid", no vector
 --   seed 81…0005 Site A published now "aircraft", no vector
@@ -28,7 +29,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(64);
+select plan(70);
 
 -- ---------------------------------------------------------------- helpers
 create function pg_temp.syn_hash(p_seed text) returns text
@@ -147,6 +148,27 @@ insert into public.knowledge_chunks (id, organisation_id, source_version_id, chu
    '{"page": 1, "section": "Draft"}', 'Synthetic provision SQ-121 captured but never published: readable, not searchable.', 'public'),
   ('81000000-0000-4000-8000-000000000105', '11111111-1111-4111-8111-111111111111', '71000000-0000-4000-8000-000000000101', 1,
    '{"page": 18, "section": "Provisions"}', 'Synthetic run sheet for the same provision: the aircraft type and the reserve threshold for the sortie are recorded before the first pass.', 'public');
+
+-- The #161 day-boundary fixture: one version published at **23:30 UTC** on 2024-03-05. The offset is
+-- written into the literal (`23:30:00+00`) on purpose — the ruling is that an asked date means the UTC
+-- calendar day, so the row that proves it has to be pinned in UTC as well, or the session's TimeZone
+-- would decide which side of the boundary it falls on and the test would be measuring the venue.
+-- `daystamp` is a token no other case queries, so this row stays out of every earlier count while
+-- remaining readable, published and tenant-wide.
+insert into public.knowledge_sources (id, organisation_id, collection_id, kind, external_id, owner_user_id) values
+  ('61000000-0000-4000-8000-000000000105', '11111111-1111-4111-8111-111111111111', '51000000-0000-4000-8000-000000000001', 'upload', 'synth-search-dayboundary', '00000000-0000-4000-8000-0000000000a1');
+
+insert into public.source_versions (id, organisation_id, source_id, collection_id, version_number,
+                                    uploaded_by, data_class, content_hash, object_ref, state,
+                                    parser_generation, body_text, published_at) values
+  ('71000000-0000-4000-8000-000000000105', '11111111-1111-4111-8111-111111111111', '61000000-0000-4000-8000-000000000105', '51000000-0000-4000-8000-000000000001', 1,
+   '00000000-0000-4000-8000-0000000000a1', 'public', pg_temp.syn_hash('dayboundary'),
+   'knowledge/11111111-1111-4111-8111-111111111111/61000000-0000-4000-8000-000000000105/v1.pdf',
+   'published', 'v1', 'Synthetic boundary note SQ-123: the daystamp marker records one late pass.', '2024-03-05 23:30:00+00');
+
+insert into public.knowledge_chunks (id, organisation_id, source_version_id, chunk_index, locator, body_text, data_class) values
+  ('81000000-0000-4000-8000-000000000106', '11111111-1111-4111-8111-111111111111', '71000000-0000-4000-8000-000000000105', 0,
+   '{"page": 3, "section": "Boundary"}', 'Synthetic boundary note SQ-123: the daystamp marker records one late pass.', 'public');
 
 -- Vectors against each tenant's pinned `corpus` generation. 0101 deliberately has none: that is what
 -- makes assertions 8-10 non-vacuous, because the text lane is the only one that can reach that chunk.
@@ -666,6 +688,67 @@ select ok(
   and to_regprocedure('extensions.vector_l2_distance(extensions.vector, extensions.vector)') is null
   and to_regprocedure('extensions.vector_cosine_distance(extensions.vector, extensions.vector)') is null,
   '64 pgvector exports exactly the distance functions the vector lane calls and not the vector_-prefixed names it does not have, so a future rename fails by name here instead of at the first vector query (§8.3, §12.4)');
+
+-- ---------------------------------------------------------------- 65-70 the supervisor's rulings on #161
+-- #161 was answered on 2026-11-11 while this PR was open, with one precision about time zones. These
+-- assertions are *added*, and 49-53 and 56 are left standing exactly as they were: the rulings confirm
+-- the shape those assertions already pinned and settle the boundary they had left to the session.
+-- 65/66 are the day boundary the answer asks for; 67 is `historical_gap` measured at that boundary;
+-- 68/69 are the second half of (A) that 56 does not cover — `NULL` and `'{}'` are accepted, and the
+-- flag stays false in a run that *succeeded*; 70 keeps 51 and 67 honest by showing the flag is false
+-- when nothing was published later.
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+insert into t_out values ('scope_a1h', pg_temp.try_scope('11111111-1111-4111-8111-111111111111'));
+insert into t_rows
+  select 'boundary_same_day', o_result_status, o_evidence_kind, o_chunk_id, o_collection_id, o_organisation_id,
+         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_locator, o_rrf_score, o_diagnostics
+    from public.search_corpus_v1('11111111-1111-4111-8111-111111111111', array[]::text[], null, null,
+         'daystamp', null, null, date '2024-03-05', null, 10);
+insert into t_rows
+  select 'boundary_prev_day', o_result_status, o_evidence_kind, o_chunk_id, o_collection_id, o_organisation_id,
+         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_locator, o_rrf_score, o_diagnostics
+    from public.search_corpus_v1('11111111-1111-4111-8111-111111111111', array[]::text[], null, null,
+         'daystamp', null, null, date '2024-03-04', null, 10);
+insert into t_rows
+  select 'effective_future', o_result_status, o_evidence_kind, o_chunk_id, o_collection_id, o_organisation_id,
+         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_locator, o_rrf_score, o_diagnostics
+    from public.search_corpus_v1('11111111-1111-4111-8111-111111111111', array[]::text[], null, null,
+         'aircraft', null, null, date '2100-01-01', null, 10);
+-- The accepted half of (A): an empty authority array is a stated "no filter", not a filter to drop.
+insert into t_out values ('empty_authority', pg_temp.try_search('11111111-1111-4111-8111-111111111111',
+  array[]::text[], null, null, 'daystamp', null, null, date '2024-03-05', array[]::text[], 10));
+insert into t_rows
+  select 'empty_authority_rows', o_result_status, o_evidence_kind, o_chunk_id, o_collection_id, o_organisation_id,
+         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_locator, o_rrf_score, o_diagnostics
+    from public.search_corpus_v1('11111111-1111-4111-8111-111111111111', array[]::text[], null, null,
+         'daystamp', null, null, date '2024-03-05', array[]::text[], 10);
+reset role;
+
+select is((select count(*)::int from t_rows where case_name = 'boundary_same_day' and evidence_kind = 'chunk'
+             and chunk_id = '81000000-0000-4000-8000-000000000106'), 1::int,
+  '65 a version published at 23:30 UTC on 2024-03-05 IS searched when the caller asks about 2024-03-05: the date names the UTC calendar day, not a session-time-zone midnight (#161 (D))');
+
+select is((select count(*)::int from t_rows where case_name = 'boundary_prev_day' and evidence_kind = 'chunk'
+             and chunk_id = '81000000-0000-4000-8000-000000000106'), 0::int,
+  '66 the same version is NOT available to a caller asking about 2024-03-04: the boundary is UTC midnight, and 65+66 together are why `cast(published_at as date)` is not good enough (#161 (D))');
+
+select is((select (diagnostics -> 'signals' ->> 'historical_gap')::boolean
+             from t_rows where case_name = 'boundary_prev_day' and rank = 1), true,
+  '67 and the version held back by that boundary is reported as a gap, because readable material published after the asked day exists in scope (#161 (D))');
+
+select is((select result from t_out where case_name = 'empty_authority'), 'ok',
+  '68 an empty p_authority_filters array means "no filter" and is accepted: 56 refuses a non-empty one, and only both halves together are the ruled behaviour (#161 (A))');
+
+select is((select diagnostics -> 'filters' ->> 'authority_filters_applied'
+             from t_rows where case_name = 'empty_authority_rows' and rank = 1) || '/' ||
+           (select diagnostics -> 'filters' ->> 'authority_filters_applied'
+             from t_rows where case_name = 'boundary_same_day' and rank = 1), 'false/false',
+  '69 authority_filters_applied is false in a run that *succeeded*, whether the caller passed NULL (65) or an empty array (68) — the diagnostics cannot report a filter this corpus does not have as applied (#161 (A))');
+
+select is((select (diagnostics -> 'signals' ->> 'historical_gap')::boolean
+             from t_rows where case_name = 'effective_future' and rank = 1), false,
+  '70 with an effective date past every published version the gap flag is false, so 51 and 67 report a measured distance rather than a constant true (#161 (D))');
 
 select * from finish();
 rollback;
