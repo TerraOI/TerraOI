@@ -13,12 +13,28 @@
 --     policy or a grant changes the result set, and there is no definer path that outranks RLS here.
 --     It writes nothing: no INSERT/UPDATE/DELETE anywhere, no sequence, no outbox row (T-113 owns chunk
 --     writes and the publish switch, #136).
---   * Tenant comes from the transaction's tenant scope (`current_organisation_id()`) and the caller
---     from `auth.uid()`. `p_organisation_id` is host-derived by the BFF and is honored **only** as a
---     cross-check: if it disagrees with the session scope the call is refused (AGENTS.md §4.1). An
---     unscoped call raises (28000) rather than searching every tenant the reader could reach (§4.3).
---     Membership is re-checked here even when a scope is already set, because a scope GUC alone never
---     confers membership (§4.3, and 040_knowledge_uploads.test.sql:62-63 pins the same rule for capture).
+--   * Tenant scope is established by this function, as its **first statement** (#163, FAQ-0011, plan
+--     §4.3:245-247): `perform public.set_tenant_scope(p_organisation_id)`. The argument never confers
+--     anything — `set_tenant_scope` (tenancy_core.sql:203-220) raises 28000 unless `auth.uid()` is an
+--     active member of that organisation, and 22023 when it is null — so the caller can only ever pick
+--     one of its own tenants, and every RLS policy still requires membership *and* the scope. Because a
+--     scope is now always set before the first table is read, there is no unscoped corpus read to
+--     forbid: the §4.3 "reads nothing without a scope" invariant is enforced by construction, not by a
+--     gate. It also means the function is `volatile`, not `stable`: `set_config(..., true)` is volatile,
+--     and a `stable` promise on a function that mutates a GUC is a lie to the planner (037:71 pins
+--     `provolatile` from `pg_proc` by full signature; 037:72 pins the call precedes every read).
+--   * A **pre-existing** scope is still honoured as a claim about which tenant this transaction is
+--     working under: if the transaction arrived scoped to one organisation and `p_organisation_id`
+--     names a different one, the call is refused (28000). `set_tenant_scope` would have accepted it —
+--     a member of two tenants may legitimately choose either — but a reader must not be able to
+--     re-point a transaction that another RPC in the same request already scoped, and "one request,
+--     one tenant" is what keeps the host-derived context and the argument from ever disagreeing
+--     (§4.1). **Code chosen: 28000, not 42501.** It is the class `set_tenant_scope` itself uses for
+--     every scope/identity refusal (tenancy_core.sql:209, :215) and the class this RPC already used
+--     for the same mismatch, so "you are not a member of that tenant" and "that is not the tenant you
+--     are working under" answer identically and neither is a probe; `42501` stays reserved here for the
+--     object-level claims — a foreign project or index id — where the *object* is the thing being
+--     denied. #162 maps both classes to a tenancy refusal, never to an empty result (AGENTS.md §4.1).
 --   * Every filter narrows. `p_collection_ids` and `p_service_keys` restrict what RLS already allows;
 --     an id the caller may not read yields nothing rather than a grant (§4.2). `p_project_id` is the
 --     one that raises when invalid (42501): a project is a scope claim, and a filter silently dropped
@@ -107,9 +123,14 @@ create or replace function public.search_corpus_v1(
   o_rrf_score numeric,
   o_diagnostics jsonb
 )
-language plpgsql stable security invoker set search_path = public, pg_temp as $$
+language plpgsql volatile security invoker set search_path = public, pg_temp as $$
 declare
-  v_scope uuid := public.current_organisation_id();
+  -- Read in a declare *initializer*, before the body runs, because the body's first statement overwrites
+  -- it: this is the only moment a pre-existing scope is still visible. An initializer is an expression
+  -- evaluated on block entry, not a statement, so the ruled shape — the first **statement** is
+  -- `perform public.set_tenant_scope(p_organisation_id);` — still holds (FAQ-0011, #163).
+  v_arrived_scope uuid := public.current_organisation_id();
+  v_scope uuid;
   v_user uuid := auth.uid();
   v_limit integer := 12;
   v_budget integer;
@@ -117,20 +138,33 @@ declare
   v_vector_lane boolean := (p_query_embedding is not null);
   v_query tsquery;
 begin
-  -- ---------------------------------------------------------------- the scope gates (do these first:
-  -- everything below reads tenant tables, and an unscoped or mismatched call must never reach them).
-  if p_organisation_id is null then
-    raise exception 'search_corpus_v1: p_organisation_id is required (host-derived, plan §8.2)'
-      using errcode = '22023';
+  -- ---------------------------------------------------------------- the tenant scope (#163, FAQ-0011,
+  -- plan §4.3:245-247): the first statement, in the same transaction as the work. This RPC establishes
+  -- the scope it reads under, so a caller needs no pre-request hook, no direct connection and no forged
+  -- claim, and an unscoped corpus read is impossible rather than merely refused. The argument confers
+  -- nothing: `set_tenant_scope` raises 22023 for a null id, 28000 when `auth.uid()` is null and 28000
+  -- when that user is not an active member of the named organisation (tenancy_core.sql:203-220), so the
+  -- caller can only ever select one of its own tenants and every RLS policy below still requires
+  -- membership *and* the scope. `set_config(..., true)` makes it transaction-local, so it cannot outlive
+  -- this call on a pooled connection (§4.3:247, pinned by the merged `010` suite).
+  perform public.set_tenant_scope(p_organisation_id);
+
+  -- A transaction that arrived already scoped to a *different* organisation is refused, not re-pointed:
+  -- `set_tenant_scope` would accept it (a member of two tenants may choose either), but a reader must not
+  -- re-point a transaction another RPC in the same request already scoped — the host-derived context and
+  -- the argument are never allowed to disagree (§4.1). Header bullet 2 states the code choice (28000)
+  -- and why 42501 stays reserved for the object-level claims further down.
+  if v_arrived_scope is not null and v_arrived_scope <> p_organisation_id then
+    raise exception 'search_corpus_v1: this transaction is already scoped to organization %, so it cannot search %: the scope is not an argument to override (§4.1, #163)',
+      v_arrived_scope, p_organisation_id using errcode = '28000';
   end if;
-  if v_scope is null then
-    raise exception 'search_corpus_v1: tenant scope is required: there is no unscoped corpus read (§4.3)'
-      using errcode = '28000';
-  end if;
-  if p_organisation_id <> v_scope then
-    raise exception 'search_corpus_v1: p_organisation_id % does not match this transaction''s tenant scope (§4.1)', p_organisation_id
-      using errcode = '28000';
-  end if;
+
+  v_scope := p_organisation_id;
+
+  -- ---------------------------------------------------------------- the identity gates (§4.2). These re-read
+  -- what `set_tenant_scope` just verified, deliberately: the tenancy gate belongs to this RPC too, so a
+  -- later edit that drops the first statement fails here instead of turning the reader into a
+  -- cross-tenant search. `auth.uid()` is what decides, never the GUC — that is the claim 037:33 pins.
   if v_user is null then
     raise exception 'search_corpus_v1: no authenticated user' using errcode = '28000';
   end if;
@@ -452,7 +486,7 @@ $$;
 comment on function public.search_corpus_v1(
   uuid, text[], uuid, uuid[], text, extensions.vector, uuid, date, text[], integer
 ) is
-  'T-114 hybrid reader (plan §8.2): full-text and vector candidates fused by reciprocal rank, under the querying role''s RLS (SECURITY INVOKER, #136). Tenant from the transaction scope and membership from auth.uid(), never from an argument; p_organisation_id is cross-checked and refused when it disagrees. Filters narrow (collections, services, project); an invalid project raises. p_effective_on is a **UTC calendar day** — the cut is published_at < the first instant of the next UTC day, never a session-time-zone date cast — with historical_gap when readable versions were published later and coverage_unknown when nothing qualifies at that date; p_authority_filters accepts NULL or ''{}'' and refuses a non-empty array (22023), and filters.authority_filters_applied is the constant false because no authority column exists yet (#161). The index identity is resolved and pinned, never assumed; with no query vector the labelled lexical_only lane answers. Reads only: no write path here (T-113 owns chunk writes and the publish switch). Output columns: o_body_text is the chunk body as stored — ADR-0008 rule 4 means this function returns text and never an offset, so the Worker derives the citation span from it; o_evidence_kind is ''chunk'' for an evidence row and ''diagnostics'' for the single row emitted when there is no evidence, so "empty" and "failed" cannot be confused (§8.2); o_diagnostics is bounded coverage reporting (counts, flags, the resolved index identity, the applied filters) and never an id or title of a row the caller may not read.';
+  'T-114 hybrid reader (plan §8.2): full-text and vector candidates fused by reciprocal rank, under the querying role''s RLS (SECURITY INVOKER, #136). Tenant: the first statement is perform public.set_tenant_scope(p_organisation_id) (#163, FAQ-0011, plan §4.3:245-247), so the scope is established inside this call under the caller''s own identity — p_organisation_id selects one of the tenants auth.uid() is an active member of and confers nothing by itself, and a transaction already scoped to a different organisation is refused (28000, the same class set_tenant_scope uses; 42501 is reserved here for foreign project or index ids). The function is volatile because set_config is volatile. Filters narrow (collections, services, project); an invalid project raises. p_effective_on is a **UTC calendar day** — the cut is published_at < the first instant of the next UTC day, never a session-time-zone date cast — with historical_gap when readable versions were published later and coverage_unknown when nothing qualifies at that date; p_authority_filters accepts NULL or ''{}'' and refuses a non-empty array (22023), and filters.authority_filters_applied is the constant false because no authority column exists yet (#161). The index identity is resolved and pinned, never assumed; with no query vector the labelled lexical_only lane answers. Reads only: no write path here (T-113 owns chunk writes and the publish switch). Output columns: o_body_text is the chunk body as stored — ADR-0008 rule 4 means this function returns text and never an offset, so the Worker derives the citation span from it; o_evidence_kind is ''chunk'' for an evidence row and ''diagnostics'' for the single row emitted when there is no evidence, so "empty" and "failed" cannot be confused (§8.2); o_diagnostics is bounded coverage reporting (counts, flags, the resolved index identity, the applied filters) and never an id or title of a row the caller may not read.';
 
 -- ---------------------------------------------------------------- grants, per function by full signature
 -- FAQ-0010 and 20261105210000_intake_service_role.sql:10-11: PostgreSQL hands EXECUTE on a new `public`

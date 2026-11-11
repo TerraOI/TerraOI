@@ -1,10 +1,16 @@
 -- T-114 `search_corpus_v1`: the hybrid reader (full text + vector, reciprocal-rank fusion) under RLS.
 -- Plan §8.1–§8.3, §6.2, §4.3; F08, F16; ADR-0008 (SQL returns text, never offsets); the supervisor's
--- slot-and-role ruling on #136 (security invoker, `authenticated` only, no write path).
+-- slot-and-role ruling on #136 (security invoker, `authenticated` only, no write path), and the two
+-- rulings of 2026-11-11 that this file used to assume around: #161 (authority filters refused and never
+-- reported applied; `p_effective_on` is a UTC calendar day — assertions 65-70) and #163 / FAQ-0011 (the
+-- RPC establishes its own tenant scope as its first statement and is volatile — assertions 71-77, and
+-- the re-scoped 30-33).
 --
 -- Structure follows 020_knowledge.test.sql and 040_knowledge_uploads.test.sql: every authorization
--- claim is asserted as `authenticated` with a real JWT subject inside a tenant scope, so deleting a
--- predicate from the RPC fails a test rather than quietly passing. Calls go through SECURITY INVOKER
+-- claim is asserted as `authenticated` with a real JWT subject, under a tenant scope established through
+-- `set_tenant_scope` (which is also what the RPC now does for itself, so an unscoped call is exercised
+-- too — 30, 73-74), so deleting a predicate from the RPC fails a test rather than quietly passing.
+-- Calls go through SECURITY INVOKER
 -- pg_temp.try_* wrappers that return the SQLSTATE instead of aborting the test transaction, and rows
 -- are captured in temp tables created by the role that fills them, so a fixture call never prints an
 -- ok line (COORDINATION §6b).
@@ -29,7 +35,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(70);
+select plan(77);
 
 -- ---------------------------------------------------------------- helpers
 create function pg_temp.syn_hash(p_seed text) returns text
@@ -411,14 +417,14 @@ insert into t_out values
   ('re_scope', pg_temp.try_scope('11111111-1111-4111-8111-111111111111'));
 reset role;
 
-select is((select result from t_out where case_name = 'no_scope'), '28000',
-  '30 with no transaction scope the RPC raises (28000) instead of searching every tenant it can reach (§4.3, AGENTS.md §4.1)');
+select is((select result from t_out where case_name = 'no_scope'), 'ok',
+  '30 with no pre-existing scope the RPC establishes one itself through set_tenant_scope instead of refusing an unscoped call: that replaces this PR''s first-cut gate, exactly as #163 ruled, and the read it makes is still confined to the one tenant it scoped — which 73 pins with rows rather than with a status code (FAQ-0011, §4.3:245)');
 
 select is((select result from t_out where case_name = 'null_org'), '22023',
-  '31 a missing host-derived organization is a bad request, not a scope for the database to guess (§8.2)');
+  '31 a missing host-derived organization is a bad request, not a scope for the database to guess: the 22023 now comes from set_tenant_scope itself rather than from a gate in this RPC (§8.2, #163)');
 
 select is((select result from t_out where case_name = 'mismatched_org'), '28000',
-  '32 p_organisation_id is honored only when it agrees with the session scope: the parameter is a cross-check, never the tenant (§4.1, §8.2)');
+  '32 a caller cannot select a tenant it does not belong to: p_organisation_id picks among the caller''s own memberships and nothing wider, and the mismatch answers with the same 28000 either way (set_tenant_scope''s membership check or the arrived-scope guard), so neither half is a probe (§4.1, §4.3:245, #163)');
 
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
@@ -433,7 +439,7 @@ insert into t_out values ('suspended_search', pg_temp.try_search('11111111-1111-
 reset role;
 
 select is((select result from t_out where case_name = 'suspended_search'), '28000',
-  '33 a removed membership is refused under a scope an active member established: the RPC re-checks auth.uid() rather than trusting the GUC (§4.2, AGENTS.md §4.1)');
+  '33 a removed membership is refused under a scope an active member established: the scope GUC is not the grant, `auth.uid()` + membership is, and after #163 that is checked twice over — by set_tenant_scope and by this RPC''s own gate (§4.2, AGENTS.md §4.1)');
 
 select is((select count(*)::int from t_rows where case_name = 'a1_regate' and evidence_kind = 'chunk'
              and chunk_id = '81000000-0000-4000-8000-000000000102') >= 1, true,
@@ -749,6 +755,81 @@ select is((select diagnostics -> 'filters' ->> 'authority_filters_applied'
 select is((select (diagnostics -> 'signals' ->> 'historical_gap')::boolean
              from t_rows where case_name = 'effective_future' and rank = 1), false,
   '70 with an effective date past every published version the gap flag is false, so 51 and 67 report a measured distance rather than a constant true (#161 (D))');
+
+-- ---------------------------------------------------------------- 71-77 the supervisor's ruling on #163 / FAQ-0011
+-- The tenant scope used to be a precondition this RPC refused to work without; #163 ruled the plan's own
+-- shape instead (§4.3:245-247): the RPC establishes the scope itself, as its first statement, from the
+-- server-supplied `p_organisation_id` and the caller's own identity. One existing assertion had to
+-- change because of that — 30, whose premise ("no scope, so refuse") stopped being the honest claim — and
+-- these pins are what keeps the new shape from being a way to smuggle a tenant in: the argument selects
+-- among the caller's own memberships, the merged `set_tenant_scope` membership check decides, a scope
+-- already carried by the transaction is not re-pointed, and the volatility promise is written down.
+--
+-- Seed user `00000000-0000-4000-8000-0000000000a4` is an active member of **both** tenants
+-- (`supabase/seed.sql:58, :60`), which is what makes 75-77 non-vacuous: no fixture has to be mutated to
+-- reach the guard, and membership alone cannot explain the refusal.
+select is(p.provolatile::text, 'v',
+  '71 the RPC is VOLATILE, not stable: its first statement calls set_tenant_scope, whose set_config is volatile, so `stable` would be a promise the planner is entitled to rely on inside one statement and the reader would be lying about it (#163 rule 4, pinned by full signature)')
+  from pg_proc p
+ where p.oid = 'public.search_corpus_v1(uuid, text[], uuid, uuid[], text, extensions.vector, uuid, date, text[], integer)'::regprocedure;
+
+select ok(position('perform public.set_tenant_scope(p_organisation_id);' in p.prosrc) between 1 and position('return query' in p.prosrc),
+  '72 and that call sits in the body before the query that reads anything, so a scope exists by the time the first tenant table is reached: an unscoped corpus read is structurally impossible here, not merely declined (FAQ-0011, #163 rule 2)')
+  from pg_proc p
+ where p.oid = 'public.search_corpus_v1(uuid, text[], uuid, uuid[], text, extensions.vector, uuid, date, text[], integer)'::regprocedure;
+
+-- 73-74: a self-scoping call reads exactly the tenant it named, and only for a caller that belongs to it.
+insert into t_out values ('clear_scope_2', pg_temp.try_clear_scope());
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+insert into t_rows
+  select 'a1_selfscoped_company1', o_result_status, o_evidence_kind, o_chunk_id, o_collection_id, o_organisation_id,
+         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_locator, o_rrf_score, o_diagnostics
+    from public.search_corpus_v1('11111111-1111-4111-8111-111111111111', array[]::text[], null, null,
+         'aircraft', null, null, null, null, 10);
+insert into t_out values ('a1_selfscoped_company2', pg_temp.try_search('22222222-2222-4222-8222-222222222222',
+  array[]::text[], null, null, 'couplant', null, null, null, null, 10));
+reset role;
+
+select is((select (count(*) > 0)::text from t_rows where case_name = 'a1_selfscoped_company1' and evidence_kind = 'chunk') || '/' ||
+          (select count(*)::int from t_rows where case_name = 'a1_selfscoped_company1' and evidence_kind = 'chunk'
+             and organisation_id is distinct from '11111111-1111-4111-8111-111111111111'::uuid), 'true/0',
+  '73 the self-scoped call really answered (rows, not just a status) and every row carries the tenant it named: establishing a scope is not the same as widening a read (§4.1, FAQ-0011)');
+
+select is((select result from t_out where case_name = 'a1_selfscoped_company2'), '28000',
+  '74 unscoped and naming a tenant the caller is not a member of still raises (28000): the argument never confers membership, which is the sentence §4.3:245 hangs the whole pattern on (#163 rule 2)');
+
+-- 75-77: the guard the ruling keeps, on a caller that *could* lawfully choose either tenant.
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a4';
+insert into t_out values
+  ('a4_scope_company1', pg_temp.try_scope('11111111-1111-4111-8111-111111111111')),
+  ('a4_match_company1', pg_temp.try_search('11111111-1111-4111-8111-111111111111', array[]::text[], null, null,
+     'aircraft', null, null, null, null, 10)),
+  ('a4_switch_to_company2', pg_temp.try_search('22222222-2222-4222-8222-222222222222', array[]::text[], null, null,
+     'couplant', null, null, null, null, 10)),
+  ('a4_still_company1', pg_temp.try_search('11111111-1111-4111-8111-111111111111', array[]::text[], null, null,
+     'aircraft', null, null, null, null, 10));
+insert into t_rows
+  select 'a4_after_refusal', o_result_status, o_evidence_kind, o_chunk_id, o_collection_id, o_organisation_id,
+         o_data_class, o_lane, o_rank, o_lexical_rank, o_vector_rank, o_exact_match, o_locator, o_rrf_score, o_diagnostics
+    from public.search_corpus_v1('11111111-1111-4111-8111-111111111111', array[]::text[], null, null,
+         'aircraft', null, null, null, null, 10);
+reset role;
+
+select is((select result from t_out where case_name = 'a4_scope_company1') || '/' ||
+          (select result from t_out where case_name = 'a4_match_company1'), 'ok/ok',
+  '75 the dual-membership caller works normally under the scope it arrived with, so 76 is the mismatch and not a refusal of this user or of company2 (#163)');
+
+select is((select result from t_out where case_name = 'a4_switch_to_company2'), '28000',
+  '76 and the pre-existing scope is not an argument to override: a4 may lawfully choose company2 at all, but not from inside a transaction another RPC already scoped to company1 — the guard the ruling asks for, answered with the class set_tenant_scope itself uses so the two refusals are indistinguishable (§4.1, #163)');
+
+select is((select result from t_out where case_name = 'a4_still_company1') || '/' ||
+          (select (count(*) > 0)::text from t_rows where case_name = 'a4_after_refusal' and evidence_kind = 'chunk'
+             and organisation_id = '11111111-1111-4111-8111-111111111111'::uuid) || '/' ||
+          (select count(*)::int from t_rows where case_name = 'a4_after_refusal' and evidence_kind = 'chunk'
+             and organisation_id = '22222222-2222-4222-8222-222222222222'::uuid),
+  'ok/true/0', '77 the refusal is a refusal, not a re-point: after it the transaction is still company1-scoped and still answers for company1 alone, so a denied call cannot leave the session looking at the other tenant (FAQ-0011 rule 3)');
 
 select * from finish();
 rollback;
