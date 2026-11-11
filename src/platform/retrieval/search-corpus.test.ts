@@ -388,6 +388,18 @@ describe("search_corpus_v1 client: what the call asks for", () => {
     expect(body.p_query_embedding).toEqual([0.25, -1, 0, 3.5]);
   });
 
+  it("an index named without a vector is still sent: a stated argument is never dropped locally", async () => {
+    // The RPC accepts `p_embedding_index_id` with no query vector: it resolves and pins that row under
+    // RLS and reports how much of the readable corpus has vectors, which is the only way
+    // `coverage.chunks_with_vectors` and the `index_unavailable` signal can mean anything. Substituting
+    // null here would be the silently-dropped-filter mistake in the other direction (§8.2).
+    const { fetchImpl, calls } = rowsTransport([chunkRow({ o_lane: "lexical", o_index_generation: null })]);
+    await client(fetchImpl).search(baseCall({ embeddingIndexId: INDEX_ID, embeddingIndex: INDEX }));
+    const body = posted(calls);
+    expect(body.p_embedding_index_id).toBe(INDEX_ID);
+    expect(body.p_query_embedding).toBeNull();
+  });
+
   it("an unscoped-but-valid lexical-only search still runs: no embedding means no vector lane", async () => {
     const { fetchImpl, calls } = rowsTransport([diagnosticsRow("no_accessible_evidence")]);
     const result = await client(fetchImpl).search(baseCall());

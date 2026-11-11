@@ -433,7 +433,10 @@ function validate(call: SearchCorpusCall): { args: RpcArgs } | { refusal: Search
       p_collection_ids: call.collectionIds === undefined ? null : [...call.collectionIds],
       p_query_text: queryText,
       p_query_embedding: embedding === undefined || embedding === null ? null : [...embedding],
-      p_embedding_index_id: embedding === undefined || embedding === null ? null : (indexId ?? null),
+      // Sent whether or not a vector came with it: with no vector the RPC still resolves and pins that
+      // row under RLS and reports how much of the readable corpus carries vectors (§8.3 coverage, and
+      // the `index_unavailable` signal). Replacing a stated argument with null would be a silent drop.
+      p_embedding_index_id: indexId ?? null,
       p_effective_on: call.effectiveOn ?? null,
       p_authority_filters: null,
       p_limit: limit,
