@@ -1,6 +1,6 @@
 # T-112 Upload session, completion and cloud extraction of digital PDFs
 
-Lane: 2 · Week: 1 · Protected: yes (`src/app/api/knowledge/`, and any migration here) · Depends on: T-111 · Status: done — merged as [PR #32](https://github.com/TerraOI/TerraOI/pull/32) (a: upload session and capture RPCs) and [PR #54](https://github.com/TerraOI/TerraOI/pull/54) (b: digital-PDF extraction with page locators); the staging demo below is **not** claimed — it still waits on #38 (storage credential) and #75 (session-store reach)
+Lane: 2 · Week: 1 · Protected: yes (`src/app/api/knowledge/`, and any migration here) · Depends on: T-111 · Status: in progress — **T-112c claimed by Lane 2 (PR #168)**; T-112 a/b are done — merged as [PR #32](https://github.com/TerraOI/TerraOI/pull/32) (a: upload session and capture RPCs) and [PR #54](https://github.com/TerraOI/TerraOI/pull/54) (b: digital-PDF extraction with page locators); the staging demo below is **not** claimed — it still waits on #38 (storage credential) and #75 (session-store reach)
 Plan refs: §7.2 steps 1–3, §9.2.1, §6.2; F09, F10, F12
 
 ## Supervisor rulings to apply (2026-11-09)
