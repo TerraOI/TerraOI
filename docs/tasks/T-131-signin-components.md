@@ -1,7 +1,7 @@
 # T-131 White-label sign-in components (presentational)
 
 Lane: 1 · Week: 2 · Protected: no · Depends on: T-002
-Status: in progress (wyu610)
+Status: in progress (wyu610) — **code complete**; no staging step, so this closes on local evidence. Merged as [#20](https://github.com/TerraOI/TerraOI/pull/20): every file in Owns is on `main` with 21 tests (`brand-modes` 7, `forms` 6, `sign-in-page` 5, `hardening` 3) and the `/dev/sign-in` production guard. Owed: the desktop/mobile screenshots in all three modes, and the link-invalid copy value [#44](https://github.com/TerraOI/TerraOI/issues/44) settled — `copy.ts` still has four statuses and no such key, so `outcomes.ts` reports a dead link as `unavailable` until a Lane 1 scoped edit adds it (FAQ-0007).
 Plan refs: §4.1 step 3, §4.2 (TOI-ADR-15), §5.1; F02 (presentation only), F04
 
 ## Goal

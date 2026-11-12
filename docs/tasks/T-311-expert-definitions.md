@@ -1,6 +1,6 @@
 # T-311 UAV and GPR expert definitions v1, prompt registry, `routeExpert` (F29)
 
-Lane: 2 · Week: 3 · Protected: yes (`supabase/migrations/`; `src/platform/gateway/` only if chain config lands here) · Depends on: T-111 (merged), T-115 (a merged as #31; b/c/d open as #53/#56/#58), T-114 (unclaimed), T-104 (unclaimed), T-312 (same week: F36 publication needs a passing run) · Status: ready
+Lane: 2 · Week: 3 · Protected: yes (`supabase/migrations/`; `src/platform/gateway/` only if chain config lands here) · Depends on: T-111 (merged), T-115 (a–g all on `main`: #31, #53, #76, #113, #133, #145), T-114 (open as #160/#162, not on `main`), T-104 (unclaimed — no `src/platform/chat/`, no `agent_runs` migration), T-312 (same week: F36 publication needs a passing run) · Status: ready — **not claimable yet**
 Decided (rulings below): [#6](https://github.com/TerraOI/TerraOI/issues/6) (pin decided; Company1's `client_confidential` half open), [#45](https://github.com/TerraOI/TerraOI/issues/45), [#41](https://github.com/TerraOI/TerraOI/issues/41) (`create_collection_v1`, which binds a collection to a service)
 Plan refs: §5.2, §10.1 (M1 routing), §10.2, §10.3, §6.1 (Services + Prompt registry), §12.4 (per-task chains), §16; F29, F07 (F31/F36 boundary)
 

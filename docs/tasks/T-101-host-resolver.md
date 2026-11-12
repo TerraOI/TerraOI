@@ -1,6 +1,6 @@
 # T-101 Exact-host tenant resolver and TenantContext per request
 
-Lane: 1 · Week: 1 · Protected: yes (`src/platform/tenancy/`) · Depends on: T-000, T-002, T-003 · Status: done — merged as [PR #18](https://github.com/TerraOI/TerraOI/pull/18); the staging check below is still open pending T-004
+Lane: 1 · Week: 1 · Protected: yes (`src/platform/tenancy/`) · Depends on: T-000, T-002, T-003 · Status: in progress — **code complete; staging evidence owed** ([COORDINATION.md §6a](../COORDINATION.md)). a merged as [#18](https://github.com/TerraOI/TerraOI/pull/18); the page-host leg under ADR-0006 rule 2 landed later as [#141](https://github.com/TerraOI/TerraOI/pull/141) (`src/proxy.ts` and `resolvePageTenantContext`). The staging check below has **never run**, and two things gate it: T-004 §20.8 (proxied DNS for the staging tenant hosts — `env.staging.routes` is already committed in `wrangler.jsonc`) and the **runtime half of the ADR-0006 spike**, still owed
 Plan refs: §4.1, §9.4; F01
 
 ## Goal

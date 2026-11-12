@@ -1,6 +1,6 @@
 # T-315 Load approved Company1 corpora into staging; draft the first eval cases
 
-Lane: 2 · Week: 3 · Protected: no · Depends on: T-111 (merged), T-112 (a merged as #32; b open as #54), T-113 (unclaimed — the pin is decided by #6's engineering half), T-114 (unclaimed), T-211 and T-212 (not started), T-312 (same week: F34/F35 machinery) · Status: ready
+Lane: 2 · Week: 3 · Protected: no · Depends on: T-111 (merged), T-112 (a merged as #32, b as #54; the HTTP wiring is still `null` at `src/platform/knowledge/upload-adapters.ts:19` and T-112c's re-scope is open as #168), T-113 (chunker + embedding gate merged as #80; the SQL write/publish half is unclaimed), T-114 (open as #160/#162, not on `main`), T-211 (job-API SQL open as #149, workers boundary as #158 — nothing on `main`) and T-212 (not started), T-312 (same week: F34/F35 machinery) · Status: ready — **not claimable yet**: nothing on `main` can put a document into a published collection, so there is no corpus to load
 Gated by decisions: [#6](https://github.com/TerraOI/TerraOI/issues/6) (Company1 half), [#38](https://github.com/TerraOI/TerraOI/issues/38), [#51](https://github.com/TerraOI/TerraOI/issues/51), [#66](https://github.com/TerraOI/TerraOI/issues/66)
 Plan refs: §14.1 (steps 1–2 and the thresholds), §7.1–§7.2, §6.2, §18.3, §20.3, §20.8; F34 (the runner is [T-312](./T-312-eval-harness.md)'s), F10/F12/F13 used, not owned
 
