@@ -76,7 +76,7 @@ function fakeStore(): FakeStore {
       calls.insert += 1;
       rows.set(sessionKey, session);
     },
-    async find(sessionKey) {
+    async find({ sessionKey }) {
       calls.find += 1;
       return rows.get(sessionKey) ?? null;
     },
@@ -85,7 +85,7 @@ function fakeStore(): FakeStore {
       const row = rows.get(sessionKey);
       if (row) rows.set(sessionKey, { ...row, revokedAt: at });
     },
-    async replaceTokens(sessionKey, replacement) {
+    async replaceTokens(sessionKey, replacement, _now) {
       calls.replaceTokens += 1;
       const row = rows.get(sessionKey);
       if (!row || row.revokedAt !== null) return false;

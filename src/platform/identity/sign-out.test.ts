@@ -20,14 +20,14 @@ function memoryStore(): SessionStore & { rows: Map<string, StoredSession> } {
     async insert({ sessionKey, session }) {
       rows.set(sessionKey, session);
     },
-    async find(sessionKey) {
+    async find({ sessionKey }) {
       return rows.get(sessionKey) ?? null;
     },
     async revoke(sessionKey, at) {
       const row = rows.get(sessionKey);
       if (row) rows.set(sessionKey, { ...row, revokedAt: at });
     },
-    async replaceTokens(sessionKey, replacement) {
+    async replaceTokens(sessionKey, replacement, _now) {
       const row = rows.get(sessionKey);
       if (!row || row.revokedAt !== null) return false;
       rows.set(sessionKey, { ...row, ...replacement });

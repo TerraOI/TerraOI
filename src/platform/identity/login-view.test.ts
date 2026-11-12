@@ -24,14 +24,14 @@ function memoryStore(rows: Map<string, StoredSession> = new Map()): SessionStore
     async insert({ sessionKey, session }) {
       rows.set(sessionKey, session);
     },
-    async find(sessionKey) {
+    async find({ sessionKey }) {
       return rows.get(sessionKey) ?? null;
     },
     async revoke(sessionKey, at) {
       const row = rows.get(sessionKey);
       if (row) rows.set(sessionKey, { ...row, revokedAt: at });
     },
-    async replaceTokens(sessionKey, replacement) {
+    async replaceTokens(sessionKey, replacement, _now) {
       const row = rows.get(sessionKey);
       if (!row || row.revokedAt !== null) return false;
       rows.set(sessionKey, { ...row, ...replacement });
@@ -47,17 +47,18 @@ function ports(overrides: Partial<LoginViewPorts> = {}): LoginViewPorts {
     now: () => NOW,
     signingSecret: () => SECRET,
     sessionStore: () => null,
+    tokenCipher: () => createTokenCipher(CIPHER),
     findHost: async (host) =>
       host === "company1.terraoi.app" || host === "company2.terraoi.app"
         ? { organisationId: host === "company1.terraoi.app" ? C1 : C2, organisationStatus: "active" }
         : null,
-    findMembership: async (organisationId, userId) =>
+    findMembership: async (organisationId, userId, _accessToken) =>
       organisationId === C1 && userId === OWNER1
         ? { membershipId: MEMBERSHIP, status: "active", roles: ["member"], permittedServiceKeys: [], permittedProjectIds: [] }
         : organisationId === C1 && userId === LEFT
           ? { membershipId: MEMBERSHIP, status: "suspended", roles: [], permittedServiceKeys: [], permittedProjectIds: [] }
           : null,
-    policyRevision: async () => 1,
+    policyRevision: async (_organisationId, _accessToken) => 1,
     ...overrides,
   };
 }
@@ -108,7 +109,8 @@ describe("buildLoginView (the surface F02 chooses, plan §4.1 step 4, §4.2)", (
     const store = memoryStore();
     const view = await buildLoginView({
       request: makeRequest("company1.terraoi.app", await sessionCookieFor(store, OWNER1)),
-      ports: ports({ sessionStore: () => store, findHost: async () => ({ organisationId: C1, organisationStatus: "suspended" }) }),
+      ports: ports({ sessionStore: () => store,
+    tokenCipher: () => createTokenCipher({ currentVersion: 'v1', keys: { v1: 'test-session-token-key-32b!!!!!!' } }), findHost: async () => ({ organisationId: C1, organisationStatus: "suspended" }) }),
     });
     expect(view).toEqual({ kind: "tenant_not_live" });
   });
@@ -179,6 +181,7 @@ describe("buildLoginView (the surface F02 chooses, plan §4.1 step 4, §4.2)", (
       request: makeRequest("company2.terraoi.app", await sessionCookieFor(store, OWNER1, "company1.terraoi.app")),
       ports: ports({
         sessionStore: () => store,
+    tokenCipher: () => createTokenCipher({ currentVersion: 'v1', keys: { v1: 'test-session-token-key-32b!!!!!!' } }),
         findMembership: async (organisationId) => {
           lookedUp.push(organisationId);
           return null;
@@ -226,7 +229,8 @@ describe("buildLoginView (the surface F02 chooses, plan §4.1 step 4, §4.2)", (
     const store = memoryStore();
     const view = await buildLoginView({
       request: makeRequest("company1.terraoi.app", await sessionCookieFor(store, OWNER1)),
-      ports: ports({ sessionStore: () => store, findMembership: async () => { throw new Error("database down"); } }),
+      ports: ports({ sessionStore: () => store,
+    tokenCipher: () => createTokenCipher({ currentVersion: 'v1', keys: { v1: 'test-session-token-key-32b!!!!!!' } }), findMembership: async () => { throw new Error("database down"); } }),
     });
     expect(view.kind).toBe("sign_in");
     if (view.kind !== "sign_in") return;

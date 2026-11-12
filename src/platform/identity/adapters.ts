@@ -6,18 +6,20 @@ import type { IdentityExchange, MagicLinkCallbackPorts } from "./complete-magic-
 import type { LoginViewPorts } from "./login-view";
 import type { MagicLinkRequestPorts } from "./request-magic-link";
 import type { SignOutPorts } from "./sign-out";
+import { createSessionStore } from "./session-db";
 import type { SessionStore } from "./session-store";
 import { createTokenCipher } from "./session-store";
 import type { TokenCipher } from "./session-store";
+import { createTenancyDataApi } from "./tenancy-data-api";
 import { bytesToBase64Url, hasUsableSecret, hmacBytes } from "./signed-token";
 
 /**
  * Deployment wiring for the sign-in endpoints (the `src/platform/site/adapters.ts` pattern: real
  * implementations behind the ports, every binding optional in the type, a missing one failing
- * closed). Only the **anon / publishable** key is used, and only from a server path: a service-role
- * or admin key appears nowhere in this module, and nothing here would work if one were passed —
- * AGENTS.md §4.2 allows such a key only with a comment and an ADR, and #37 explicitly refused one
- * for this path ("No service-role key in the Worker for this path").
+ * closed). Only the **anon / publishable** key is used for Auth and host lookup, and only from a
+ * server path: a service-role or admin key appears nowhere in this module (#37).
+ *
+ * Session rows are reached over Hyperdrive `SESSION_DB` as `toi_session_worker` (#75).
  */
 
 export type IdentityEnv = {
@@ -36,6 +38,11 @@ export type IdentityEnv = {
    * Binding it advances the keyring version from `v1` to `v2`.
    */
   SESSION_TOKEN_KEY_PREVIOUS?: string;
+  /**
+   * Hyperdrive binding for `toi_identity` (#75). Login user is `IN ROLE toi_session_worker`.
+   * Added under `env.staging` by the owner (T-004 §20.8); absent → sessionStore() returns null.
+   */
+  SESSION_DB?: { connectionString: string };
   SUPABASE_URL?: string;
   SUPABASE_ANON_KEY?: string;
   /** The same Durable-Object shape the pilot-intake limiter uses. */
@@ -52,20 +59,19 @@ export interface IdentityPorts
 export type FetchImpl = (
   url: string,
   init: { method: string; headers: Record<string, string>; body: string },
-) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>;
+) => Promise<{
+  ok: boolean;
+  status: number;
+  json: () => Promise<unknown>;
+  /** Optional: tenancy Data API prefers text; Auth paths only need json. */
+  text?: () => Promise<string>;
+}>;
 
 const SUPABASE_SIGNUP_PATH = "/auth/v1/signup";
 const SUPABASE_TOKEN_PATH = "/auth/v1/token?grant_type=pkce";
 
 /**
- * The #37 seam, in code rather than in prose.
- *
- * The tenancy lookups the handlers need (`findHost`, `findMembership`, `policyRevision`) cannot be
- * written until the supervisor settles how a verified identity reaches Postgres — privileged
- * connection plus JWT-claim GUC, a per-user token against PostgREST, or `SECURITY DEFINER` RPCs
- * taking the user id as an argument. The host lookup alone could already run against
- * `public.resolve_tenant_host`, but choosing a connection identity here would pre-empt that decision
- * and put a role/grant surface on `main` that is hard to unwind, so every method refuses.
+ * Kept for tests that assert the refuse-closed seam. Production wiring uses `createTenancyDataApi`.
  */
 export function unresolvedTenancyStore(): TenancyStore {
   const refuse = (): never => {
@@ -78,27 +84,12 @@ export function unresolvedTenancyStore(): TenancyStore {
   };
 }
 
-/**
- * The invite-claim RPC does not exist yet either: it is the `t-102e-identity-invites-sql` branch, and
- * its signature is one of the things #37 decides. Refusing here is what keeps "an invite can be
- * redeemed" from becoming an accidental truth.
- */
 async function unresolvedRedeemInvitation(): Promise<"not_found"> {
   throw new Error("invite redemption RPC not landed (t-102e-identity-invites-sql, shape pending on #37)");
 }
 
 /**
- * The second #37 seam, and the one #75 opened: the session **row**.
- *
- * #37 put the row in a schema the Data API does not expose ("reachable only by the session code
- * path"), and refused a service-role key for this path — so no PostgREST call, with any key, can
- * reach it, and this repo does not get to invent the alternative. The connection, the login role and
- * its grants are the three options on #75, and the role creation, the connection config, its binding
- * and the encryption secret are §20.8 human steps whoever wins.
- *
- * So this refuses, in the same shape as `unresolvedTenancyStore()`. The consequence is visible and
- * deliberate: with no store, `issueSession` throws and the callback answers "unavailable" with no
- * cookie — a deployment can never quietly fall back to the self-contained cookie #37 rejected.
+ * Kept for tests. Production returns `null` from `sessionStore()` when `SESSION_DB` is unbound.
  */
 export function unresolvedSessionStore(): SessionStore {
   const refuse = (): never => {
@@ -112,16 +103,10 @@ export function unresolvedSessionStore(): SessionStore {
   };
 }
 
-/**
- * The at-rest keyring for the token pair. No binding, no cipher — and `issueSession` then refuses to
- * mint a session rather than storing a credential in the clear.
- */
 function sessionTokenCipher(env: Partial<IdentityEnv>): TokenCipher | null {
   const current = env.SESSION_TOKEN_KEY;
   if (!hasUsableSecret(current)) return null;
   const previous = env.SESSION_TOKEN_KEY_PREVIOUS;
-  // The version label advances when a previous key is bound: rows written under `v1` stay readable
-  // during the rotation, and unbinding the old key retires them.
   const keys: Record<string, string> = { v1: current };
   let currentVersion = "v1";
   if (hasUsableSecret(previous)) {
@@ -149,22 +134,53 @@ export function buildIdentityPorts(env: Partial<IdentityEnv>, options: { fetchIm
     if (baseUrl.length === 0 || anonKey.length === 0) {
       throw new Error("SUPABASE_URL and SUPABASE_ANON_KEY bindings are required");
     }
-    // `apikey` + a bearer of the same publishable key is the Auth REST contract. Nothing else: a
-    // service-role key would be a §4.2 privileged path with an ADR, and #37 has not granted one.
     return { apikey: anonKey, authorization: `Bearer ${anonKey}`, "content-type": "application/json" };
   };
 
+  const tenancy =
+    baseUrl.length > 0 && anonKey.length > 0
+      ? createTenancyDataApi({
+          supabaseUrl: baseUrl,
+          anonKey,
+          fetchImpl: async (url, init) => {
+            const response = await fetchImpl(url, {
+              method: init.method,
+              headers: init.headers,
+              body: init.body ?? "",
+            });
+            return {
+              ok: response.ok,
+              status: response.status,
+              text: async () => (response.text ? response.text() : JSON.stringify(await response.json())),
+            };
+          },
+        })
+      : null;
+
+  const sessionStore = createSessionStore({
+    binding: env.SESSION_DB ?? null,
+  });
+
   return {
-    ...unresolvedTenancyStore(),
+    findHost: async (host) => {
+      if (tenancy === null) throw new Error("SUPABASE_URL and SUPABASE_ANON_KEY bindings are required");
+      return tenancy.findHost(host);
+    },
+    findMembership: async (organisationId, userId, accessToken) => {
+      if (tenancy === null) throw new Error("SUPABASE_URL and SUPABASE_ANON_KEY bindings are required");
+      return tenancy.findMembership(organisationId, userId, accessToken);
+    },
+    policyRevision: async (organisationId, accessToken) => {
+      if (tenancy === null) throw new Error("SUPABASE_URL and SUPABASE_ANON_KEY bindings are required");
+      return tenancy.policyRevision(organisationId, accessToken);
+    },
     redeemInvitation: async () => unresolvedRedeemInvitation(),
-    sessionStore: () => unresolvedSessionStore(),
+    sessionStore: () => sessionStore,
     tokenCipher: () => sessionTokenCipher(env),
 
     now: () => Math.floor(Date.now() / 1000),
     signingSecret: () => env.IDENTITY_SESSION_KEY ?? null,
 
-    // A keyed digest, so the limiter store never holds an enumerable address and a case variant of
-    // one address cannot buy a second budget.
     rateLimitKey: async ({ host, email }) => bytesToBase64Url(await hmacBytes(env.IDENTITY_SESSION_KEY ?? "", `${host}|${email}`)),
 
     allowRequest: async (key) => {
@@ -177,10 +193,6 @@ export function buildIdentityPorts(env: Partial<IdentityEnv>, options: { fetchIm
     async sendMagicLink({ email, redirectTo, codeVerifier }) {
       const headers = authHeaders();
       const challenge = await sha256Base64Url(codeVerifier);
-      // `create_user: "email_only"` keeps the endpoint from answering differently for a known
-      // address: an unknown address gets an unconfirmed identity that can sign in and still be told
-      // "no access", which is the model plan §4.2 describes. Sign-up spam is the trade, handled by
-      // the limiter here and by provider captcha settings in T-004 (noted in the PR).
       const response = await fetchImpl(`${baseUrl}${SUPABASE_SIGNUP_PATH}`, {
         method: "POST",
         headers,
@@ -204,7 +216,6 @@ export function buildIdentityPorts(env: Partial<IdentityEnv>, options: { fetchIm
         headers,
         body: JSON.stringify({ auth_code: code, code_verifier: codeVerifier }),
       });
-      // A rejected PKCE exchange is one answer for every reason: expired, used, or never issued.
       if (!response.ok) return { ok: false, reason: "invalid_or_expired" };
       let payload: unknown;
       try {
@@ -219,10 +230,6 @@ export function buildIdentityPorts(env: Partial<IdentityEnv>, options: { fetchIm
         return { ok: false, reason: "invalid_or_expired" };
       }
       if (typeof user.email !== "string") return { ok: false, reason: "invalid_or_expired" };
-      // #37 option (b): the pair is part of the result, and it stops here. It is what the session row
-      // stores (sealed) and what later server calls use; it is never handed to a response, a cookie or
-      // a page. An exchange that returns an identity without a complete pair is not a signed-in
-      // session, so it collapses into the same safe reason as every other failure.
       const accessToken = (payload as { access_token?: unknown } | null)?.access_token;
       const refreshToken = (payload as { refresh_token?: unknown } | null)?.refresh_token;
       const expiresIn = (payload as { expires_in?: unknown } | null)?.expires_in;

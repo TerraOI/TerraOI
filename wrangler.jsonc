@@ -12,6 +12,9 @@
   // T-130 pilot inquiry (ADR-0002): 3 requests per 60 s per IP hash. TURNSTILE_SECRET and
   // INQUIRY_IP_HMAC_KEY are secrets (wrangler secret put); the INQUIRY_DB Hyperdrive binding is
   // added to env.staging by the owner (T-130 human step 3).
+  // T-102h / #75: SESSION_DB Hyperdrive (login user IN ROLE toi_session_worker) and
+  // SESSION_TOKEN_KEY / IDENTITY_SESSION_KEY secrets are owner steps on T-004 — bind them under
+  // env.staging only; never put connection strings or key material in this file.
   "ratelimits": [{ "name": "INQUIRY_RATE_LIMITER", "namespace_id": "1001", "simple": { "limit": 3, "period": 60 } }],
   "vars": { "TURNSTILE_SITE_KEY": "" },
   // Routes (e.g. "*.terraoi.app/*") are added in T-004 after DNS is verified (human-only, plan §20.8).
