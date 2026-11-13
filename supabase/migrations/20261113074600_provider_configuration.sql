@@ -5,13 +5,18 @@
 -- configuration comes from. PR-2 of T-116 adds the typed repository that reads it.
 --
 -- Privilege discipline (#60, merged answer): every object created here is revoked from the
--- request roles **by name**, and every function is revoked and granted by name. `tenancy_core.sql:335`
+-- request roles **by name**, and every function is revoked by full signature; nothing here is
+-- granted back to a request role except the one tenant-table SELECT (section 6). `tenancy_core.sql:335`
 -- revoked the tables that existed then; a new table starts with the grantee defaults of its owner,
 -- so it must be closed explicitly here.
 --
--- Timestamp claim (daily sync): later than every merged migration (`20261107024000_session_store.sql`)
--- and later than the in-flight `20261109160000_function_privileges.sql` on PR #132, so a rebase stays
--- in order. One migration per PR (`scripts/migrations.mjs:37`).
+-- Timestamp claim (daily sync; #143 N5): 20261113074600, taken at the rebase on `10868ad`. The first
+-- claim (`20261109203000`, later than `20261109160000_function_privileges.sql`) went stale: `main`
+-- merged `20261112234000_session_worker_role.sql` and `20261113010000_scoped_identity_reads.sql`, and
+-- the CI `migrations` job refuses a timestamp at or below the newest one on main
+-- (`scripts/migrations.mjs:34`). This file has never been on `main`, so that is a rename of this PR's
+-- own migration, not an edit of a merged one (AGENTS.md §6). One migration per PR
+-- (`scripts/migrations.mjs:37`).
 
 begin;
 
