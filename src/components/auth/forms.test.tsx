@@ -107,4 +107,12 @@ describe("sign-in forms", () => {
     expect(pass).toHaveBeenCalledTimes(1);
     expect((pass.mock.calls[0]![0] as FormData).get("password")).toBe("pw");
   });
+
+  it("string action posts to the route with a CSRF hidden field", () => {
+    render(<MagicLinkForm action="/auth/magic-link" csrfToken="csrf-abc" />);
+    const form = screen.getByLabelText("Work email").closest("form");
+    expect(form?.getAttribute("action")).toBe("/auth/magic-link");
+    expect(form?.getAttribute("method")).toBe("post");
+    expect((form?.querySelector('input[name="csrf_token"]') as HTMLInputElement).value).toBe("csrf-abc");
+  });
 });
