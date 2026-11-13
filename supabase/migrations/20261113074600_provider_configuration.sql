@@ -249,9 +249,11 @@ comment on function public.tenant_provider_policy_v1() is
   'The tenant''s recorded narrowing of the clearance matrix, for the gateway to intersect with the platform baseline (effectiveClearance). Security invoker + RLS: it can only ever return the caller''s own tenant, and nothing at all when no tenant scope is set. Executed by no request role (#143 B5, FAQ-0011): an unscoped Data API call would answer zero rows, and a missing narrowing widens clearance silently. The gateway reads tenant policy on the server path instead (#134).';
 
 -- ── 6. privileges (#60: revoke and grant by name; never rely on a default) ──────────────────
--- Platform tables: no request-role access of any kind. The gateway reads them through the server
--- path's own role, which the supervisor has not yet named — see #134; until that ruling, the
--- repository in PR-2 stays behind an injected port and these tables stay closed.
+-- Platform tables: no request-role access of any kind. The gateway reads them on the server path,
+-- through `security definer` functions in a non-exposed schema executed by the NOLOGIN role
+-- `toi_gateway_config` over `CONFIG_DB` (#134); the role itself and its binding are T-004 §20.8
+-- human steps, so until they exist the repository in PR-2 stays behind an injected port and these
+-- tables stay closed to everything but the migration owner.
 revoke all on table public.model_providers from anon, authenticated;
 revoke all on table public.provider_routes from anon, authenticated;
 revoke all on table public.provider_health from anon, authenticated;
