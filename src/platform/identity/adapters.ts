@@ -166,9 +166,9 @@ export function buildIdentityPorts(env: Partial<IdentityEnv>, options: { fetchIm
       if (tenancy === null) throw new Error("SUPABASE_URL and SUPABASE_ANON_KEY bindings are required");
       return tenancy.findHost(host);
     },
-    findMembership: async (organisationId, userId, accessToken) => {
+    findMembership: async (organisationId, accessToken) => {
       if (tenancy === null) throw new Error("SUPABASE_URL and SUPABASE_ANON_KEY bindings are required");
-      return tenancy.findMembership(organisationId, userId, accessToken);
+      return tenancy.findMembership(organisationId, accessToken);
     },
     policyRevision: async (organisationId, accessToken) => {
       if (tenancy === null) throw new Error("SUPABASE_URL and SUPABASE_ANON_KEY bindings are required");

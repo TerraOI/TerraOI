@@ -145,6 +145,8 @@ select is_empty($$
            ('public.is_active_member(uuid)'::regprocedure),
            ('public.is_project_member(uuid)'::regprocedure),
            ('public.resolve_tenant_host(text)'::regprocedure),
+           ('public.current_membership_v1(uuid)'::regprocedure),
+           ('public.current_policy_revision_v1(uuid)'::regprocedure),
            ('public.data_class_is_valid(text)'::regprocedure),
            ('public.data_class_rank(text)'::regprocedure),
            ('public.data_class_is_ingestible_in_m1(text)'::regprocedure),

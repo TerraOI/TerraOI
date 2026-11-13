@@ -62,7 +62,12 @@ export interface MagicLinkCallbackPorts {
      */
     codeVerifier: string;
   }): Promise<IdentityExchange>;
-  findMembership(organisationId: string, userId: string, accessToken: string): Promise<MembershipRecord | null>;
+  /**
+   * The caller's own membership in the host-resolved organization, read as `current_membership_v1`
+   * with the user's access token: the database takes the user from `auth.uid()`, so this port has no
+   * user argument to get wrong (#171 review B2, ADR-0003 §3b).
+   */
+  findMembership(organisationId: string, accessToken: string): Promise<MembershipRecord | null>;
   /**
    * The invite half of F05: claim the invited membership that exists for **this** organization.
    * `organisationId` is always the host-resolved one, and `email` is always canonical — a raw
@@ -155,7 +160,7 @@ export async function completeMagicLink(input: MagicLinkCallbackInput): Promise<
   }
 
   try {
-    let membership = await ports.findMembership(organisation.organisationId, identity.userId, identity.accessToken);
+    let membership = await ports.findMembership(organisation.organisationId, identity.accessToken);
     if (membership !== null && membership.status === "invited") {
       const claim = await ports.redeemInvitation({
         organisationId: organisation.organisationId,
@@ -164,7 +169,7 @@ export async function completeMagicLink(input: MagicLinkCallbackInput): Promise<
       });
       // "redeemed" is not taken on trust: access follows the row as it is now.
       if (claim === "redeemed") {
-        membership = await ports.findMembership(organisation.organisationId, identity.userId, identity.accessToken);
+        membership = await ports.findMembership(organisation.organisationId, identity.accessToken);
       }
     }
 

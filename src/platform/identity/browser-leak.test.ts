@@ -109,8 +109,8 @@ function portsFor(store: SessionStore, providerHalf: { sent: string[]; fetchImpl
     sessionStore: () => store,
     tokenCipher: () => createTokenCipher(CIPHER),
     findHost: async (host: string) => (host === HOST ? { organisationId: C1, organisationStatus: "active" as const } : null),
-    findMembership: async (organisationId: string, userId: string) =>
-      organisationId === C1 && userId === OWNER1
+    findMembership: async (organisationId: string, accessToken: string) =>
+      organisationId === C1 && accessToken === ACCESS_TOKEN
         ? { membershipId: MEMBERSHIP, status: "active" as const, roles: ["member"], permittedServiceKeys: [], permittedProjectIds: [] }
         : null,
     policyRevision: async () => 1,
