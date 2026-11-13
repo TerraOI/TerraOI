@@ -15,7 +15,7 @@
 --   * the owner CAN read their own rows through the plain request-role SELECT (32, 33, 34) — that
 --     needs a policy to exist, so deleting a policy turns an assertion red instead of passing quietly;
 --   * a foreign tenant, a co-worker in the same tenant, a caller who is not a member of the project,
---     and a deactivated member read NOTHING (38-49) — that needs the policies to stay narrow, so
+--     and a deactivated member read NOTHING (54-68) — that needs the policies to stay narrow, so
 --     turning RLS off turns these red;
 --   * `relrowsecurity` and the presence of a SELECT policy for `authenticated` are pinned from the
 --     catalog (5, 6), and no request role holds a write privilege on any chat table (7, 8).
@@ -353,7 +353,7 @@ select is_empty($$
         and p.roles @> array['authenticated']::text[] $$,
   '6 each chat table has a permissive SELECT policy for authenticated — the owner-scoped read path '
   || 'plan §9.1 expects. A policy-free table passes 5 and fails here, which is what makes 32-34 and '
-  || '38-49 the RLS test rather than a tautology (AGENTS.md §4.2)');
+  || '59-66 the RLS test rather than a tautology (AGENTS.md §4.2)');
 
 -- 7-8 no request role writes these tables directly (FAQ-0004: the owning lane writes through scoped
 -- RPCs), and anon reaches them not at all. Enumerated rather than sampled, so a later "grant insert
