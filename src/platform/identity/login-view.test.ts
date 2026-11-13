@@ -31,7 +31,7 @@ function memoryStore(rows: Map<string, StoredSession> = new Map()): SessionStore
       const row = rows.get(sessionKey);
       if (row) rows.set(sessionKey, { ...row, revokedAt: at });
     },
-    async replaceTokens(sessionKey, replacement, _now) {
+    async replaceTokens(sessionKey, replacement) {
       const row = rows.get(sessionKey);
       if (!row || row.revokedAt !== null) return false;
       rows.set(sessionKey, { ...row, ...replacement });
@@ -52,13 +52,13 @@ function ports(overrides: Partial<LoginViewPorts> = {}): LoginViewPorts {
       host === "company1.terraoi.app" || host === "company2.terraoi.app"
         ? { organisationId: host === "company1.terraoi.app" ? C1 : C2, organisationStatus: "active" }
         : null,
-    findMembership: async (organisationId, userId, _accessToken) =>
+    findMembership: async (organisationId, userId) =>
       organisationId === C1 && userId === OWNER1
         ? { membershipId: MEMBERSHIP, status: "active", roles: ["member"], permittedServiceKeys: [], permittedProjectIds: [] }
         : organisationId === C1 && userId === LEFT
           ? { membershipId: MEMBERSHIP, status: "suspended", roles: [], permittedServiceKeys: [], permittedProjectIds: [] }
           : null,
-    policyRevision: async (_organisationId, _accessToken) => 1,
+    policyRevision: async () => 1,
     ...overrides,
   };
 }

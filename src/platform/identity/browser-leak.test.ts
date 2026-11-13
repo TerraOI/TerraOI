@@ -58,7 +58,7 @@ function memoryStore(): SessionStore & { rows: Map<string, StoredSession> } {
       const row = rows.get(sessionKey);
       if (row) rows.set(sessionKey, { ...row, revokedAt: at });
     },
-    async replaceTokens(sessionKey, replacement, _now) {
+    async replaceTokens(sessionKey, replacement) {
       const row = rows.get(sessionKey);
       if (!row || row.revokedAt !== null) return false;
       rows.set(sessionKey, { ...row, ...replacement });
@@ -109,11 +109,11 @@ function portsFor(store: SessionStore, providerHalf: { sent: string[]; fetchImpl
     sessionStore: () => store,
     tokenCipher: () => createTokenCipher(CIPHER),
     findHost: async (host: string) => (host === HOST ? { organisationId: C1, organisationStatus: "active" as const } : null),
-    findMembership: async (organisationId: string, userId: string, _accessToken: string) =>
+    findMembership: async (organisationId: string, userId: string) =>
       organisationId === C1 && userId === OWNER1
         ? { membershipId: MEMBERSHIP, status: "active" as const, roles: ["member"], permittedServiceKeys: [], permittedProjectIds: [] }
         : null,
-    policyRevision: async (_organisationId: string, _accessToken: string) => 1,
+    policyRevision: async () => 1,
   };
 }
 

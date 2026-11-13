@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import { buildIdentityPorts, unresolvedSessionStore, unresolvedTenancyStore, type FetchImpl, type IdentityEnv } from "./adapters";
-import type { SessionStore } from "./session-store";
 import { bytesToBase64Url } from "./signed-token";
 
 const SECRET = "synthetic-test-secret-not-a-real-key-0000000000";

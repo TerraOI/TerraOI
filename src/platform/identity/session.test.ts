@@ -85,7 +85,7 @@ function fakeStore(): FakeStore {
       const row = rows.get(sessionKey);
       if (row) rows.set(sessionKey, { ...row, revokedAt: at });
     },
-    async replaceTokens(sessionKey, replacement, _now) {
+    async replaceTokens(sessionKey, replacement) {
       calls.replaceTokens += 1;
       const row = rows.get(sessionKey);
       if (!row || row.revokedAt !== null) return false;

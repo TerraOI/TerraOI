@@ -61,7 +61,7 @@ function memoryStore(): SessionStore & { rows: Map<string, StoredSession> } {
       const row = rows.get(sessionKey);
       if (row) rows.set(sessionKey, { ...row, revokedAt: at });
     },
-    async replaceTokens(sessionKey, replacement, _now) {
+    async replaceTokens(sessionKey, replacement) {
       const row = rows.get(sessionKey);
       if (!row || row.revokedAt !== null) return false;
       rows.set(sessionKey, { ...row, ...replacement });
@@ -132,7 +132,7 @@ function harness(overrides: Partial<Harness> = {}): Harness {
       state.exchanges.push(input);
       return state.identity;
     },
-    findMembership: async (organisationId, userId, _accessToken) => {
+    findMembership: async (organisationId, userId) => {
       if (state.boom) throw new Error("database unavailable");
       state.memberships.push(`${organisationId}:${userId}`);
       return state.membershipFor(organisationId, userId, state.memberships.length);

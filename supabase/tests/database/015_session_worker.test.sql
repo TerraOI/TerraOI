@@ -32,19 +32,32 @@ select ok(has_function_privilege('toi_session_worker', 'toi_identity.rotate_sess
 select ok(has_function_privilege('toi_session_worker', 'toi_identity.prune_expired_sessions_v1(timestamptz, interval)', 'execute'),
   '11 toi_session_worker can execute prune_expired_sessions_v1');
 
--- API-facing roles stay refused (the #75 threat model keeps service_role out too).
 select is(has_function_privilege('service_role', 'toi_identity.authenticate_session_v1(text, text, timestamptz)', 'execute'), false,
   '12 service_role still cannot execute authenticate_session_v1');
 select is(has_function_privilege('authenticated', 'toi_identity.insert_session_v1(text, uuid, text, timestamptz, timestamptz, text, text, text, timestamptz)', 'execute'), false,
   '13 authenticated still cannot insert a session');
 
 -- Runtime: the role can call authenticate (empty is fine) but cannot SELECT the table.
+-- pgTAP in this suite has no lives_ok; use a SECURITY INVOKER helper that returns the SQLSTATE.
+create function pg_temp.try_auth_as_worker() returns text
+language plpgsql security invoker as $fn$
+begin
+  begin
+    perform 1 from toi_identity.authenticate_session_v1(
+      'Qh7X3m1pL0aZ8sW2kD5vN9tY4bC6rE0uI1oP3qS7wX2',
+      'company1.terraoi.app',
+      timestamptz '2026-11-07 12:00:00+00');
+    return 'ok';
+  exception when others then
+    return sqlstate::text;
+  end;
+end;
+$fn$;
+
 grant toi_session_worker to postgres;
 set local role toi_session_worker;
-select lives_ok(
-  $$ select * from toi_identity.authenticate_session_v1('Qh7X3m1pL0aZ8sW2kD5vN9tY4bC6rE0uI1oP3qS7wX2', 'company1.terraoi.app', timestamptz '2026-11-07 12:00:00+00') $$,
-  '14 toi_session_worker can call authenticate_session_v1 at runtime'
-);
+select is(pg_temp.try_auth_as_worker(), 'ok',
+  '14 toi_session_worker can call authenticate_session_v1 at runtime');
 select throws_ok($$ select * from toi_identity.sessions $$, '42501', null,
   '15 toi_session_worker cannot select the session table at runtime');
 reset role;
