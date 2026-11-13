@@ -113,6 +113,7 @@ $$, '31 no function in public is executable by anon except resolve_tenant_host(t
 --   knowledge (`knowledge_core.sql:903-911`): the seven pinned by 16-22 above
 --   capture RPCs (`knowledge_uploads.sql:608-612`): begin_upload_session_v1,
 --     register_source_version_v1, record_upload_outcome_v1
+--   retrieval (`search_corpus.sql`): search_corpus_v1, the reader-only hybrid RPC (#136)
 -- The session functions the ruling also lists live in `toi_identity`, not `public`
 -- (`20261107024000_session_store.sql:122-219`), and that migration grants them to **no role** at all
 -- pending #75 — so they cannot appear in a `public` allow-list; test 33 pins them closed instead.
@@ -143,7 +144,8 @@ select is_empty($$
            ('public.chunk_is_readable(uuid)'::regprocedure),
            ('public.begin_upload_session_v1(uuid, text, text, bigint)'::regprocedure),
            ('public.register_source_version_v1(uuid, text, bigint, text)'::regprocedure),
-           ('public.record_upload_outcome_v1(uuid, text, text)'::regprocedure)
+           ('public.record_upload_outcome_v1(uuid, text, text)'::regprocedure),
+           ('public.search_corpus_v1(uuid, text[], uuid, uuid[], text, extensions.vector, uuid, date, text[], integer)'::regprocedure)
          ) as allowed(proc)
      )
 $$, '32 no function in public is executable by authenticated beyond the named allow-list (§4.3, #60)');
