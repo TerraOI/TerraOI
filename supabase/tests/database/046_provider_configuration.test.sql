@@ -5,12 +5,14 @@
 -- What this file does NOT re-prove: the membership predicate itself (`is_active_member`, and the
 -- deactivated-member and other-tenant cases) is proven in `010_tenancy.test.sql`, where the scope
 -- plumbing exists. This suite proves the objects T-116 adds: their shape, their closures, and that
--- the tenant table cannot be widened from SQL. The cross-tenant read negatives here are the ones
--- provable without a JWT (an unscoped call sees nothing), and the policy is asserted by definition.
+-- the tenant table cannot be widened from SQL. The read-path negatives here are the ones provable
+-- without a JWT: the tenant-policy function is closed to both request roles (#143 B5 — an unscoped
+-- call would answer zero rows and so silently widen clearance), the direct table read is empty under
+-- RLS, and the policy is asserted by definition.
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(71);
+select plan(73);
 
 -- Helpers report an error as its SQLSTATE instead of aborting the test transaction (010/040 idiom).
 create function pg_temp.try_insert_provider(
@@ -134,7 +136,7 @@ select is(has_table_privilege('authenticated', 'public.tenant_provider_policy', 
 select is(has_table_privilege('authenticated', 'public.tenant_provider_policy', 'delete'), false,
   'no raw delete on the tenant policy table');
 
--- The one grant, and the closure of every function this migration adds (#60 rule 4).
+-- The one table grant, and the closure of every function this migration adds (#60 rule 4).
 select is(has_table_privilege('authenticated', 'public.tenant_provider_policy', 'select'), true,
   'authenticated may read the tenant policy — rows are gated by RLS, columns never by policy');
 select is(has_function_privilege('anon', 'public.tenant_provider_policy_v1()', 'execute'), false,
@@ -143,8 +145,29 @@ select is(has_function_privilege('authenticated', 'public.model_providers_one_re
   'the matrix-revision guard is a trigger function, not a callable');
 select is(has_function_privilege('authenticated', 'public.tenant_provider_policy_narrows_platform()', 'execute'), false,
   'the narrow-only guard is a trigger function, not a callable');
-select is(has_function_privilege('authenticated', 'public.tenant_provider_policy_v1()', 'execute'), true,
-  'the gateway reads the tenant narrowing as the calling user (security invoker)');
+select is(has_function_privilege('authenticated', 'public.tenant_provider_policy_v1()', 'execute'), false,
+  'B5: no request role calls the tenant-policy read: it reads current_organisation_id() and never '
+  'sets it, and FAQ-0011 says the scope does not live between PostgREST calls, so a granted read '
+  'would answer a tenant with nothing and widen its clearance silently');
+-- The catalog form of the same rule — the shape `001_function_privileges.test.sql` test 33 pins for
+-- `toi_identity` and `intake` — so a grant re-added under a different spelling is caught too.
+select is_empty($$
+  select n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' as function
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public'
+     and p.proname = 'tenant_provider_policy_v1'
+     and p.prokind = 'f'
+     and (has_function_privilege('anon', p.oid, 'EXECUTE')
+          or has_function_privilege('authenticated', p.oid, 'EXECUTE'))
+$$, 'nothing named tenant_provider_policy_v1 in public is executable by anon or authenticated (§4.2)');
+-- Non-vacuity for the assertion above: a missing function also returns an empty set (014 test 44 and
+-- 017 test 10 are the precedents for naming what a guard has to fail against).
+select is((
+  select count(*) from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'tenant_provider_policy_v1'
+), 1::bigint, 'the read path still exists, so the closure assertion has something to fail against');
 
 -- ── 3. RLS is on, and the tenant policy has exactly the one read policy ─────────────────────
 select is_empty($$
@@ -225,8 +248,12 @@ select is(pg_temp.try_health('workers_ai', 'degraded', -5), '23514', 'latency ca
 select is(pg_temp.try_health('workers_ai', 'down', 99999999), '23514', 'latency is bounded, so a broken probe cannot poison the route window');
 
 set local role authenticated;
-select is((select count(*) from public.tenant_provider_policy_v1()), 0::bigint, 'with no tenant scope established the read path returns nothing, never a default tenant (§4.1)');
-select is((select count(*) from public.tenant_provider_policy), 0::bigint, 'the same closure holds for a direct read: RLS gates the rows before the function does');
+-- The grant state alone can be vacuous if a later migration grants it back, so the statement itself
+-- is run as the role under test: it is refused, not answered with an empty matrix (014's idiom).
+select throws_ok($$ select * from public.tenant_provider_policy_v1() $$, '42501', null,
+  'B5: an authenticated caller of the tenant-policy read is refused outright (42501), never handed '
+  'an empty narrowing that would silently widen clearance');
+select is((select count(*) from public.tenant_provider_policy), 0::bigint, 'a direct read stays empty for a member with no tenant scope: RLS gates the rows (the table grant is the only request-role path)');
 select is(pg_temp.try_health('workers_ai', 'healthy', 100), '42501', 'authenticated cannot write provider_health even through a helper: the revoke is real');
 
 select * from finish();

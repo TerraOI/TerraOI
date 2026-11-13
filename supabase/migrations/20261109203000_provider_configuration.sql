@@ -209,10 +209,24 @@ comment on table public.provider_health is
 
 alter table public.provider_health enable row level security;
 
--- ── 5. the one read path a request role may use ─────────────────────────────────────────────
+-- ── 5. the tenant-policy read, closed to every request role (#143 round 3, B5) ──────────────
 -- Security **invoker**: the RLS policy above does the row gating, and `current_organisation_id()`
 -- reads only the GUC scope that `set_tenant_scope` established from the verified host plus the
 -- caller's membership (AGENTS.md §4.1). With no scope set, it returns no rows rather than guessing.
+--
+-- That last sentence is the reason it gets no grant here. FAQ-0011: one PostgREST request is one
+-- transaction, and a tenant-scoped RPC sets the scope as its own first statement — so when a request
+-- role calls *this* function nothing has set the scope, and it answers zero rows. A tenant's
+-- narrowing silently missing from the effective matrix is clearance **wider** than the tenant
+-- recorded, which fails open (AGENTS.md §4.3, plan §12.4). FAQ-0011's shape for a request-role read
+-- is `…_v1(p_organisation_id uuid)` beginning `perform public.set_tenant_scope(p_organisation_id);`;
+-- that signature is not invented here because no request-role consumer of this read exists. The
+-- consumer the packet names — the gateway's tenant-policy read — was ruled by #134 to live in a
+-- **non-exposed** schema, executed by `toi_gateway_config` over `CONFIG_DB`, with no table grants
+-- (T-115/T-215/T-314; PR-2 of this packet), where the tenancy arrives on the server path and not as
+-- a Data API call. So the function stays, revoked from `public, anon, authenticated` by full
+-- signature, with no grant: if an admin page (T-202) ever needs the read, that is one small
+-- follow-up migration with the FAQ-0011 signature plus its own `001` allow-list entry (FAQ-0010).
 create or replace function public.tenant_provider_policy_v1()
 returns table (data_class text, provider_key text)
 language sql
@@ -227,7 +241,7 @@ as $fn$
 $fn$;
 
 comment on function public.tenant_provider_policy_v1() is
-  'The tenant''s recorded narrowing of the clearance matrix, for the gateway to intersect with the platform baseline (effectiveClearance). Security invoker + RLS: it can only ever return the caller''s own tenant, and nothing at all when no tenant scope is set.';
+  'The tenant''s recorded narrowing of the clearance matrix, for the gateway to intersect with the platform baseline (effectiveClearance). Security invoker + RLS: it can only ever return the caller''s own tenant, and nothing at all when no tenant scope is set. Executed by no request role (#143 B5, FAQ-0011): an unscoped Data API call would answer zero rows, and a missing narrowing widens clearance silently. The gateway reads tenant policy on the server path instead (#134).';
 
 -- ── 6. privileges (#60: revoke and grant by name; never rely on a default) ──────────────────
 -- Platform tables: no request-role access of any kind. The gateway reads them through the server
@@ -237,16 +251,20 @@ revoke all on table public.model_providers from anon, authenticated;
 revoke all on table public.provider_routes from anon, authenticated;
 revoke all on table public.provider_health from anon, authenticated;
 
--- Tenant table: read for active members only (the policy above), through the function; no insert,
--- update or delete for any request role in this migration — the admin write path is T-202's scoped
--- RPC (#41/T-111b precedent), not a raw grant.
+-- Tenant table: read for active members only (the policy above); no insert, update or delete for
+-- any request role in this migration — the admin write path is T-202's scoped RPC (#41/T-111b
+-- precedent), not a raw grant. A member's direct SELECT keys on `organisation_id` inside the RLS
+-- policy, so it does not depend on the GUC scope the section 5 function does.
 revoke all on table public.tenant_provider_policy from anon, authenticated;
 grant select on table public.tenant_provider_policy to authenticated;
 
+-- No function created here is executable by a request role: the two trigger guards need no EXECUTE
+-- (PostgreSQL runs a trigger because the table carries it), and `tenant_provider_policy_v1()` has no
+-- request-role consumer to grant it to (section 5, #143 B5). It is therefore absent from
+-- `001_function_privileges.test.sql`'s allow-list, which is the control (FAQ-0010, AGENTS.md §4.2).
 revoke all on function public.model_providers_one_revision() from public, anon, authenticated;
 revoke all on function public.tenant_provider_policy_narrows_platform() from public, anon, authenticated;
 revoke all on function public.tenant_provider_policy_v1() from public, anon, authenticated;
-grant execute on function public.tenant_provider_policy_v1() to authenticated;
 
 
 commit;
