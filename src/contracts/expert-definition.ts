@@ -65,8 +65,13 @@ export const ExpertDefinition = z
     embeddingIndexKey: z.string().min(1).max(64),
     limits: ExpertLimits,
     clarificationPolicy: z.enum(["ask_once", "never"]),
+    // The four sentences an expert release must state (ADR-0009, #97). `strictObject` makes an absent
+    // one a parse failure, which is the point: a release cannot ship without the copy it will show.
+    // `insufficient_support` is the newest (#97): evidence was found, and nothing built from it held up
+    // — a different fact from `no_evidence`, and it must not share its sentence.
     refusalTemplates: z.strictObject({
       no_evidence: z.string().min(1).max(1000),
+      insufficient_support: z.string().min(1).max(1000),
       out_of_scope: z.string().min(1).max(1000),
       unavailable: z.string().min(1).max(1000),
     }),

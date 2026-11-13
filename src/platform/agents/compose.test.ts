@@ -53,6 +53,7 @@ const EXPERT: ExpertComposePolicy = {
   limits: { evidenceChunks: 4, maxOutputTokens: 800, stageDeadlineMs: 20_000 },
   refusalTemplates: {
     no_evidence: "I could not find that in the documents you can access.",
+    insufficient_support: "The documents I could access did not support a reliable answer.",
     out_of_scope: "That question is outside what this expert answers.",
     unavailable: "The assistant is unavailable right now. Please try again later.",
   },
@@ -251,6 +252,11 @@ describe("compose on the gateway (plan §12.4, §12.1)", () => {
     expect(answer.claims).toEqual([]);
     assertNothingInternalLeaks(answer, "evidence pack capped");
     expect(answer.status).toBe("refused");
+    // Review finding B4 on #56/#58: this refusal used to say "I could not find that in the documents
+    // you can access" when documents **had** been found and none of what was built from them held up.
+    // A refusal after findings takes the `insufficient_support` sentence and names it (ADR-0009).
+    expect(answer.summary).toBe(EXPERT.refusalTemplates.insufficient_support);
+    expect(answer.refusalKey).toBe("insufficient_support");
   });
 
   it("with no evidence nothing is composed and no provider is called (no silent public default)", async () => {
@@ -261,10 +267,13 @@ describe("compose on the gateway (plan §12.4, §12.1)", () => {
     const { answer, audit } = await composeAnswer(input({ evidence: [] }), h.deps);
     expect(answer.status).toBe("refused");
     expect(answer.summary).toBe(EXPERT.refusalTemplates.no_evidence);
+    // The one path that *may* say "I could not find that": the pack was empty and nothing was composed.
+    expect(answer.refusalKey).toBe("no_evidence");
     for (const adapter of h.adapters) expect(adapter.calls).toHaveLength(0);
     expect(h.meter.events).toEqual([]);
     expect(audit.answeredBy).toBeNull();
     expect(answer.unknowns.length).toBeGreaterThan(0);
+    assertNothingInternalLeaks(answer, "empty pack");
   });
 });
 
@@ -423,6 +432,7 @@ describe("pass 1 rejects citations that do not exist in this run (plan §12.1)",
     const { answer } = await composeAnswer(input(), h.deps);
     expect(answer.status).toBe("unavailable");
     expect(answer.summary).toBe(EXPERT.refusalTemplates.unavailable);
+    expect(answer.refusalKey).toBe("unavailable");
     assertNothingInternalLeaks(answer, "chain produced no structured answer");
     expect(answer.claims).toEqual([]);
   });
@@ -444,6 +454,7 @@ describe("pass 1 rejects citations that do not exist in this run (plan §12.1)",
     const { answer } = await composeAnswer(input({ evidence: [restricted], questionDataClass: "restricted" }), h.deps);
     expect(answer.status).toBe("unavailable");
     expect(answer.summary).toBe(EXPERT.refusalTemplates.unavailable);
+    expect(answer.refusalKey).toBe("unavailable");
     for (const adapter of h.adapters) {
       if (adapter.providerKey === "local_box") continue;
       expect(adapter.calls, `${adapter.providerKey} saw restricted text`).toHaveLength(0);
@@ -474,6 +485,9 @@ describe("verification selection (plan §12.1 rules (d)/(e), issue #9)", () => {
     expect(audit.withheldRequirementClaims).toBe(1);
     expect(answer.claims.map((claim) => claim.id)).toEqual(["c1"]);
     expect(answer.status).toBe("partial");
+    // A withheld `requirement` claim is a degraded answer, not a refusal: the employee got text, so no
+    // refusal sentence was shown and none may be recorded (ADR-0009).
+    expect(answer.refusalKey).toBeUndefined();
     expect(answer.truncation.join(" ")).toMatch(/requirement/i);
     assertNothingInternalLeaks(answer, "requirement claims withheld");
     expect(Answer.parse(answer)).toBeTruthy();
@@ -545,6 +559,116 @@ describe("verification selection (plan §12.1 rules (d)/(e), issue #9)", () => {
     expect(answer.claims.map((claim) => claim.id)).toEqual(["c2"]);
     expect(answer.claims[0]?.verificationStatus).toBe("binding_passed");
     expect(answer.status).toBe("partial");
+    expect(answer.refusalKey).toBeUndefined();
     assertNothingInternalLeaks(answer, "no eligible verifier");
+  });
+});
+
+describe("the refusal vocabulary (ADR-0009, #97)", () => {
+  /**
+   * Three refusal shapes, three different sentences, and each one records which it used. The rule the
+   * supervisor set on #97 is that a refusal sentence has to be **true for the path that chose it**:
+   * "I could not find that in the documents you can access" is false once findings were handed to the
+   * composer and none of them survived, which was review finding B4 on #56/#58.
+   */
+  it("a claim dropped in pass 1 leaves a refusal that does not claim the documents were empty", async () => {
+    const invented = claimOf("c1", "source_fact", "The antenna must be replaced yearly.", [
+      { kind: "chunk", sourceVersionId: VERSION_A, chunkId: "chk-9999", quotedText: "Calibrate the " },
+    ]);
+    const h = depsOf({
+      local_box: [
+        answered(candidate([invented], { unknowns: ["The yearly replacement interval is not stated in the pack."] }), "open-weights-alpha"),
+      ],
+    });
+    const { answer, audit } = await composeAnswer(input(), h.deps);
+    expect(audit.bindingRejected).toEqual(["c1"]);
+    expect(answer.status).toBe("refused");
+    expect(answer.summary).toBe(EXPERT.refusalTemplates.insufficient_support);
+    expect(answer.summary).not.toBe(EXPERT.refusalTemplates.no_evidence);
+    expect(answer.refusalKey).toBe("insufficient_support");
+    assertNothingInternalLeaks(answer, "pass-1 refusal");
+    // What changes is the sentence, not the run's honesty about gaps: the composer's stated unknowns
+    // still reach the employee, which is why the refusal is not simply an empty message (§12.1).
+    expect(answer.unknowns).toEqual(["The yearly replacement interval is not stated in the pack."]);
+  });
+
+  it("the verifier dropping every claim is an insufficient-support refusal", async () => {
+    const payload = candidate([
+      claimOf("c1", "source_fact", "Grounding is mandatory.", [ref("chk-0003", VERSION_C, "Ground the aircraft")]),
+    ]);
+    const semanticVerifier: SemanticVerifierPort = {
+      async verify() {
+        return [{ claimId: "c1", status: "unsupported", reason: "The cited span does not state it." }];
+      },
+    };
+    const h = depsOf(
+      { local_box: [answered(payload, "open-weights-alpha")], claude: [answered(payload, "hosted-gamma")] },
+      { semanticVerifier },
+    );
+    const { answer, audit } = await composeAnswer(input(), h.deps);
+    expect(audit.droppedByVerifier).toEqual(["c1"]);
+    expect(answer.status).toBe("refused");
+    expect(answer.summary).toBe(EXPERT.refusalTemplates.insufficient_support);
+    expect(answer.refusalKey).toBe("insufficient_support");
+    assertNothingInternalLeaks(answer, "verifier-dropped refusal");
+  });
+
+  it("withholding the only requirement claim refuses, and says the answer was unsupported rather than unfound", async () => {
+    // Pass 2 never ran, so the normative claim cannot be shown (§12.1) and nothing else was said:
+    // there is no text left for the employee, which is a refusal, and the honest sentence is the one
+    // about support — the documents were found, the platform could not stand behind the claim.
+    const payload = candidate([
+      claimOf("c1", "requirement", "Calibration is required before every survey.", [
+        ref("chk-0001", VERSION_A, "Calibrate the antenna"),
+      ]),
+    ]);
+    const h = depsOf({
+      local_box: [failed("connection")],
+      workers_ai: [failed("connection")],
+      claude: [answered(payload, "hosted-gamma")],
+    });
+    const { answer, audit } = await composeAnswer(input(), h.deps);
+    expect(audit.withheldRequirementClaims).toBe(1);
+    expect(answer.claims).toEqual([]);
+    expect(answer.status).toBe("refused");
+    expect(answer.summary).toBe(EXPERT.refusalTemplates.insufficient_support);
+    expect(answer.refusalKey).toBe("insufficient_support");
+    assertNothingInternalLeaks(answer, "withheld-only refusal");
+  });
+
+  it("nothing in compose selects out_of_scope: that sentence belongs to the router, not to this stage", async () => {
+    const shapes: { label: string; run: () => Promise<ComposeOutcome> }[] = [];
+    const emptyPack = depsOf({ local_box: [answered("never", "open-weights-alpha")] });
+    shapes.push({
+      label: "empty pack",
+      run: () => composeAnswer(input({ evidence: [] }), emptyPack.deps),
+    });
+    const dropped = depsOf({ local_box: [answered(candidate([]), "open-weights-alpha")] });
+    shapes.push({
+      label: "no claim survived pass 1",
+      run: () => composeAnswer(input(), dropped.deps),
+    });
+    const deadChain = depsOf({
+      local_box: [answered("prose without structure", "open-weights-alpha")],
+      workers_ai: [answered("also prose", "hosted-beta")],
+      claude: [answered("still prose", "hosted-gamma")],
+    });
+    shapes.push({
+      label: "chain produced nothing structured",
+      run: () => composeAnswer(input(), deadChain.deps),
+    });
+
+    const keys = new Set<string>();
+    for (const shape of shapes) {
+      const { answer } = await shape.run();
+      expect(["refused", "unavailable"], shape.label).toContain(answer.status);
+      if (answer.refusalKey === undefined) throw new Error(`${shape.label}: a refusal must name its sentence`);
+      expect(answer.summary, shape.label).toBe(EXPERT.refusalTemplates[answer.refusalKey]);
+      keys.add(answer.refusalKey);
+    }
+    // `out_of_scope` is a sentence an expert must state (#97) and the router will select in T-104/T-311;
+    // compose has no business choosing it, because compose never decides what a service answers.
+    expect([...keys].sort()).toEqual(["insufficient_support", "no_evidence", "unavailable"]);
+    expect(keys.has("out_of_scope")).toBe(false);
   });
 });

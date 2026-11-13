@@ -7,6 +7,7 @@ import {
   FormFieldEvidence,
   RecordEvidence,
   type Claim,
+  type RefusalKey,
 } from "@/contracts/answer";
 import { maxDataClass, type DataClass } from "@/contracts/data-class";
 import { OpaqueId, type ProviderKey } from "@/contracts/keys";
@@ -58,7 +59,12 @@ export interface ExpertComposePolicy {
   modelChains: { compose: readonly ProviderKey[]; verify: readonly ProviderKey[] };
   minVerifierTier: CapabilityTier;
   limits: ComposeLimits;
-  refusalTemplates: { no_evidence: string; out_of_scope: string; unavailable: string };
+  refusalTemplates: {
+    no_evidence: string;
+    insufficient_support: string;
+    out_of_scope: string;
+    unavailable: string;
+  };
   evaluationSetVersion: string;
 }
 
@@ -243,12 +249,15 @@ export async function composeAnswer(
     verdicts: [],
   };
 
-  // No evidence at all: nothing to compose from, so no model is asked and nothing is reserved.
+  // No evidence at all: nothing to compose from, so no model is asked and nothing is reserved. This is
+  // the **only** path in M1 that may say "I could not find that…": the pack really was empty
+  // (ADR-0009 decision 2, #97).
   if (input.evidence.length === 0) {
     return {
       answer: Answer.parse({
         ...safeAnswerBase(input, dataClass),
         status: "refused",
+        refusalKey: "no_evidence" satisfies RefusalKey,
         summary: input.expert.refusalTemplates.no_evidence,
         unknowns: ["No authorized document covers this question."],
         truncation: [],
@@ -298,11 +307,14 @@ export async function composeAnswer(
 
   if (!composed.ok || composed.parsed === undefined) {
     // Employee-visible: one fixed sentence. Why (no cleared provider, deadline, budget authority)
-    // stays in the audit, because those names would disclose infrastructure (§9.3).
+    // stays in the audit, because those names would disclose infrastructure (§9.3). Every one of these
+    // causes is a failure to produce, never a statement about the documents, so the key is
+    // `unavailable` and not one of the refusal-about-evidence keys (ADR-0009 decision 2).
     return {
       answer: Answer.parse({
         ...safeAnswerBase(input, dataClass),
         status: "unavailable",
+        refusalKey: "unavailable" satisfies RefusalKey,
         summary: input.expert.refusalTemplates.unavailable,
         unknowns: ["The assistant could not produce an answer for this question right now."],
         truncation,
@@ -414,11 +426,23 @@ export async function composeAnswer(
     status = "answered";
   }
 
+  // ADR-0009 decision 2 (#97): which sentence this path is allowed to tell, and the key that records it.
+  // Getting here means retrieval **did** hand this run a pack, so every refusal from here on is about
+  // support, not about finding: pass 1 rejected the citations, the verifier found the claims unsupported,
+  // or no eligible verifier could stand behind the only claim. Review finding B4 on #56/#58 was exactly
+  // this line choosing `no_evidence` for a refusal after findings. `out_of_scope` is chosen by the
+  // router (T-104, T-311), never here: compose does not decide what a service answers.
+  const refusal: { key: RefusalKey; summary: string } | null =
+    status === "refused"
+      ? { key: "insufficient_support", summary: input.expert.refusalTemplates.insufficient_support }
+      : null;
+
   return {
     answer: Answer.parse({
       ...safeAnswerBase(input, dataClass),
       status,
-      summary: status === "refused" ? input.expert.refusalTemplates.no_evidence : composed.parsed.summary,
+      ...(refusal === null ? {} : { refusalKey: refusal.key }),
+      summary: refusal === null ? composed.parsed.summary : refusal.summary,
       claims,
       unknowns: composed.parsed.unknowns,
       conflicts: composed.parsed.conflicts,
