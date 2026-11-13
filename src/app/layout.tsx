@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
-// Tenant branding is resolved server-side per host (plan §5.1, F04) once T-101/T-103 land.
-// Until then this shell is TerraOI-owned and shows no tenant data.
+import { inter } from "@/components/auth/fonts";
+
+// Per-host product identity is applied by the tenant layout (plan §5.1, F04). This root stays
+// TerraOI-named so a customer host never inherits a title from a shared default.
 export const metadata: Metadata = {
   title: "TerraOI",
   description: "Operational intelligence platform",
@@ -11,7 +13,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body className={inter.variable}>{children}</body>
     </html>
   );
 }
