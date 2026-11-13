@@ -66,10 +66,10 @@ begin
 end;
 $fn$;
 
-create temporary table t_worker_out (case_name text primary key, result text not null);
-
+-- Capture table created by the role that fills it (010/020 pattern); owner asserts after reset.
 grant toi_session_worker to postgres;
 set local role toi_session_worker;
+create temporary table t_worker_out (case_name text primary key, result text not null);
 insert into t_worker_out values
   ('auth_call', pg_temp.try_auth_as_worker()),
   ('select_table', pg_temp.try_select_sessions());
