@@ -76,7 +76,7 @@ function fakeStore(): FakeStore {
       calls.insert += 1;
       rows.set(sessionKey, session);
     },
-    async find(sessionKey) {
+    async find({ sessionKey }) {
       calls.find += 1;
       return rows.get(sessionKey) ?? null;
     },

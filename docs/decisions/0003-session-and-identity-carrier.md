@@ -1,9 +1,9 @@
 # ADR-0003 The session and the identity carrier (#37, T-102)
 
-Status: proposed (awaiting supervisor approval — protected path, and this ADR records a supervisor decision rather than making one) · Date: 2026-11-06 · Deciders: supervisor ([#37](https://github.com/TerraOI/TerraOI/issues/37), comment `6693315053`, 2026-11-06T19:17:09Z); Lane 1 authored
+Status: proposed (awaiting supervisor approval — protected path, and this ADR records a supervisor decision rather than making one) · Date: 2026-11-06 · Amended: 2026-11-12 (#75) · Deciders: supervisor ([#37](https://github.com/TerraOI/TerraOI/issues/37), comment `6693315053`, 2026-11-06T19:17:09Z; [#75](https://github.com/TerraOI/TerraOI/issues/75), 2026-11-08T23:16:53Z); Lane 1 authored
 Plan refs: §4.1 (host resolution), §4.2 (authn, cookies, CSRF, cross-host replay), §4.3 (RLS and scoped access), §6.1 (identity/access), §20.8 (human steps); F02, F05; TOI-ADR-15
 Depends on: ADR-0001 (contracts), ADR-0002 (the unexposed-schema + least-privilege-login precedent)
-Open dependency: [#75](https://github.com/TerraOI/TerraOI/issues/75) — **how the Worker reaches the session row** (unresolved; this ADR names the blank, it does not fill it)
+Amendment: [#75](https://github.com/TerraOI/TerraOI/issues/75) — **how the Worker reaches the session row** (answered: Hyperdrive + `toi_session_worker`; see §3a)
 
 ## Context
 
@@ -71,22 +71,24 @@ same choice ADR-0002 made for `intake`), and the migration revokes `usage` and e
 by name (a per-schema default privilege does not cover functions added later — the trap recorded for `intake`
 in `20261105210000_intake_service_role.sql` and [#60](https://github.com/TerraOI/TerraOI/issues/60)).
 
-**How the Worker reaches it is not decided here.** That is
-[#75](https://github.com/TerraOI/TerraOI/issues/75), and this ADR deliberately leaves it blank: the decision
-refused a service-role key for this path, and a schema PostgREST does not expose is unreachable through
-PostgREST with any key. So the migration creates **no role and grants nothing**. What this branch
-does is leave the store **unwired**: the login-view port declares `sessionStore(): SessionStore |
-null` (`src/platform/identity/login-view.ts`), and `issueSession()` in
-`src/platform/identity/session.ts` throws rather than mint a cookie with no row behind it when the
-store or the cipher is missing — asserted by `session.test.ts`. An `unresolvedSessionStore()` that
-refuses to issue, read, revoke or rotate, and the `src/platform/identity/adapters.ts` that would
-install it, live on `t-102g-flow-and-routes` and are **not in this PR**. The consequence on staging
-is the same either way: with no store wired, `buildLoginView` counts a presented cookie as nobody
-signed in, and a backend failure reports the `unavailable` outcome
-(`src/platform/identity/outcomes.ts`) rather than quietly reverting to the self-contained cookie
-#37 rejected. Whoever wins #75 also owns the §20.8 human steps (role, connection config, its
-binding, and the secret below) — the same shape as ADR-0002's `inquiry_writer` / `INQUIRY_DB`,
-which is itself still unprovisioned.
+### 3a. How the Worker reaches it (#75 amendment)
+
+**Decided ([#75](https://github.com/TerraOI/TerraOI/issues/75), 2026-11-08):** Hyperdrive plus a
+dedicated role, following the ADR-0002 precedent.
+
+- **Connection:** Hyperdrive binding `SESSION_DB`. The Worker connects as a login user that is
+  `IN ROLE toi_session_worker`.
+- **Grants:** `USAGE` on schema `toi_identity`, plus `EXECUTE` on the five `toi_identity.*_session_v1`
+  functions only. **No table grants.** The role has no privilege on `public` or any tenant table.
+- **Threat model:** a leaked `SESSION_DB` credential can authenticate, revoke and rotate sessions,
+  but cannot read tenant data. Token material stays encrypted with the separate `SESSION_TOKEN_KEY`
+  Worker secret, so the database credential alone cannot recover tokens.
+- **Code:** `src/platform/identity/session-db.ts` implements `SessionStore` over that binding;
+  `buildIdentityPorts` returns `null` from `sessionStore()` when `SESSION_DB` is unbound (honest
+  unavailable), never a self-contained cookie.
+- **Human steps (§20.8), owner:** create the login user `IN ROLE toi_session_worker` and its
+  password, the Hyperdrive config, the `wrangler.jsonc` `SESSION_DB` binding under `env.staging`,
+  and the `SESSION_TOKEN_KEY` secret. Recorded on [T-004](../tasks/T-004-infrastructure.md).
 
 ### 4. Revocation and sign-out
 
@@ -194,7 +196,7 @@ against Supabase's Storage documentation. Checked on 2026-11-06:
 - T-102b/c/d are changed, not finished: `session.ts` is an opaque id plus a store port
   (`src/platform/identity/session.ts`, `session-store.ts`), the callback writes a row, sign-out revokes one,
   and the Supabase PKCE exchange now returns the token pair it used to discard.
--   **Nothing about sign-in works end to end until #75 lands**, and the code says so:
+-   **Sign-in needs `SESSION_DB` provisioned (T-004)** and the code says so when it is not:
   `issueSession()` throws when the session store or the token cipher is missing, and
   `buildLoginView` treats "no store wired" as "nobody is signed in" — both asserted, in
   `session.test.ts` and `login-view.test.ts`. `unresolvedSessionStore()` and
@@ -236,9 +238,9 @@ against Supabase's Storage documentation. Checked on 2026-11-06:
 
 ## Open questions
 
-1. **#75** — the carrier: dedicated login role over a direct connection, a Supabase Edge Function, or another
-   shape. This ADR does not choose, and no code may assume an answer.
-2. **#38** — the upload mechanism, narrowed as described in §9.
+1. **#75** — **answered** (see §3a). Owner still owes the T-004 human steps (`SESSION_DB` login user,
+   Hyperdrive config, binding, `SESSION_TOKEN_KEY`).
+2. **#38** — the upload mechanism, narrowed as described in §9 (**answered** on the issue; wiring is a later packet).
 3. Whether `#30`'s `hasUsableSecret` should be widened into a shared "deployment binding" helper now that two
    secrets follow the same fail-closed rule; left as a follow-up so this ADR does not touch a file under review.
 4. Session concurrency: a user signing in on two devices gets two rows; nothing yet limits rows per user, and no

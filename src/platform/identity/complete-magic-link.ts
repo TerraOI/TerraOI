@@ -62,7 +62,7 @@ export interface MagicLinkCallbackPorts {
      */
     codeVerifier: string;
   }): Promise<IdentityExchange>;
-  findMembership(organisationId: string, userId: string): Promise<MembershipRecord | null>;
+  findMembership(organisationId: string, userId: string, accessToken: string): Promise<MembershipRecord | null>;
   /**
    * The invite half of F05: claim the invited membership that exists for **this** organization.
    * `organisationId` is always the host-resolved one, and `email` is always canonical — a raw
@@ -155,7 +155,7 @@ export async function completeMagicLink(input: MagicLinkCallbackInput): Promise<
   }
 
   try {
-    let membership = await ports.findMembership(organisation.organisationId, identity.userId);
+    let membership = await ports.findMembership(organisation.organisationId, identity.userId, identity.accessToken);
     if (membership !== null && membership.status === "invited") {
       const claim = await ports.redeemInvitation({
         organisationId: organisation.organisationId,
@@ -163,7 +163,9 @@ export async function completeMagicLink(input: MagicLinkCallbackInput): Promise<
         email,
       });
       // "redeemed" is not taken on trust: access follows the row as it is now.
-      if (claim === "redeemed") membership = await ports.findMembership(organisation.organisationId, identity.userId);
+      if (claim === "redeemed") {
+        membership = await ports.findMembership(organisation.organisationId, identity.userId, identity.accessToken);
+      }
     }
 
     let session: Awaited<ReturnType<typeof issueSession>>;

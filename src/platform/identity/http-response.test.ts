@@ -25,7 +25,7 @@ function memoryStore(): SessionStore & { rows: Map<string, StoredSession> } {
     async insert({ sessionKey, session }) {
       rows.set(sessionKey, session);
     },
-    async find(sessionKey) {
+    async find({ sessionKey }) {
       return rows.get(sessionKey) ?? null;
     },
     async revoke(sessionKey, at) {

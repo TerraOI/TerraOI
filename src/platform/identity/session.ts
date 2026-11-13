@@ -132,7 +132,9 @@ async function lookupRow(input: {
 
   let row: StoredSession | null;
   try {
-    row = await input.store.find(sessionKey);
+    // Host and clock travel with the lookup so a Hyperdrive store can call
+    // `authenticate_session_v1` (which refuses foreign-host / revoked / expired rows in SQL).
+    row = await input.store.find({ sessionKey, host: input.host, now: input.now });
   } catch {
     // A database failure is a failed authentication, never a successful one, and never a 500: the
     // caller maps this to the same sign-in surface as `unknown_session`.
@@ -151,9 +153,8 @@ async function lookupRow(input: {
     return { ok: false, reason: "malformed" };
   }
 
-  // The stored issuing host, compared to the host the edge routed us to (plan §4.1 step 1). This is
-  // what makes "a session cookie from company1 is not accepted on company2" true for a hand-replayed
-  // value, which the `__Host-` prefix alone cannot do.
+  // Belt-and-braces with the SQL host predicate: the stored issuing host must still equal the host
+  // the edge routed us to (plan §4.1 step 1). A memory store in tests relies on this check alone.
   if (row.host !== input.host) return { ok: false, reason: "host_mismatch" };
   // Revocation is checked before expiry on purpose: "someone revoked this" is the stronger fact, and
   // it is the fact the self-contained cookie could not carry.
@@ -338,12 +339,16 @@ export async function rotateSessionTokens(input: {
   const refreshCiphertext = await input.cipher.seal(rotated.refreshToken);
   let replaced: boolean;
   try {
-    replaced = await input.store.replaceTokens(found.sessionKey, {
-      keyVersion: input.cipher.keyVersion,
-      accessCiphertext,
-      refreshCiphertext,
-      tokenExpiresAt: rotated.expiresAt,
-    });
+    replaced = await input.store.replaceTokens(
+      found.sessionKey,
+      {
+        keyVersion: input.cipher.keyVersion,
+        accessCiphertext,
+        refreshCiphertext,
+        tokenExpiresAt: rotated.expiresAt,
+      },
+      input.now,
+    );
   } catch {
     return { ok: false, reason: "store_failure" };
   }

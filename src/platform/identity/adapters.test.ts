@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import { buildIdentityPorts, unresolvedSessionStore, unresolvedTenancyStore, type FetchImpl, type IdentityEnv } from "./adapters";
-import type { SessionStore } from "./session-store";
 import { bytesToBase64Url } from "./signed-token";
 
 const SECRET = "synthetic-test-secret-not-a-real-key-0000000000";
@@ -20,7 +19,10 @@ function recorder(response: { ok: boolean; status: number; json: () => Promise<u
   const calls: Call[] = [];
   const fetchImpl: FetchImpl = async (url, init) => {
     calls.push({ url, init });
-    return response;
+    return {
+      ...response,
+      text: async () => JSON.stringify(await response.json()),
+    };
   };
   return { calls, fetchImpl };
 }
@@ -196,14 +198,11 @@ describe("buildIdentityPorts — limiter, secrets and the #37 seam", () => {
     expect(buildIdentityPorts({ IDENTITY_SESSION_KEY: SECRET }).signingSecret()).toBe(SECRET);
   });
 
-  // The visible gap: nothing in this slice invents a way to carry identity into Postgres.
-  it("the tenancy store refuses rather than guessing a carrier", async () => {
+  it("unresolvedTenancyStore still refuses (kept for tests); wired ports use the Data API", async () => {
     const store = unresolvedTenancyStore();
     for (const call of [store.findHost("company1.terraoi.app"), store.findMembership("11111111-1111-4111-8111-111111111111", "00000000-0000-4000-8000-0000000000a1"), store.policyRevision("11111111-1111-4111-8111-111111111111")]) {
       await expect(call).rejects.toThrow(/#37/);
     }
-    const ports = buildIdentityPorts(env);
-    await expect(ports.findHost("company1.terraoi.app")).rejects.toThrow(/#37/);
   });
 
   it("invite redemption is not silently available before its RPC lands", async () => {
@@ -214,13 +213,11 @@ describe("buildIdentityPorts — limiter, secrets and the #37 seam", () => {
   });
 });
 
-// #37 option (b) made the session a row, and #75 is still open on how the Worker reaches a schema the
-// Data API does not expose. So the session store is the same kind of seam as the tenancy store: the
-// shape exists, and the implementation refuses rather than inventing a credential path.
+// #75 answered: SESSION_DB Hyperdrive. Unbound → null (honest unavailable). Bound → real store.
 describe("buildIdentityPorts — the session store seam (#75) and the SESSION_TOKEN_KEY cipher", () => {
-  it("the session store refuses every operation instead of guessing how the row is reached", async () => {
+  it("unresolvedSessionStore still refuses every operation (kept for tests)", async () => {
     const store = unresolvedSessionStore();
-    await expect(store.find("Qh7X3m1pL0aZ8sW2kD5vN9tY4bC6rE0uI1oP3qS7wX2")).rejects.toThrow(/#75/);
+    await expect(store.find({ sessionKey: "Qh7X3m1pL0aZ8sW2kD5vN9tY4bC6rE0uI1oP3qS7wX2", host: "company1.terraoi.app", now: 1 })).rejects.toThrow(/#75/);
     await expect(
       store.insert({
         sessionKey: "Qh7X3m1pL0aZ8sW2kD5vN9tY4bC6rE0uI1oP3qS7wX2",
@@ -239,22 +236,22 @@ describe("buildIdentityPorts — the session store seam (#75) and the SESSION_TO
     ).rejects.toThrow(/#75/);
     await expect(store.revoke("Qh7X3m1pL0aZ8sW2kD5vN9tY4bC6rE0uI1oP3qS7wX2", 1)).rejects.toThrow(/#75/);
     await expect(
-      store.replaceTokens("Qh7X3m1pL0aZ8sW2kD5vN9tY4bC6rE0uI1oP3qS7wX2", {
-        keyVersion: "v1",
-        accessCiphertext: "v1.x.y",
-        refreshCiphertext: "v1.x.y",
-        tokenExpiresAt: 100,
-      }),
+      store.replaceTokens(
+        "Qh7X3m1pL0aZ8sW2kD5vN9tY4bC6rE0uI1oP3qS7wX2",
+        {
+          keyVersion: "v1",
+          accessCiphertext: "v1.x.y",
+          refreshCiphertext: "v1.x.y",
+          tokenExpiresAt: 100,
+        },
+        1,
+      ),
     ).rejects.toThrow(/#75/);
   });
 
-  it("so a deployment with no session store wired cannot mint a session", async () => {
+  it("a deployment with no SESSION_DB returns null from sessionStore (cannot mint a session)", async () => {
     const ports = buildIdentityPorts(env);
-    const wired = ports.sessionStore() as SessionStore;
-    await expect(wired.insert({ sessionKey: "k", session: {} as never })).rejects.toThrow(/#75/);
-    // `issueSession` treats a store that throws as a failure, so no cookie is set: the callback answer
-    // is "unavailable", never a self-contained cookie. Pinned in complete-magic-link.test.ts.
-    await expect(wired.find("k")).rejects.toThrow(/#75/);
+    expect(ports.sessionStore()).toBeNull();
     // This env has no `SESSION_TOKEN_KEY`, which is the point: no cipher either.
     expect(ports.tokenCipher()).toBeNull();
   });

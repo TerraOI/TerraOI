@@ -115,9 +115,14 @@ export interface SessionTokenReplacement {
  */
 export interface SessionStore {
   insert(input: { sessionKey: string; session: StoredSession }): Promise<void>;
-  find(sessionKey: string): Promise<StoredSession | null>;
+  /**
+   * Look up a live session on this host. The host and clock are arguments (not cookie claims)
+   * so the SQL path can call `authenticate_session_v1`, which refuses revoked, expired and
+   * foreign-host rows in one predicate (#75 / ADR-0003).
+   */
+  find(input: { sessionKey: string; host: string; now: number }): Promise<StoredSession | null>;
   revoke(sessionKey: string, at: number): Promise<void>;
-  replaceTokens(sessionKey: string, replacement: SessionTokenReplacement): Promise<boolean>;
+  replaceTokens(sessionKey: string, replacement: SessionTokenReplacement, now: number): Promise<boolean>;
 }
 
 /**

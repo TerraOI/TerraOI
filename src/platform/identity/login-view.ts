@@ -8,8 +8,8 @@ import {
 
 import { issueCsrfToken } from "./csrf";
 import { safeOutcome, type SigninOutcome } from "./outcomes";
-import { readSession } from "./session";
-import type { SessionStore } from "./session-store";
+import { readSession, readSessionTokens } from "./session";
+import type { SessionStore, TokenCipher } from "./session-store";
 import { hasUsableSecret } from "./signed-token";
 
 /**
@@ -33,9 +33,11 @@ export interface LoginViewPorts {
    * rather than a cookie being trusted on its own.
    */
   sessionStore(): SessionStore | null;
+  /** Cipher for reading the sealed token pair so membership RLS can use the user's JWT. */
+  tokenCipher(): TokenCipher | null;
   findHost(host: string): Promise<HostRecord | null>;
-  findMembership(organisationId: string, userId: string): Promise<MembershipRecord | null>;
-  policyRevision(organisationId: string): Promise<number>;
+  findMembership(organisationId: string, userId: string, accessToken: string): Promise<MembershipRecord | null>;
+  policyRevision(organisationId: string, accessToken: string): Promise<number>;
 }
 
 export type LoginView =
@@ -57,11 +59,6 @@ export interface BuildLoginViewInput {
 
 export async function buildLoginView(input: BuildLoginViewInput): Promise<LoginView> {
   const { ports } = input;
-  const store: TenancyStore = {
-    findHost: (host) => ports.findHost(host),
-    findMembership: (organisationId, userId) => ports.findMembership(organisationId, userId),
-    policyRevision: (organisationId) => ports.policyRevision(organisationId),
-  };
 
   const host = requestHost({ url: input.request.url }, input.hostOptions);
   const configured = ports.signingSecret();
@@ -72,16 +69,43 @@ export async function buildLoginView(input: BuildLoginViewInput): Promise<LoginV
   // `host === null`, `secret === null` or `store === null` means "not signed in", never
   // "signed in with an unknown tenant".
   let userId: string | null = null;
+  let accessToken: string | null = null;
   const sessionStore = ports.sessionStore();
+  const tokenCipher = ports.tokenCipher();
   if (host !== null && sessionStore !== null) {
+    const cookieHeader = input.request.headers.get("cookie");
     const session = await readSession({
-      cookieHeader: input.request.headers.get("cookie"),
+      cookieHeader,
       host,
       now: ports.now(),
       store: sessionStore,
     });
-    userId = session.ok ? session.userId : null;
+    if (session.ok) {
+      userId = session.userId;
+      if (tokenCipher !== null) {
+        const tokens = await readSessionTokens({
+          cookieHeader,
+          host,
+          now: ports.now(),
+          store: sessionStore,
+          cipher: tokenCipher,
+        });
+        if (tokens.ok) accessToken = tokens.tokens.accessToken;
+      }
+    }
   }
+
+  const store: TenancyStore = {
+    findHost: (h) => ports.findHost(h),
+    findMembership: (organisationId, memberUserId) => {
+      if (accessToken === null) throw new Error("membership lookup needs the session access token");
+      return ports.findMembership(organisationId, memberUserId, accessToken);
+    },
+    policyRevision: (organisationId) => {
+      if (accessToken === null) throw new Error("policy lookup needs the session access token");
+      return ports.policyRevision(organisationId, accessToken);
+    },
+  };
 
   const resolution = await resolveTenantContext({
     request: { url: input.request.url },
