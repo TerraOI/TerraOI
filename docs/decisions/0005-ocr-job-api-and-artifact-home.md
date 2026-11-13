@@ -1,6 +1,11 @@
 # ADR-0005 OCR job API, lease fencing, and the artifact home (T-211 prerequisite)
 
-Status: **proposed** — not accepted, decides nothing on its own. The four questions it was blocked on ([#51](https://github.com/TerraOI/TerraOI/issues/51), [#66](https://github.com/TerraOI/TerraOI/issues/66), [#75](https://github.com/TerraOI/TerraOI/issues/75), [#38](https://github.com/TerraOI/TerraOI/issues/38)) were answered on 2026-11-08 (see the issues; §10 keeps the options as they stood), and the #91 review's blocking items B1–B3 are fixed in §1, §2, §4 and §7. Moving to *accepted* is the supervisor's next step. Also touches [#93](https://github.com/TerraOI/TerraOI/issues/93), [#99](https://github.com/TerraOI/TerraOI/issues/99), [#40](https://github.com/TerraOI/TerraOI/issues/40), [#60](https://github.com/TerraOI/TerraOI/issues/60), [#68](https://github.com/TerraOI/TerraOI/issues/68) and #6 · Date: 2026-11-07 · Deciders: supervisor (job API, worker role, artifact home), Lane 2 (extractor inputs)
+Status: **accepted** — this PR is the implementation: the one migration
+[`20261109230000_ocr_job_leases.sql`](../../supabase/migrations/20261109230000_ocr_job_leases.sql),
+pgTAP [`045_ingestion_jobs.test.sql`](../../supabase/tests/database/045_ingestion_jobs.test.sql),
+[ADR-0011](0011-object-bytes-for-the-extraction-workers.md) and
+[`scripts/worker-credential.mjs`](../../scripts/worker-credential.mjs). The sketches below stay in
+place as the review trail: where the implemented shape differs, §10c and the section banners say so. The four questions it was blocked on ([#51](https://github.com/TerraOI/TerraOI/issues/51), [#66](https://github.com/TerraOI/TerraOI/issues/66), [#75](https://github.com/TerraOI/TerraOI/issues/75), [#38](https://github.com/TerraOI/TerraOI/issues/38)) were answered on 2026-11-08 (see the issues; §10 keeps the options as they stood), and the #91 review's blocking items B1–B3 are fixed in §1, §2, §4 and §7. Moving to *accepted* is the supervisor's next step. Also touches [#93](https://github.com/TerraOI/TerraOI/issues/93), [#99](https://github.com/TerraOI/TerraOI/issues/99), [#40](https://github.com/TerraOI/TerraOI/issues/40), [#60](https://github.com/TerraOI/TerraOI/issues/60), [#68](https://github.com/TerraOI/TerraOI/issues/68) and #6 · Date: 2026-11-07 · Deciders: supervisor (job API, worker role, artifact home), Lane 2 (extractor inputs)
 Plan refs: §7.2 (extraction executors, line 386; steps 2–3), §7.5 (line 406), §13 (lines 824, 826–831), §16 (ingestion row, line 945), §20.8 (human steps); F12, F32
 
 This is the **T-211 design written as a proposal**, not a claim on T-211 (T-115 b/c/d are unmerged) and not an answer to any open question. Every SQL block below is a sketch inside this ADR: no file under `supabase/migrations/` is written, because the timestamp is the daily sync's to claim ([COORDINATION.md §3](../COORDINATION.md)) and one migration may not encode two undecided designs. [T-211](../tasks/T-211-ocr-worker.md) is the packet that would implement it.
@@ -63,7 +68,7 @@ alter table public.ingestion_jobs
   add column lease_fence bigint not null default 0 check (lease_fence >= 0);  -- the ONE column
 ```
 
-**The hole this ADR must state rather than paper over: a uuid is a capability, not authentication.** `current_worker_id()` reads a GUC, and the grant checks in §3/§5 compare that uuid against `worker_credentials.organisations` — but nothing sketched above ever converts a **presented credential** into that uuid. `token_hash` is stored and never consulted by any function in this document. Under §6 option 1's single shared role, a box that can set a session GUC can claim another box's identity. The merged analogue the design borrows from works only because `set_tenant_scope` is anchored on `auth.uid()` (`20261105060000_tenancy_core.sql:203-216`), which does not exist for a box. Three possible homes for that rule, none of them this lane's to pick: (i) a per-box login/role or per-box Hyperdrive credential, so the connection itself identifies the box and the API layer sets `app.worker_id` from a verified lookup; (ii) a job-API verify step that hashes the presented token and looks the row up before any RPC runs; (iii) tunnel/mTLS identity mapped to a worker id. **Until one is chosen, `revoked_at` on a credential bounds only new leases:** the mutating compares do not consult `worker_credentials`, so a revoked credential that already holds a token and a fence keeps renewing and completing until `lease_expires_at` (≤ `p_lease_seconds`, capped at 1800 s here). The alternative is to join `worker_credentials … and revoked_at is null` into every mutating compare, which this ADR now names as the cheaper of the two and still does not choose.
+**The hole this ADR must state rather than paper over: a uuid is a capability, not authentication.** `current_worker_id()` reads a GUC, and the grant checks in §3/§5 compare that uuid against `worker_credentials.organisations` — but nothing sketched above ever converts a **presented credential** into that uuid. `token_hash` is stored and never consulted by any function in this document. Under §6 option 1's single shared role, a box that can set a session GUC can claim another box's identity. The merged analogue the design borrows from works only because `set_tenant_scope` is anchored on `auth.uid()` (`20261105060000_tenancy_core.sql:203-216`), which does not exist for a box. Three possible homes for that rule, none of them this lane's to pick: (i) a per-box login/role or per-box Hyperdrive credential, so the connection itself identifies the box and the API layer sets `app.worker_id` from a verified lookup; (ii) a job-API verify step that hashes the presented token and looks the row up before any RPC runs; (iii) tunnel/mTLS identity mapped to a worker id. **Until one is chosen, `revoked_at` on a credential bounds only new leases:** the mutating compares do not consult `worker_credentials`, so a revoked credential that already holds a token and a fence keeps renewing and completing until `lease_expires_at` (≤ `p_lease_seconds`, capped at 1800 s here). The alternative is to join `worker_credentials … and revoked_at is null` into every mutating compare, which this ADR now names as the cheaper of the two and still does not choose. **Chosen, on #134, and implemented:** every job-API function takes the presented token's **hash** as its first argument and joins `worker_credentials … and revoked_at is null` — together with the executor and the tenant array — inside the same statement as the lease token, the fence and the expiry. There is no `app.worker_id` GUC anywhere in the merged shape, so the "a uuid is a capability, not authentication" hole is closed at the only place it could be closed: the compare. §10c states the residual, which is that the stored digest is itself a capability.
 
 ```sql
 -- SKETCH ONLY. lease: one job at a time, expired-or-unleased only, tenant from the row.
@@ -203,23 +208,32 @@ Capture cannot make this decision: `sniffSignature` types bytes by signature alo
 And the merged schema forbids the easy fix: `:398` does not include `executor`, and capture enqueues with `on conflict (…stage key…) do nothing` (`20261106100000_knowledge_uploads.sql:470-478`) — inserting a second row for the box is **silently discarded**, producing a scanned PDF with a cloud row and no visible failure. Re-targeting is necessarily an UPDATE of the existing row.
 
 ```sql
--- SKETCH ONLY. Blocked on #66. Note: executor can only ever move cloud_worker -> local_box.
-create function job_api.retarget_extract_job_v1(p_job_id uuid, p_reason_code text)
-returns table (o_outcome text, o_executor text, o_status text)
+-- SUPERSEDED by §10c and by the migration as written: #134 narrowed the caller to the cloud worker
+-- that holds the lease, so the guard is the lease token + fence, not `status = 'queued'`, and the
+-- identity is the presented digest, not a self-asserted `current_worker_id()`. Kept as the trail.
+-- Note: executor can only ever move cloud_worker -> local_box.
+create function job_api.retarget_extract_job_v1(p_token_hash text, p_job_id uuid, p_lease_token text,
+                                                 p_fence bigint, p_reason_code text)
+returns table (o_outcome text, o_executor text, o_status text, o_fence bigint)
 language plpgsql security definer set search_path = job_api, public, pg_temp as $$
 begin
   if p_reason_code is null or p_reason_code !~ '^[a-z0-9_]{1,64}$' then
     raise exception 'reason must be a safe code' using errcode = '22023';
   end if;
   update public.ingestion_jobs
-     set executor = 'local_box', status = 'queued', last_error = p_reason_code
+     set executor = 'local_box', status = 'queued', lease_token = null, lease_expires_at = null,
+         lease_fence = lease_fence + 1, last_error = p_reason_code   -- §10c: pair cleared together,
+                                                                     -- fence bumped (the #99 invariant)
    where id = p_job_id
      and stage = 'extract'                                   -- :390-391, belt-and-braces
      and executor = 'cloud_worker'                           -- the one-way door
-     and status = 'queued'                                   -- never leased/running/succeeded/failed
+     and lease_token = p_lease_token and lease_fence = p_fence       -- §10c: a live lease, proved by pair
+     and status in ('leased','running') and lease_expires_at > now()
      and data_class <> 'restricted'                          -- :385-388
-     and organisation_id = any (select w.organisations from job_api.worker_credentials w
-                                where w.id = job_api.current_worker_id() and w.revoked_at is null)
+     and exists (select 1 from job_api.worker_credentials c
+                  where c.token_hash = p_token_hash and c.revoked_at is null
+                    and c.executor = 'cloud_worker'            -- §10c: one credential, one executor (#135)
+                    and j.organisation_id = any (c.organisations))
    returning executor, status into o_executor, o_status;
   if not found then
     o_outcome := 'refused'; return next; return;             -- row may or may not exist: same answer
@@ -247,18 +261,18 @@ Either way pgTAP gains the cap case: the 101st lease must not be an error, and a
 
 The box authenticates **outbound to the job API**, never to Postgres (§7.2 line 386; §13 line 829). The job API is a Worker under `src/app/api/jobs/` — a Lane 2 route folder that does not exist yet, protected in CODEOWNERS ([FAQ-0005](../FAQ.md)). The role question is therefore "who does the job API connect as", and it is the same fork #75 is open on for sessions:
 
-1. **Hyperdrive + a dedicated NOLOGIN role**, the ADR-0002 precedent ([`docs/decisions/0002-pilot-inquiry-intake.md:22-25`](0002-pilot-inquiry-intake.md)): a login user `IN ROLE inquiry_writer`, the `INQUIRY_DB` binding, and the containment statement "a leaked Hyperdrive credential can insert inquiries, within the CHECK limits, and do nothing else". Analogue here: role `terraoi_job_writer` (NOLOGIN), `usage` on `job_api`, `execute` on the five functions **by name**, **no table grant at all**. `wrangler.jsonc` today records one Hyperdrive binding, added to `env.staging` by the owner as a human step ([`wrangler.jsonc:12-14`](../../wrangler.jsonc)).
+1. **Hyperdrive + a dedicated NOLOGIN role**, the ADR-0002 precedent ([`docs/decisions/0002-pilot-inquiry-intake.md:22-25`](0002-pilot-inquiry-intake.md)): a login user `IN ROLE inquiry_writer`, the `INQUIRY_DB` binding, and the containment statement "a leaked Hyperdrive credential can insert inquiries, within the CHECK limits, and do nothing else". Analogue here, **ruled on #134 and implemented in this PR**: role `toi_job_api` (`NOLOGIN`), `usage` on `job_api`, `execute` on the six job-API functions **by name**, **no table grant at all**, reached over a **`JOB_DB`** Hyperdrive binding that only the owner creates (T-004 §20.8, `docs/tasks/T-004-infrastructure.md:11`). `wrangler.jsonc` today records one Hyperdrive binding, added to `env.staging` by the owner as a human step ([`wrangler.jsonc:12-14`](../../wrangler.jsonc)).
 2. **The Data API with a token** — unavailable: there is no employee token here, and only `public`/`graphql_public` are exposed (`supabase/config.toml:13`).
 3. **`service_role`** — permitted only in a documented server path with an ADR (AGENTS.md §4.2), and it bypasses RLS on every tenant table. Not sketched here.
 
-This ADR does not choose; §2–§5 are written so that the answer changes only the **connection target**, never a signature or a guard.
+This ADR did not choose; **this PR implements option 1** (#134). §2–§5 held to their promise — the choice changed only the connection target, not a signature or a guard — with one exception §10c records: the identity mechanism became the presented credential's **digest**, carried as the first argument of every function, because a GUC a caller sets for itself is not authentication.
 
 ## 7. Decision 6 — pgTAP slot `045_ingestion_jobs.test.sql`, and `plan(93)`
 
 - The packet names `040_ingestion_jobs.test.sql` (`docs/tasks/T-211-ocr-worker.md:18,36`), but **040 is merged**: [`supabase/tests/database/040_knowledge_uploads.test.sql`](../../supabase/tests/database/040_knowledge_uploads.test.sql) is 652 lines with `select plan(63)` (`:18`), and merged test files are never renamed (COORDINATION §3).
 - `050` is **already promised** to T-213 ([`docs/tasks/T-213-review-publish-revoke.md:19`](../tasks/T-213-review-publish-revoke.md)), and the session train has taken `014`. So `045` is the only slot that is both adjacent to the knowledge/job suites and unclaimed.
 - Order is safe: `supabase test db` is the last database gate in CI ([`.github/workflows/ci.yml:56`](../../.github/workflows/ci.yml)) and runs the directory in file-name order, while every file is its own `begin; … rollback;` transaction (`040…sql:15`, [`000_guardrails.test.sql:3,31`](../../supabase/tests/database/000_guardrails.test.sql)). A `045` between `040` and `050` cannot change what another file sees.
-- `select plan(93)` is the sum of (the first draft said 80; the three added fencing assertions, the attempt-cap case, the two artifact-guard assertions, the new credential group and the two table-privilege negatives are what moved it): schema/privilege shape **14** (schema not exposed; five functions exist; `has_function_privilege` false for `anon`/`authenticated`/`service_role` and true only for `terraoi_job_writer`; new table RLS enabled; composite `(id, organisation_id)` present; `has_table_privilege('anon', 'public.extraction_artifacts', 'select') = false` and `has_table_privilege('service_role', 'public.extraction_artifacts', 'insert') = false`), lease **6**, lease isolation **8**, renew **6**, complete and its writes **9**, fencing **10** (adds the three cases the first draft had no group for: an expired lease that was never re-leased cannot complete; renew after expiry refuses; a credential revoked mid-lease is bounded exactly as §3 says), idempotency and ordering **8** (adds the attempt-cap case from §5b), retarget guards **8**, artifacts **10** (the three RLS negatives + the **trigger** refusing an artifact below its parent's class + immutability of artifact content + `restricted` refusal + cross-tenant FK `23503`), abort/revocation/offline **8**, worker credential and identity **6** (the table's shape CHECKs, the absence of any grant to request roles, and — once §3's identity mechanism exists — an assertion that a forged worker id cannot lease; today that group can only assert the *absence* of a mechanism, which is itself the honest finding).
+- `select plan(93)` was the tally of this ADR's first draft. **As implemented, `045` runs `select plan(131)`** — 131 numbered assertions, 1..131, one statement each, checked against the file before pushing. The tally grew because #99, #134, #135 and #146 each added assertions (reclaim and the dead letter, the credential arm, the executor arm, the object-locator refusals, the reconciler), and because group 1 as written here could not have held what it describes: five functions × three roles is already fifteen privilege assertions, so 14 was a placeholder, not a count. The original sum of (the first draft said 80; the three added fencing assertions, the attempt-cap case, the two artifact-guard assertions, the new credential group and the two table-privilege negatives are what moved it): schema/privilege shape **14** (schema not exposed; five functions exist; `has_function_privilege` false for `anon`/`authenticated`/`service_role` and true only for `terraoi_job_writer`; new table RLS enabled; composite `(id, organisation_id)` present; `has_table_privilege('anon', 'public.extraction_artifacts', 'select') = false` and `has_table_privilege('service_role', 'public.extraction_artifacts', 'insert') = false`), lease **6**, lease isolation **8**, renew **6**, complete and its writes **9**, fencing **10** (adds the three cases the first draft had no group for: an expired lease that was never re-leased cannot complete; renew after expiry refuses; a credential revoked mid-lease is bounded exactly as §3 says), idempotency and ordering **8** (adds the attempt-cap case from §5b), retarget guards **8**, artifacts **10** (the three RLS negatives + the **trigger** refusing an artifact below its parent's class + immutability of artifact content + `restricted` refusal + cross-tenant FK `23503`), abort/revocation/offline **8**, worker credential and identity **6** (the table's shape CHECKs, the absence of any grant to request roles, and — once §3's identity mechanism exists — an assertion that a forged worker id cannot lease; today that group can only assert the *absence* of a mechanism, which is itself the honest finding).
 - `plan(N)` must equal the number of assertions actually executed or pgTAP fails the run, so the number and the group list move together in one commit. Assertions are never dropped to make a run green (AGENTS.md §6).
 - Two corrections this ADR makes rather than repeating: at `467f169` there is **no** `999_violation_probe.test.sql` in the suite, and "the next free pgTAP file is 050" is wrong for the reason above.
 
@@ -275,7 +289,7 @@ This ADR does not choose; §2–§5 are written so that the answer changes only 
 
 None of these may be done by an agent or a builder, and none is a repository secret. **Until #75 decides the mechanism, none of §3–§5 is reachable at all**, so T-211's staging evidence — "upload a synthetic scanned PDF for company1 and show the lease/complete sequence, then upload on the company2 host and show its job is invisible to company1's worker credential" (`docs/tasks/T-211-ocr-worker.md:52-54`) — is unproducible, and CI's pgTAP is the only authority (§7).
 
-1. Create the NOLOGIN role (`terraoi_job_writer` in the §6-1 sketch) and a login user `IN ROLE` it, with a generated password held only in the password manager.
+1. Create the NOLOGIN role `toi_job_api` and a login user `IN ROLE` it, with a generated password held only in the password manager. The migration creates the **role** idempotently (the `inquiry_writer` precedent); the login user, its password and the `JOB_DB` binding are the owner's, and no agent may create them (#134, `docs/tasks/T-004-infrastructure.md:11`).
 2. Create the Hyperdrive configuration against the staging database and bind it in `wrangler.jsonc` under `env.staging` — the same human step that is still open for `INQUIRY_DB` (`wrangler.jsonc:12-14`, and #75 records that the intake login/Hyperdrive pair is unprovisioned too).
 3. Issue the box's worker credential (a value whose digest lands in `job_api.worker_credentials`), and bind the clear-text half as a secret on the box only — never in the repo, never in an agent chat (AGENTS.md §4.6).
 4. Set the tunnel/access policy so the box stays outbound-only (§13 lines 826–831), and record the staging-vs-production separation.
@@ -303,6 +317,92 @@ Supervisor ruling, recorded here so §3 and §5b have one answer:
 - **Reconciler:** a service/admin-only view in the same migration lists non-final jobs older than twice the maximum lease, `failed` jobs from the last 7 days, and versions in a non-final pipeline state with no job row.
 - pgTAP in `045` covers each of these (see T-211's rulings).
 
+## 10c. Amendment (2026-11-09b): what this PR actually built (#134, #135, #146)
+
+This section is the rewrite §5 and §6 promised. Where a sketch above and the migration disagree, **this
+section and the migration win**; the sketches stay for the review trail.
+
+**Job API, as merged** — one migration, `20261109230000_ocr_job_leases.sql`:
+
+- One column: `ingestion_jobs.lease_fence bigint not null default 0` with its own non-negative CHECK.
+- One public table: `public.extraction_artifacts`, plus `public.extraction_artifacts_guard()` and its
+  trigger (revoked by full signature, never granted back — a trigger does not need its invoker to
+  hold EXECUTE, the precedent being the eight in `20261109160000_function_privileges.sql:24-40`).
+- `job_api` schema (not exposed: `supabase/config.toml:13`), `job_api.worker_credentials`, and **six**
+  functions instead of five: `lease_parse_job_v1`, `renew_parse_lease_v1`, `complete_parse_job_v1`,
+  `abort_parse_job_v1`, `retarget_extract_job_v1`, and `object_ref_for_lease_v1` (added by #146,
+  [ADR-0011](0011-object-bytes-for-the-extraction-workers.md)). No `current_worker_id()`, and no
+  `app.worker_id` GUC: the digest is an argument.
+- Four bounds in one place each: `job_api.max_attempts()` = 5, `job_api.max_lease_seconds()` = 1800,
+  `job_api.abort_reasons()`, `job_api.retarget_reasons()`. #99 asked for a "named constant"; Postgres
+  has none, and a literal `5` in two function bodies is two sources of truth.
+- The reconciler of plan §7.5 is a **view**, `job_api.reconciler_findings`, with three named findings:
+  `stuck_job` (non-final, older than twice `max_lease_seconds()`), `recent_failure` (`failed` or
+  `cancelled` in 7 days), `missing_job` (a version in a live pipeline state with no job row). Granted
+  to nobody — not to a request role, not to `service_role`, not to `toi_job_api`.
+- Role `toi_job_api` (`NOLOGIN`, created idempotently the way `inquiry_writer` is at
+  `20261105080000_pilot_inquiries.sql:9-15`), `usage` on `job_api`, `execute` on the six functions by
+  name, **no table grant**. `scripts/worker-credential.mjs` issues a token and stores only its
+  SHA-256 digest.
+- `service_role` is revoked on `ingestion_jobs` and on every table the migration adds, because #146
+  puts a service-role key on the `workers/` deployment and that key must not be able to write the
+  pipeline through the Data API.
+
+**The compare, in every mutating function** (#134's ruling, not a separate gate):
+
+```sql
+   where j.id = p_job_id
+     and j.lease_token = p_lease_token and j.lease_fence = p_fence
+     and j.status in ('leased','running') and j.lease_expires_at > now()
+     and exists (select 1 from job_api.worker_credentials c
+                  where c.token_hash = p_token_hash and c.revoked_at is null
+                    and c.executor = j.executor
+                    and j.organisation_id = any (c.organisations))
+```
+
+- `attempt` arithmetic, so "#99: `max_attempts = 5`" means five leases and not four: a row may be
+  leased while `attempt <= max_attempts`, and the sweep dead-letters it when its lease expires with
+  `attempt > max_attempts`. The reclaim/cap group in pgTAP `045` pins both arms and the exclusion.
+- `lease_parse_job_v1` runs the reclaim **first**, in the same transaction, scoped to the credential's
+  tenants **and the credential's executor**, then selects. `for update skip locked` follows `limit 1` —
+  Postgres rejects the other order, which the sketch in §3 had backwards.
+- `complete_parse_job_v1` re-checks `p_source_version_id`, `p_stage` and `p_index_generation` against
+  the job row and refuses a mismatch with the same `42501` a foreign row gets, so a replayed message
+  cannot write a generation that never ran; it copies the generations, the class and the producer from
+  the **job row and the credential**, never from the caller.
+- `retarget_extract_job_v1` belongs to the **cloud worker on its own leased job** (#134), one-way to
+  `local_box`, back to `queued`, lease pair cleared together, `lease_fence` bumped. A `local_box`
+  credential is refused by the executor arm, so the box never retargets. §5's `status = 'queued'` arm
+  is gone; what makes it safe is the same thing §5 warned about — the fence bump — which #99 established
+  for the sweep and this repeats for retarget.
+- `job_api.executor_clears_class(executor, class)` is the **byte-path policy**, and it is its own policy
+  rather than §12.4's model-clearance matrix. That interim note is **removed on the supervisor's ruling
+  ([#152](https://github.com/TerraOI/TerraOI/issues/152))**: both `local_box` and `cloud_worker` clear
+  `public`, `internal` and `client_confidential`; `restricted` is never ingested so it never reaches a
+  byte path; an executor this function does not name clears nothing; and no third-party OCR or
+  extraction route exists in M1. The matrix in `src/contracts/provider-route.ts:81` and
+  [ADR-0007:14](0007-e1-embedding-clearance.md) are unchanged — they answer which *model provider* may
+  see text, and our own Worker is not a provider. The table, its reasoning and the deployment shape are
+  [ADR-0011's amendment](0011-object-bytes-for-the-extraction-workers.md); widening it later is a
+  recorded decision, never a code edit.
+
+**Threat-model paragraph the §8 list still needs.** Three things are true at once, and the review should
+see all three rather than one:
+
+1. A leaked `JOB_DB` credential can call six functions and nothing else — no table grant, no view, no
+   sequence, and the privilege and search-path assertions in `045` prove it, and the member-path assertion in `045` shows the reconciler is unreachable over SQL, while `001` test 33 now names `job_api` so a future
+   grant is a review decision.
+2. The stored **digest is a capability**: whoever presents a matching value *is* that worker, for the
+   tenants and the single executor that row names. `worker_credentials` is therefore owner-only — not
+   readable by `toi_job_api` either — and rotation is a human step. A digest cannot be reversed into a
+   token, so a read of that table is a credential leak rather than a credential forgery; both are
+   covered by the same absence of privileges.
+3. The **service-role key** ADR-0011 introduces is the widest credential in the system after the
+   dashboard. The migration removes its SQL reach; the import-boundary test (T-211 PR-2) keeps its
+   minting inside `workers/`; and what is *not* closed by either — that the key could sign a URL for an
+   object whose key an attacker already knows — is named in ADR-0011 Consequences as a Storage-side
+   follow-up, not papered over here.
+
 ## 11. Alternatives considered
 
 - **Machine membership instead of worker grants** (§3): rejected in the sketch, not by ruling — it widens a leaked credential to the full `authenticated` read surface and puts a non-person in provenance columns.
@@ -315,7 +415,7 @@ Supervisor ruling, recorded here so §3 and §5b have one answer:
 
 ## Consequences
 
-- Landing this design adds, in **one** migration: one column (`ingestion_jobs.lease_fence`), one table (`public.extraction_artifacts`), five functions (`lease`/`renew`/`complete`/`abort` in `job_api`, plus `retarget_extract_job_v1`), one role (`terraoi_job_writer`, NOLOGIN, no table grants), one small credential table (`job_api.worker_credentials`) and **two optional views** (`job_api.worker_job_view`, `job_api.worker_artifact_view`) if the packet's "its own job and artifact views" is to be granted literally rather than as RPC-only access.
+- Landing this design adds, in **one** migration (`20261109230000_ocr_job_leases.sql`, as built — see §10c): one column (`ingestion_jobs.lease_fence`), one public table (`public.extraction_artifacts`) with its guard function and trigger, one schema (`job_api`), one small credential table (`job_api.worker_credentials`), six functions (`lease`/`renew`/`complete`/`abort`/`retarget_extract_job_v1`/`object_ref_for_lease_v1`) plus four bound helpers (`max_attempts`, `max_lease_seconds`, `abort_reasons`, `retarget_reasons`) and one clearance helper, one reconciler **view** (`job_api.reconciler_findings`, granted to nobody), and one role (`toi_job_api`, `NOLOGIN`, `usage` + `execute` by name, **no table grants**). The packet's "its own job and artifact views" is satisfied by the RPC result shapes rather than by granted views: `045`'s privilege group proves the worker role selects no table at all, which is a narrower reading than literal views and the one this PR ships — if the supervisor wants the literal views, that is a new migration and a new pair of grants, not a change to any signature.
 - Migration mechanics are fixed by the repo, not by taste: the newest merged file is `20261106100000_knowledge_uploads.sql`, and a new migration's timestamp must be later than the newest on main, merged files are never edited, and a PR may add exactly one migration ([`scripts/migrations.mjs:22-24,33-37`](../../scripts/migrations.mjs)). The in-flight session migration (#77) will raise that floor before this PR is reviewable, so the filename is fixed at claim time in the daily sync (COORDINATION §3).
 - **Recommended landing order: answer #51 and #66 first.** One migration cannot carry two undecided designs: #51 decides whether §4's table exists at all, and #66 decides whether §5 exists. Then implement in this order, test-first: artifact table + guard + RLS; fence + lease/renew; complete; retarget; abort/revocation.
 - If the supervisor chooses #68 option 2, §3–§5 keep their signatures and gain a history table; if #66 option 1 wins, §5 is deleted and a merged pgTAP assertion changes in the same PR; if #51 option 2 wins, §4 remains and the fill is added on top. No other combination rewrites this ADR.

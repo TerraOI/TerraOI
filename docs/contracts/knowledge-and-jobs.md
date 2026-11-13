@@ -30,9 +30,12 @@ sees received / processing / needs review / ready / failed — never a claim tha
 
 ## Jobs carry scope, not authority
 
-`IngestionJobPayload` is `.strict()` and never contains object URLs, tokens or keys — the job API
-issues a short-lived signed URL when the worker asks for the job (F32). Every worker call
-re-reads the job row and re-checks lease, tenant, source version and expected stage, so a
+`IngestionJobPayload` is `.strict()` and never contains object URLs, tokens or keys. The worker
+presents its credential **digest** on every call; `job_api.object_ref_for_lease_v1` returns the
+object **key** of the version the lease points at, under the same compare as every mutating call, and
+the short-lived URL (60 s) is minted by the extraction deployment from that key under
+[ADR-0011](../decisions/0011-object-bytes-for-the-extraction-workers.md) (F32). Every worker call
+re-reads the job row and re-checks lease, tenant, executor, source version and expected stage, so a
 replayed or stale message cannot process another tenant's object or resurrect a revoked source.
 
 - The stage idempotency key is `(org, source, version, stage, parser/index generation)` (§7.5),
@@ -42,6 +45,17 @@ replayed or stale message cannot process another tenant's object or resurrect a 
   `ingestion_jobs` (`20261105070000_knowledge_core.sql:398`) leaves it out for exactly that reason.
   Attempt history is not modelled as rows in M1. Retries increment `attempt` in place, and lease
   state lives on the job row (#68).
+- A lease carries a **fence** (`ingestion_jobs.lease_fence`, bumped by a lease, by an expired-lease
+  reclaim and by a retarget). Every mutating statement matches the fence the worker was issued **and**
+  the server-side expiry, so neither a re-leased nor an abandoned holder can write (ADR-0005 §3).
+- Bounded retries and the reconciler (§7.5): an expired lease is reclaimed inline by the next lease
+  call for that tenant and executor; a job that has used its `max_attempts` leases moves to `failed`
+  with `last_error = 'retries_exhausted'` — a state, never a deletion — and `job_api.reconciler_findings`
+  lists stuck jobs, recent failures and versions with no job row (#99).
+- Retargeting an `extract` job from the cloud worker to the box is **the cloud worker's** decision,
+  made from a live lease on its own job and with a named reason code; the box never retargets, and
+  nothing can move a job back to `cloud_worker` (#66, #134). Extracted text with page/section/table
+  locators lands in `extraction_artifacts`, never in a version's `body_text` (#51).
 - `executor: local_box` is valid **only** for `extract`: inference and OCR are separate
   processes on the box, and OCR load must not starve chat (§13).
 - `dataClass: restricted` cannot be enqueued in M1 (§12.4). Lifting that needs an ADR.
