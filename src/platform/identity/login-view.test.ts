@@ -16,6 +16,7 @@ const OWNER1 = "00000000-0000-4000-8000-0000000000a1";
 const LEFT = "00000000-0000-4000-8000-0000000000a3";
 const OUTSIDER = "00000000-0000-4000-8000-0000000000b1";
 const MEMBERSHIP = "55555555-5555-4555-8555-555555555555";
+const tokenFor = (userId: string) => `synthetic-access-token-for-${userId}`;
 
 /** The in-memory stand-in for `toi_identity.sessions`; the SQL half is pgTAP's job (014). */
 function memoryStore(rows: Map<string, StoredSession> = new Map()): SessionStore & { rows: Map<string, StoredSession> } {
@@ -52,10 +53,10 @@ function ports(overrides: Partial<LoginViewPorts> = {}): LoginViewPorts {
       host === "company1.terraoi.app" || host === "company2.terraoi.app"
         ? { organisationId: host === "company1.terraoi.app" ? C1 : C2, organisationStatus: "active" }
         : null,
-    findMembership: async (organisationId, userId) =>
-      organisationId === C1 && userId === OWNER1
+    findMembership: async (organisationId, accessToken) =>
+      organisationId === C1 && accessToken === tokenFor(OWNER1)
         ? { membershipId: MEMBERSHIP, status: "active", roles: ["member"], permittedServiceKeys: [], permittedProjectIds: [] }
-        : organisationId === C1 && userId === LEFT
+        : organisationId === C1 && accessToken === tokenFor(LEFT)
           ? { membershipId: MEMBERSHIP, status: "suspended", roles: [], permittedServiceKeys: [], permittedProjectIds: [] }
           : null,
     policyRevision: async () => 1,
@@ -71,7 +72,7 @@ async function sessionCookieFor(store: SessionStore, userId: string, host = "com
     secureTransport: true,
     store,
     cipher: createTokenCipher(CIPHER),
-    tokens: { accessToken: "synthetic-access-token", refreshToken: "synthetic-refresh-token", expiresAt: NOW + 3600 },
+    tokens: { accessToken: tokenFor(userId), refreshToken: "synthetic-refresh-token", expiresAt: NOW + 3600 },
   });
   return `${session.cookie.name}=${session.cookie.value}`;
 }

@@ -132,8 +132,12 @@ function harness(overrides: Partial<Harness> = {}): Harness {
       state.exchanges.push(input);
       return state.identity;
     },
-    findMembership: async (organisationId, userId) => {
+    // The read takes no user: whose membership row comes back follows the token the flow is holding,
+    // exactly as `current_membership_v1` keys on `auth.uid()`. A token that is not the one this flow
+    // exchanged resolves to no user at all.
+    findMembership: async (organisationId, accessToken) => {
       if (state.boom) throw new Error("database unavailable");
+      const userId = state.identity.ok && state.identity.accessToken === accessToken ? state.identity.userId : "";
       state.memberships.push(`${organisationId}:${userId}`);
       return state.membershipFor(organisationId, userId, state.memberships.length);
     },

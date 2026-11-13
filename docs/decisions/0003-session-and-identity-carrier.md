@@ -1,6 +1,6 @@
 # ADR-0003 The session and the identity carrier (#37, T-102)
 
-Status: proposed (awaiting supervisor approval — protected path, and this ADR records a supervisor decision rather than making one) · Date: 2026-11-06 · Amended: 2026-11-12 (#75) · Deciders: supervisor ([#37](https://github.com/TerraOI/TerraOI/issues/37), comment `6693315053`, 2026-11-06T19:17:09Z; [#75](https://github.com/TerraOI/TerraOI/issues/75), 2026-11-08T23:16:53Z); Lane 1 authored
+Status: proposed (awaiting supervisor approval — protected path, and this ADR records a supervisor decision rather than making one) · Date: 2026-11-06 · Amended: 2026-11-12 (#75); 2026-11-13 (§3b, the two pre-activation reads, from the #171 review) · Deciders: supervisor ([#37](https://github.com/TerraOI/TerraOI/issues/37), comment `6693315053`, 2026-11-06T19:17:09Z; [#75](https://github.com/TerraOI/TerraOI/issues/75), 2026-11-08T23:16:53Z); Lane 1 authored
 Plan refs: §4.1 (host resolution), §4.2 (authn, cookies, CSRF, cross-host replay), §4.3 (RLS and scoped access), §6.1 (identity/access), §20.8 (human steps); F02, F05; TOI-ADR-15
 Depends on: ADR-0001 (contracts), ADR-0002 (the unexposed-schema + least-privilege-login precedent)
 Amendment: [#75](https://github.com/TerraOI/TerraOI/issues/75) — **how the Worker reaches the session row** (answered: Hyperdrive + `toi_session_worker`; see §3a)
@@ -89,6 +89,32 @@ dedicated role, following the ADR-0002 precedent.
 - **Human steps (§20.8), owner:** create the login user `IN ROLE toi_session_worker` and its
   password, the Hyperdrive config, the `wrangler.jsonc` `SESSION_DB` binding under `env.staging`,
   and the `SESSION_TOKEN_KEY` secret. Recorded on [T-004](../tasks/T-004-infrastructure.md).
+
+### 3b. The two pre-activation tenancy reads (#171 review B2)
+
+Signing in needs tenant rows **before** any `TenantContext` exists, and `TenantContext` is exactly
+what those rows produce (`src/contracts/tenant-context.ts`: `membershipId`, `membershipStatus:
+"active"`, `policyRevision`). So this path cannot call `withTenantRpc`, which takes a context: it
+calls the two RPCs the migration `20261113010000_scoped_identity_reads.sql` adds, as the signed-in
+user, and `withTenantRpc` takes over downstream of the context (T-101c, FAQ-0011). Direct PostgREST
+table selects are gone — AGENTS.md §4.2 and plan §4.3 put tenant access behind RPCs.
+
+- **`current_policy_revision_v1(p_organisation_id uuid)`** — an ordinary tenant-scoped read, FAQ-0011
+  shape: tenant argument first, `perform public.set_tenant_scope(...)` as its first statement, the
+  scope live in the same transaction as the work. A refusal arrives as SQLSTATE `28000`, which the
+  caller must not read as "no rows".
+- **`current_membership_v1(p_organisation_id uuid)`** — the recorded **carve-out**. It sets no scope,
+  because `set_tenant_scope` raises `28000` unless `is_active_member` is true
+  (`20261105060000_tenancy_core.sql:214`) and the invited claim in F05 has to see its own `invited`
+  row before it can become an active one. Its bound is the row set, not the scope: `user_id` comes
+  from `auth.uid()` and there is **no user argument**, `memberships_read_own` is the ceiling, and both
+  functions are `SECURITY INVOKER` so a definer version cannot quietly see more. `supabase/tests/
+  database/017_scoped_identity_reads.test.sql` pins each of those facts, including that the invited
+  user still gets `28000` from the scoped read in the tenant where they are only invited.
+
+This is deliberately narrow. When the page path wires its `TenancyStore` for real, that store's
+`findMembership(organisationId, userId)` should lose its user argument too, and any new read that
+runs *after* a context exists goes through `withTenantRpc`, not here.
 
 ### 4. Revocation and sign-out
 
