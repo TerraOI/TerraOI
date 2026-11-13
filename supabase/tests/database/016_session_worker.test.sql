@@ -2,7 +2,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(15);
+select plan(17);
 
 select ok(
   (select rolcanlogin = false from pg_roles where rolname = 'toi_session_worker'),
@@ -79,6 +79,39 @@ select is((select result from t_worker_out where case_name = 'auth_call'), 'ok',
   '14 toi_session_worker can call authenticate_session_v1 at runtime');
 select is((select result from t_worker_out where case_name = 'select_table'), '42501',
   '15 toi_session_worker cannot select the session table at runtime');
+
+-- Direct EXECUTE grants only. has_function_privilege is true for every function PUBLIC can
+-- execute, which is the catalog default, so that check cannot tell a later GRANT to this role
+-- from a privilege every role already has. aclexplode names the grantee.
+select is_empty(
+  $$ select n.nspname || '.' || p.proname
+       from pg_proc p
+       join pg_namespace n on n.oid = p.pronamespace
+       cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+      where n.nspname in ('public', 'toi_identity', 'job_api')
+        and a.grantee = 'toi_session_worker'::regrole
+        and a.privilege_type = 'EXECUTE'
+        and not (n.nspname = 'toi_identity' and p.proname in (
+          'authenticate_session_v1', 'insert_session_v1', 'revoke_session_v1',
+          'rotate_session_tokens_v1', 'prune_expired_sessions_v1')) $$,
+  '16 toi_session_worker is granted execute on no function except the five session functions'
+);
+
+select is_empty(
+  $$ select n.nspname || '.' || c.relname
+       from pg_class c
+       join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname in ('public', 'toi_identity')
+        and c.relkind in ('r', 'p', 'v', 'm')
+        and (has_table_privilege('toi_session_worker', c.oid, 'SELECT')
+          or has_table_privilege('toi_session_worker', c.oid, 'INSERT')
+          or has_table_privilege('toi_session_worker', c.oid, 'UPDATE')
+          or has_table_privilege('toi_session_worker', c.oid, 'DELETE')
+          or has_table_privilege('toi_session_worker', c.oid, 'TRUNCATE')
+          or has_table_privilege('toi_session_worker', c.oid, 'REFERENCES')
+          or has_table_privilege('toi_session_worker', c.oid, 'TRIGGER')) $$,
+  '17 toi_session_worker has no table privilege in public or toi_identity'
+);
 
 select * from finish();
 rollback;
