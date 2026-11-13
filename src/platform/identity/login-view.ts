@@ -36,7 +36,7 @@ export interface LoginViewPorts {
   /** Cipher for reading the sealed token pair so membership RLS can use the user's JWT. */
   tokenCipher(): TokenCipher | null;
   findHost(host: string): Promise<HostRecord | null>;
-  findMembership(organisationId: string, userId: string, accessToken: string): Promise<MembershipRecord | null>;
+  findMembership(organisationId: string, accessToken: string): Promise<MembershipRecord | null>;
   policyRevision(organisationId: string, accessToken: string): Promise<number>;
 }
 
@@ -97,9 +97,13 @@ export async function buildLoginView(input: BuildLoginViewInput): Promise<LoginV
 
   const store: TenancyStore = {
     findHost: (h) => ports.findHost(h),
-    findMembership: (organisationId, memberUserId) => {
+    // `TenancyStore` still names a user, and this implementation deliberately takes less: the read
+    // has no user argument, because `current_membership_v1` keys on `auth.uid()` and the token decides
+    // whose row it is. Narrowing that merged interface belongs to the page path (T-101c /
+    // resolveTenantContext), not to this PR.
+    findMembership: (organisationId) => {
       if (accessToken === null) throw new Error("membership lookup needs the session access token");
-      return ports.findMembership(organisationId, memberUserId, accessToken);
+      return ports.findMembership(organisationId, accessToken);
     },
     policyRevision: (organisationId) => {
       if (accessToken === null) throw new Error("policy lookup needs the session access token");
