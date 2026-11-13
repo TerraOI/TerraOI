@@ -120,7 +120,7 @@ One file per packet under `supabase/tests/database/`. Claim a new number in the 
 | 014 | `014_identity_session` | T-102 (merged) |
 | 015 | locale and timezone | [#67](https://github.com/TerraOI/TerraOI/issues/67) |
 | 016 | session worker role | [#171](https://github.com/TerraOI/TerraOI/pull/171) |
-| 017 | scoped identity reads (`current_membership_v1`, `current_policy_revision_v1`) | [#171](https://github.com/TerraOI/TerraOI/pull/171) |
+| 017 | scoped identity reads (`current_membership_v1`, `current_policy_revision_v1`) | [#175](https://github.com/TerraOI/TerraOI/pull/175) |
 | 020 | `020_knowledge` | T-111 (merged) |
 | 025 | `025_collection_admin` | T-111b |
 | 030 | `030_pilot_inquiries` | T-130 (merged) |
