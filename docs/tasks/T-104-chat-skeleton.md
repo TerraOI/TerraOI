@@ -1,6 +1,6 @@
 # T-104 Chat skeleton: same-origin `/api/chat`, typed progress, verified-only answer
 
-Lane: 1 · Week: 1 · Protected: yes (`supabase/migrations/`) · Depends on: T-002, T-003, T-102, T-103, T-113, T-114, T-115 · Status: ready
+Lane: 1 · Week: 1 · Protected: yes (`supabase/migrations/`) · Depends on: T-002, T-003, T-102, T-103, T-113, T-114, T-115 · Status: in progress (wyuinline) · Branch: `t-104-chat-skeleton`
 Plan refs: §9.1–§9.4, §6.1–§6.2, §10.1; F17, F22, F23 (and the client half of F21)
 
 ## Goal
