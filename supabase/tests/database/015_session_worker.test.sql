@@ -37,8 +37,8 @@ select is(has_function_privilege('service_role', 'toi_identity.authenticate_sess
 select is(has_function_privilege('authenticated', 'toi_identity.insert_session_v1(text, uuid, text, timestamptz, timestamptz, text, text, text, timestamptz)', 'execute'), false,
   '13 authenticated still cannot insert a session');
 
--- Runtime: the role can call authenticate (empty is fine) but cannot SELECT the table.
--- pgTAP in this suite has no lives_ok; use a SECURITY INVOKER helper that returns the SQLSTATE.
+-- Runtime: collect outcomes under the worker role (pgTAP helpers are not on its search_path),
+-- then assert as the migration owner — same pattern as 020_knowledge.test.sql.
 create function pg_temp.try_auth_as_worker() returns text
 language plpgsql security invoker as $fn$
 begin
@@ -54,13 +54,31 @@ begin
 end;
 $fn$;
 
+create function pg_temp.try_select_sessions() returns text
+language plpgsql security invoker as $fn$
+begin
+  begin
+    perform 1 from toi_identity.sessions limit 1;
+    return 'ok';
+  exception when others then
+    return sqlstate::text;
+  end;
+end;
+$fn$;
+
+create temporary table t_worker_out (case_name text primary key, result text not null);
+
 grant toi_session_worker to postgres;
 set local role toi_session_worker;
-select is(pg_temp.try_auth_as_worker(), 'ok',
-  '14 toi_session_worker can call authenticate_session_v1 at runtime');
-select throws_ok($$ select * from toi_identity.sessions $$, '42501', null,
-  '15 toi_session_worker cannot select the session table at runtime');
+insert into t_worker_out values
+  ('auth_call', pg_temp.try_auth_as_worker()),
+  ('select_table', pg_temp.try_select_sessions());
 reset role;
+
+select is((select result from t_worker_out where case_name = 'auth_call'), 'ok',
+  '14 toi_session_worker can call authenticate_session_v1 at runtime');
+select is((select result from t_worker_out where case_name = 'select_table'), '42501',
+  '15 toi_session_worker cannot select the session table at runtime');
 
 select * from finish();
 rollback;
