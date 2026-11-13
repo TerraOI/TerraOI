@@ -1,7 +1,7 @@
 # T-105 Outbound email transport
 
 Lane: 1 · Week: 2 · Protected: no · Depends on: T-002, T-101 (must be merged before claiming)
-Status: ready
+Status: in progress (wyuinline) · code complete; staging evidence owed (T-004's "Email transport" human step, plan §20.8)
 Plan refs: §4.1 step 6, §4.2, §5.1, §16 white-label email row, §20.5, §20.8; decision [#64](https://github.com/TerraOI/TerraOI/issues/64)
 
 ## Goal
