@@ -624,7 +624,7 @@ select is((select coalesce(payload ->> 'status', '(none)')::text
              from (select pg_temp.get_run('11111111-1111-4111-8111-111111111111',
                                           '4b000000-0000-4000-8000-000000000001')::jsonb as payload) s),
   'answered',
-  '35 chat_get_run_v1 returns the completed run to the user who requested it — the resume read '
+  '36 chat_get_run_v1 returns the completed run to the user who requested it — the resume read '
   || '("disconnect, then reload") reads the persisted answer instead of recomputing it (§9.3)');
 
 -- 37 the conversation list, as the history panel reads it: this caller's own, newest first, capped.
