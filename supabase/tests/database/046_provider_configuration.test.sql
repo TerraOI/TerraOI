@@ -211,8 +211,11 @@ select is((
    where schemaname = 'public' and tablename = 'tenant_provider_policy'
      and policyname = 'tenant_provider_policy_member_read'
      and cmd = 'SELECT' and permissive = 'PERMISSIVE'
-     -- the policy's own role list: comparing the literal to itself here was always true (finding 2)
-     and 'authenticated' = any (policyroles)
+     -- the policy's own role list: comparing the literal to itself here was always true (finding 2).
+     -- The view's column is `roles` (`name[]`); `polroles` is the `pg_policy` **catalog** column and
+     -- `policyroles` is in neither — run 43627574162 aborted this file here with
+     -- `column "policyroles" does not exist`, after 37 of the 74 planned tests.
+     and 'authenticated' = any (roles)
 ), 1::bigint, 'the one read policy exists, permissive, SELECT, and its role list names authenticated');
 select is((select count(*) from pg_policies where tablename = 'tenant_provider_policy' and schemaname = 'public'), 1::bigint, 'no second policy can appear on tenant_provider_policy unnoticed');
 
