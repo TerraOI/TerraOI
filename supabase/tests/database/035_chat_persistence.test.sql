@@ -774,19 +774,22 @@ select is(pg_temp.complete_run(
 -- ================================================================ the four required negatives
 -- 49-50 a refused answer is still persisted and audited: retrieval-empty and gateway-down runs have to
 -- leave a row, because "the answer is persisted with audit before delivery" cannot exclude the ones
--- that never produced text (packet: both failure modes are persisted and audited).
-select ok(not pg_temp.is_error(pg_temp.append_message(
+-- that never produced text (packet: both failure modes are persisted and audited). The conversation is
+-- created before the message is appended into it — the same order the route uses — because
+-- chat_append_user_message_v1 refuses a conversation it does not own (42501) rather than creating one.
+-- pgTAP numbers tests in execution order, so these labels follow that order too.
+select ok(not pg_temp.is_error(pg_temp.ensure_conversation(
             '11111111-1111-4111-8111-111111111111', '4a000000-0000-4000-8000-000000000004',
-            'client-msg-0004', 'Synthetic question with nothing to answer it.', 'internal')),
-  '49 a refusal path starts by writing its question');
+            'gpr-doc-expert', null)),
+  '49 a refusal path starts its own conversation');
 
 -- 50-53 a **refused** answer is persisted and audited too. "The answer is persisted with audit before
 -- delivery" cannot mean the run that produced no text leaves no row: retrieval-empty and
 -- gateway-unavailable outcomes are the ones an operator has to be able to count (§9.4, §14.1).
-select ok(not pg_temp.is_error(pg_temp.ensure_conversation(
+select ok(not pg_temp.is_error(pg_temp.append_message(
             '11111111-1111-4111-8111-111111111111', '4a000000-0000-4000-8000-000000000004',
-            'gpr-doc-expert', null)),
-  '50 a refusal path starts its own conversation');
+            'client-msg-0004', 'Synthetic question with nothing to answer it.', 'internal')),
+  '50 and writes its question into it');
 
 select ok(not pg_temp.is_error(pg_temp.start_run(
             '11111111-1111-4111-8111-111111111111', '4b000000-0000-4000-8000-000000000004',
@@ -937,12 +940,23 @@ select is(pg_temp.ensure_conversation('11111111-1111-4111-8111-111111111111',
   || 'the same answer as every other refusal, so the attempt learns nothing about the project '
   || '(plan §1.1, §8.2)');
 
-select is(pg_temp.append_message('11111111-1111-4111-8111-111111111111',
-                                 '4a000000-0000-4000-8000-000000000001',
-                                 'client-msg-0009', 'Should not be written.', 'internal'),
+-- The actor changes here: a1 is the company1 user the seed gives the `admin` role key (seed.sql:85-87),
+-- and that role (31000000-0000-4000-8000-000000000002, seed.sql:66 and 74-76) holds no chat.ask row,
+-- while a2's `member` role (31000000-...-001, seed.sql:71) does. Probing chat_ensure_conversation_v1 rather than append_message keeps the assertion honest:
+-- that RPC has no owner check at all, so a 42501 can only come from public.chat_actor_may_ask. An
+-- append into a2's conversation would pass on the owner check even with the permission gate deleted.
+reset role;
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+select pg_temp.try_scope('11111111-1111-4111-8111-111111111111');
+
+select is(pg_temp.ensure_conversation('11111111-1111-4111-8111-111111111111',
+                                      '4a000000-0000-4000-8000-000000000008',
+                                      'uav-doc-expert', null),
   'error:42501',
-  '68 the seeded tenant admin holds no chat.ask permission and is refused, where the ordinary member '
-  || 'in 17 was accepted: the gate reads role_permissions, never a role key (#32, FAQ-0006, §5.2)');
+  '68 the seeded tenant admin holds no chat.ask permission and is refused at the very first write, '
+  || 'where the ordinary member in 17 was accepted: the gate reads role_permissions, never a role key '
+  || '(#32, FAQ-0006, §5.2)');
 
 -- ================================================================ 69-76 the rules no caller can skip
 reset role;
@@ -960,8 +974,11 @@ select is_empty($$
    where n.nspname = 'public'
      and c.relname in ('conversations', 'messages', 'agent_runs', 'agent_run_evidence')
      and a.attnum > 0 and not a.attisdropped
-     and a.attname ~* '(^|_)(url|uri|href|ref|object|storage|bucket|token|secret|credential|'
-                   || 'signature|signed|apikey|api_key|etag)($|_)' $$,
+     -- Parenthesized: `~*` and `||` share a precedence level and associate left-to-right, so unwrapped
+     -- this applies the regex to the first fragment only and then concatenates a boolean with text -
+     -- `argument of AND must be type boolean, not type text`, which is what CI reported here.
+     and a.attname ~* ('(^|_)(url|uri|href|ref|object|storage|bucket|token|secret|credential|'
+                       || 'signature|signed|apikey|api_key|etag)($|_)') $$,
   '69 no column of a chat table is a storage reference or a signed grant: citation access is a separate '
   || 're-authorized call (T-203) and an answer never stores one (plan §4.4, #10, §8.2)');
 

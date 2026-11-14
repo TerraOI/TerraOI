@@ -75,7 +75,7 @@ but has not been executed here — there is no Docker in this worktree, so pgTAP
 - [x] failure: retrieval empty → `refused` with `no_evidence` template and zero claims;
       gateway unavailable → `unavailable`; both are persisted and audited before delivery
       — `run-chat.test.ts` (empty retrieval: zero adapter calls, zero meter reservations, the refused
-      row written before the frame is emitted), 035 50-53 (**CI**: the refusal keeps its answer json,
+      row written before the frame is emitted), 035 49-53 (**CI**: the refusal keeps its answer json,
       its class and no invented evidence row); gateway-down is asserted through the injected
       fail-closed seam (`gateway: null` → `unavailable` persisted, claims withheld from the wire),
       because no production bundle exists yet — that is the half this box cannot honestly close

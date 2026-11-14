@@ -344,9 +344,14 @@ begin
   end if;
   if jsonb_typeof(p_value) = 'object' then
     for v_key, v_child in select entry.key, entry.value from jsonb_each(p_value) as entry(key, value) loop
-      if v_key ~* '^(url|uri|href|object_ref|object_key|storage_key|storage_bucket|download_token|'
-                  || 'signed_url|signature|signed|token|secret|credential|api_key|apikey|provider|'
-                  || 'provider_key|model|model_id)$' then
+      -- The pattern is parenthesized because `~*` and `||` sit at the same precedence level and
+      -- associate left-to-right: unwrapped, `v_key ~* 'frag1' || 'frag2'` evaluates the regex on
+      -- **frag1 alone**, which here is an unterminated group - `ERROR: invalid regular expression`
+      -- (SQLSTATE 2201B), raised the first time the trigger saw a non-null answer. CI found it as
+      -- `complete_run` refusing a valid answer with error:2201B.
+      if v_key ~* ('^(url|uri|href|object_ref|object_key|storage_key|storage_bucket|download_token|'
+                   || 'signed_url|signature|signed|token|secret|credential|api_key|apikey|provider|'
+                   || 'provider_key|model|model_id)$') then
         return true;
       end if;
       if public.chat_json_has_forbidden_key(v_child, p_depth + 1) then
@@ -575,8 +580,11 @@ begin
     raise exception 'not permitted to post in this organization' using errcode = '42501';
   end if;
 
-  -- Shape before anything is written, so a malformed send never reaches the table and never leaks a
-  -- constraint name (035 test 68 pins the refusal, and there is no role parameter to forge).
+  -- Shape checks before the owner check and before anything is written, so a malformed send never
+  -- reaches the table and never leaks a constraint name; the same ids are validated at the edge by the
+  -- OpaqueId schema in envelope.ts (src/platform/chat/envelope.test.ts), and this is the second gate because
+  -- the RPC is reachable on its own. There is no role parameter here at all, so a forged assistant
+  -- turn is unrepresentable from the request path (035 test 20, and the column CHECK in 75).
   if p_client_message_id is null
      or p_client_message_id !~ '^[A-Za-z0-9_-]{1,128}$' then
     raise exception 'clientMessageId must be 1-128 opaque characters' using errcode = '22023';
