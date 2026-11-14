@@ -12,7 +12,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(73);
+select plan(74);
 
 -- Helpers report an error as its SQLSTATE instead of aborting the test transaction (010/040 idiom).
 create function pg_temp.try_insert_provider(
@@ -167,7 +167,34 @@ select is((
   select count(*) from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
    where n.nspname = 'public' and p.proname = 'tenant_provider_policy_v1'
-), 1::bigint, 'the read path still exists, so the closure assertion has something to fail against');
+     -- The signature, not just the name (finding 3): the FAQ-0011-shaped `(uuid)` overload this packet
+     -- predicts as a follow-up is a different function with its own grant, and it must not trip here.
+     and pg_get_function_identity_arguments(p.oid) = ''
+), 1::bigint, 'the read path still exists, zero-argument, so the closure assertion has something to fail against');
+-- Finding 1: the three revokes closed `public, anon, authenticated`, but that leaves the fourth Data API
+-- role executable. `20261109160000_function_privileges.sql:83` pins what a new `public` function's ACL
+-- comes back as — {=X/postgres, postgres=X/postgres, service_role=X/postgres} — asserted again at
+-- `001_function_privileges.test.sql:222-235`, and `service_role` is a Data API role that bypasses RLS
+-- (`supabase/config.toml:19-23`). So the migration's revokes name all four, and this pins it for every
+-- grantee at once. `aclexplode` names the offender in the diagnostic (016:86-93's form) and the
+-- `acldefault` fallback means a NULL proacl — the open default, PUBLIC holding EXECUTE — fails the
+-- assertion instead of reading as an empty set. PUBLIC is grantee 0; `anon` and `authenticated` are its
+-- members, which is why membership is not what this check trusts.
+select is_empty($$
+  select coalesce(r.rolname, 'PUBLIC') || ' holds EXECUTE' as grantee
+    from pg_proc p
+    join pg_namespace n on n.oid = p.pronamespace
+    cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+    left join pg_roles r on r.oid = a.grantee
+   where n.nspname = 'public'
+     and p.proname = 'tenant_provider_policy_v1'
+     and pg_get_function_identity_arguments(p.oid) = ''
+     and a.privilege_type = 'EXECUTE'
+     and (a.grantee = 0
+          or a.grantee = (select oid from pg_roles where rolname = 'anon')
+          or a.grantee = (select oid from pg_roles where rolname = 'authenticated')
+          or a.grantee = (select oid from pg_roles where rolname = 'service_role'))
+$$, 'no role a request can arrive as — PUBLIC, anon, authenticated or service_role — holds EXECUTE on the zero-argument tenant-policy read (round-1 finding 1: the revoke names all four)');
 
 -- ── 3. RLS is on, and the tenant policy has exactly the one read policy ─────────────────────
 select is_empty($$
@@ -184,8 +211,9 @@ select is((
    where schemaname = 'public' and tablename = 'tenant_provider_policy'
      and policyname = 'tenant_provider_policy_member_read'
      and cmd = 'SELECT' and permissive = 'PERMISSIVE'
-     and 'authenticated' = any (array(select r from unnest(string_to_array('authenticated', ',')) as r))
-), 1::bigint, 'the one read policy exists, permissive, SELECT, for authenticated');
+     -- the policy's own role list: comparing the literal to itself here was always true (finding 2)
+     and 'authenticated' = any (policyroles)
+), 1::bigint, 'the one read policy exists, permissive, SELECT, and its role list names authenticated');
 select is((select count(*) from pg_policies where tablename = 'tenant_provider_policy' and schemaname = 'public'), 1::bigint, 'no second policy can appear on tenant_provider_policy unnoticed');
 
 -- ── 4. seeding the reviewed platform configuration (as the migration owner) ────────────────
@@ -221,8 +249,8 @@ select is(pg_temp.try_route('translate', 'claude', 5), '23514', 'task_class is t
 select is(pg_temp.try_route('compose', 'no_such_provider', 6), '23503', 'a chain may not name a provider the registry does not have (F31 eligibility starts in the data)');
 
 -- ── 6. a tenant may narrow, never widen (§12.4, provider-route.ts narrowClearance) ─────────
-select isnt((select id::text from public.organisations order by id limit 1), '',
-  'a synthetic tenant exists from supabase/seed.sql for the policy fixtures');
+select ok(exists(select 1 from public.organisations),
+  'a synthetic tenant exists from supabase/seed.sql for the policy fixtures (finding 4: isnt() passed on NULL)');
 select is(pg_temp.try_tenant_policy(
   (select id from public.organisations order by id limit 1), 'client_confidential', 'claude'), 'ok', 'a narrowing the platform already cleared is accepted');
 select is(pg_temp.try_tenant_policy(
@@ -253,7 +281,9 @@ set local role authenticated;
 select throws_ok($$ select * from public.tenant_provider_policy_v1() $$, '42501', null,
   'B5: an authenticated caller of the tenant-policy read is refused outright (42501), never handed '
   'an empty narrowing that would silently widen clearance');
-select is((select count(*) from public.tenant_provider_policy), 0::bigint, 'a direct read stays empty for a member with no tenant scope: RLS gates the rows (the table grant is the only request-role path)');
+select is((select count(*) from public.tenant_provider_policy), 0::bigint, 'a direct read stays empty for a caller with no JWT at all: with no token auth.uid() is null, so '
+  'is_active_member matches no membership and RLS gates every row (finding 5: the old wording called '
+  'this a member with no tenant scope)');
 select is(pg_temp.try_health('workers_ai', 'healthy', 100), '42501', 'authenticated cannot write provider_health even through a helper: the revoke is real');
 
 select * from finish();

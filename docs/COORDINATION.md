@@ -143,8 +143,6 @@ One file per packet under `supabase/tests/database/`. Claim a new number in the 
 | 100 | `100_lifecycle_switches` | T-304 |
 | 105 | `105_provider_health` | T-314 |
 
-T-116 claims its slot in the daily sync.
-
 ## 7. Daily and weekly rhythm
 
 - **Daily (builders, 15 min):** open PRs, claims, `blocked` and `needs-contract` items, next migration timestamps. Record anything decided in the relevant PR or issue, not only in chat.

@@ -214,7 +214,8 @@ comment on table public.provider_health is
 
 alter table public.provider_health enable row level security;
 
--- ── 5. the tenant-policy read, closed to every request role (#143 round 3, B5) ──────────────
+-- ── 5. the tenant-policy read, closed to every request role: `public`, `anon`, `authenticated`
+--       and `service_role` (#143 round 3 B5; round-1 finding 1) ───────────────────────────────
 -- Security **invoker**: the RLS policy above does the row gating, and `current_organisation_id()`
 -- reads only the GUC scope that `set_tenant_scope` established from the verified host plus the
 -- caller's membership (AGENTS.md §4.1). With no scope set, it returns no rows rather than guessing.
@@ -229,9 +230,19 @@ alter table public.provider_health enable row level security;
 -- consumer the packet names — the gateway's tenant-policy read — was ruled by #134 to live in a
 -- **non-exposed** schema, executed by `toi_gateway_config` over `CONFIG_DB`, with no table grants
 -- (T-115/T-215/T-314; PR-2 of this packet), where the tenancy arrives on the server path and not as
--- a Data API call. So the function stays, revoked from `public, anon, authenticated` by full
--- signature, with no grant: if an admin page (T-202) ever needs the read, that is one small
--- follow-up migration with the FAQ-0011 signature plus its own `001` allow-list entry (FAQ-0010).
+-- a Data API call. So the function stays, revoked by full signature from every role a request can
+-- arrive as — `public, anon, authenticated` (the three FAQ-0010 and #142 name) **and `service_role`**
+-- — with no grant. The fourth is named here because `001_function_privileges.test.sql:222-235` pins
+-- what a new `public` function's ACL comes back as: `{=X/postgres, postgres=X/postgres,
+-- service_role=X/postgres}`. `service_role` is a Data API role (`supabase/config.toml:19-23`) and
+-- bypasses RLS, and a call through it sets no tenant scope any more than an `anon` one does: a grant
+-- there would hand the same service-key caller the same zero-row narrowing, i.e. clearance wider than
+-- the tenant recorded (§4.3, plan §12.4). Revoking it fails closed — a server path that later needs
+-- the read gets `42501` rather than an empty matrix, and is re-granted by full signature in its own
+-- migration. The two newest merged migrations already do this
+-- (`20261113010000_scoped_identity_reads.sql:60-63`, `20261112234000_session_worker_role.sql:64`).
+-- If an admin page (T-202) ever needs the read, that is one small follow-up migration with the
+-- FAQ-0011 signature plus its own `001` allow-list entry (FAQ-0010).
 create or replace function public.tenant_provider_policy_v1()
 returns table (data_class text, provider_key text)
 language sql
@@ -265,13 +276,15 @@ revoke all on table public.provider_health from anon, authenticated;
 revoke all on table public.tenant_provider_policy from anon, authenticated;
 grant select on table public.tenant_provider_policy to authenticated;
 
--- No function created here is executable by a request role: the two trigger guards need no EXECUTE
--- (PostgreSQL runs a trigger because the table carries it), and `tenant_provider_policy_v1()` has no
--- request-role consumer to grant it to (section 5, #143 B5). It is therefore absent from
--- `001_function_privileges.test.sql`'s allow-list, which is the control (FAQ-0010, AGENTS.md §4.2).
-revoke all on function public.model_providers_one_revision() from public, anon, authenticated;
-revoke all on function public.tenant_provider_policy_narrows_platform() from public, anon, authenticated;
-revoke all on function public.tenant_provider_policy_v1() from public, anon, authenticated;
-
+-- No function created here is executable by any role a request can arrive as: `public`, `anon`,
+-- `authenticated` **and `service_role`**, all four named in every revoke below (round-1 finding 1: the
+-- catalog default hands EXECUTE to `service_role` as it does to PUBLIC). The two trigger guards need
+-- no EXECUTE (PostgreSQL runs a trigger because the table carries it), and
+-- `tenant_provider_policy_v1()` has no request-role consumer to grant it to (section 5, #143 B5). It is
+-- therefore absent from `001_function_privileges.test.sql`'s allow-list, which is the control
+-- (FAQ-0010, AGENTS.md §4.2).
+revoke all on function public.model_providers_one_revision() from public, anon, authenticated, service_role;
+revoke all on function public.tenant_provider_policy_narrows_platform() from public, anon, authenticated, service_role;
+revoke all on function public.tenant_provider_policy_v1() from public, anon, authenticated, service_role;
 
 commit;
