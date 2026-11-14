@@ -117,6 +117,13 @@ $$, '31 no function in public is executable by anon except resolve_tenant_host(t
 --     update_collection_v1 — a tenant admin's write path, granted to `authenticated` and still gated
 --     inside the function on `knowledge.admin` at `admin`. The two signatures take `p_organisation_id`
 --     first and establish the scope themselves (#163, FAQ-0011), so both rows are re-pinned here
+--   chat persistence (`20261113020000_chat_persistence.sql`, T-104): the seven scoped chat RPCs. Same
+--     shape — `p_organisation_id` first, scope established inside, `authenticated` only and never
+--     `anon`, because chat is behind sign-in (plan §4.1). The migration's own guard, trigger and
+--     RPC-internal helper functions are deliberately absent, exactly like the eight knowledge trigger
+--     functions in 23-30: a trigger runs because the table names it, so it needs no EXECUTE grant, and
+--     granting one would add a REST endpoint. `035_chat_persistence.test.sql` test 13 pins the same
+--     seven from `pg_proc`, so the two files cannot drift apart.
 -- The session functions the ruling also lists live in `toi_identity`, not `public`
 -- (`20261107024000_session_store.sql:122-219`), and that migration grants them to **no role** at all
 -- pending #75 — so they cannot appear in a `public` allow-list; test 33 pins them closed instead.
@@ -151,7 +158,14 @@ select is_empty($$
            ('public.register_source_version_v1(uuid, text, bigint, text)'::regprocedure),
            ('public.record_upload_outcome_v1(uuid, text, text)'::regprocedure),
            ('public.create_collection_v1(uuid, text, text, text, uuid, text)'::regprocedure),
-           ('public.update_collection_v1(uuid, uuid, text)'::regprocedure)
+           ('public.update_collection_v1(uuid, uuid, text)'::regprocedure),
+           ('public.chat_ensure_conversation_v1(uuid, uuid, text, uuid)'::regprocedure),
+           ('public.chat_append_user_message_v1(uuid, uuid, text, text, text)'::regprocedure),
+           ('public.chat_start_run_v1(uuid, uuid, uuid, text, text, uuid, text)'::regprocedure),
+           ('public.chat_complete_run_v1(uuid, uuid, jsonb)'::regprocedure),
+           ('public.chat_load_conversation_v1(uuid, uuid)'::regprocedure),
+           ('public.chat_list_conversations_v1(uuid, integer)'::regprocedure),
+           ('public.chat_get_run_v1(uuid, uuid)'::regprocedure)
          ) as allowed(proc)
      )
 $$, '32 no function in public is executable by authenticated beyond the named allow-list (§4.3, #60)');
