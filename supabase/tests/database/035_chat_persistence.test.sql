@@ -187,21 +187,15 @@ begin
   if p_evidence = '[]'::jsonb then
     v_claims := '[]'::jsonb;
   else
-    select jsonb_agg(jsonb_build_object(
-             'id', 'claim-' || e.ord::text,
-             'text', 'Synthetic claim supported by the cited version.',
-             'type', case when p_status = 'answered' then 'source_fact' else 'inference' end,
-             'authority', 'company_procedure',
-             'verificationStatus', 'supported',
-             'limitations', case when p_status = 'answered' then '[]'::jsonb
-                                 else '["Synthetic limitation."]::jsonb' end,
-             'evidence', array_agg(row)
-           ))
-      into v_claims
-      from jsonb_array_elements(p_evidence) with ordinality as e(row, ord);
     -- One claim per evidence entry: the point of the dependency rows is that each claim names its
     -- own sources, and a claim carrying two sources of different classes is exactly the case the
     -- class rule has to survive.
+    --
+    -- The `::jsonb` on the limitations arm sits **outside** the quotes, which is not a style choice:
+    -- an unknown-type literal in a CASE is coerced to the other arm's type at parse time, so
+    -- `'["Synthetic limitation."]::jsonb'` was read as JSON text including a trailing `::jsonb` and
+    -- raised `invalid input syntax for type json` — for every call, including the `answered` ones
+    -- that never select that branch. CI found it as an ERROR on line 555 of this file.
     select jsonb_agg(cv) into v_claims
       from (select jsonb_build_object(
                  'id', 'claim-' || e.ord::text,
@@ -209,8 +203,10 @@ begin
                  'type', case when p_status = 'answered' then 'source_fact' else 'inference' end,
                  'authority', 'company_procedure',
                  'verificationStatus', 'supported',
-                 'limitations', case when p_status = 'answered' then '[]'::jsonb
-                                     else '["Synthetic limitation."]::jsonb' end,
+                 'limitations', case when p_status = 'answered'
+                                     then '[]'::jsonb
+                                     else '["Synthetic limitation."]'::jsonb
+                                end,
                  'evidence', jsonb_build_array(e.row)
                ) as cv
               from jsonb_array_elements(p_evidence) with ordinality as e(row, ord)) s;
@@ -430,24 +426,33 @@ select is_empty($$
 -- 13 privileges (#60, FAQ-0010): exactly the seven scoped RPCs are reachable by `authenticated`, and
 -- `anon` reaches none of them. A guard or trigger function that appeared here would be a REST
 -- endpoint by accident — 001 rule 32 is the pair of this assertion.
-select is((
-  select coalesce(string_agg(p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')',
-                             ',' order by p.proname), '(none)')
-    from pg_proc p
-    join pg_namespace n on n.oid = p.pronamespace
-   where n.nspname = 'public' and p.proname like 'chat_%' and p.prokind = 'f'
-     and has_function_privilege('authenticated', p.oid, 'EXECUTE')
-),
-  'chat_append_user_message_v1(uuid, uuid, text, text, text),'
-  || 'chat_complete_run_v1(uuid, uuid, jsonb),'
-  || 'chat_ensure_conversation_v1(uuid, uuid, text, uuid),'
-  || 'chat_get_run_v1(uuid, uuid),'
-  || 'chat_list_conversations_v1(uuid, integer),'
-  || 'chat_load_conversation_v1(uuid, uuid),'
-  || 'chat_start_run_v1(uuid, uuid, uuid, text, text, uuid, text)',
+-- The comparison is built from `oid::regprocedure::text`, not from
+-- pg_get_function_identity_arguments: this Postgres renders identity arguments **with** the parameter
+-- names (`chat_get_run_v1(p_organisation_id uuid, p_run_id uuid)`), which is a rendering detail rather
+-- than a fact about the signature. A regprocedure prints the canonical types-only form and is exactly
+-- the spelling 001's rule-32 allow-list uses, so the two assertions cannot drift apart by accident.
+select is(
+    (select coalesce(string_agg(p.oid::regprocedure::text, ',' order by p.proname), '(none)')
+       from pg_proc p
+       join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname like 'chat_%' and p.prokind = 'f'
+        and has_function_privilege('authenticated', p.oid, 'EXECUTE'))
+  || ' | anon:' ||
+    (select count(*)::text
+       from pg_proc p
+       join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname like 'chat_%' and p.prokind = 'f'
+        and has_function_privilege('anon', p.oid, 'EXECUTE')),
+  'public.chat_append_user_message_v1(uuid, uuid, text, text, text),'
+  || 'public.chat_complete_run_v1(uuid, uuid, jsonb),'
+  || 'public.chat_ensure_conversation_v1(uuid, uuid, text, uuid),'
+  || 'public.chat_get_run_v1(uuid, uuid),'
+  || 'public.chat_list_conversations_v1(uuid, integer),'
+  || 'public.chat_load_conversation_v1(uuid, uuid),'
+  || 'public.chat_start_run_v1(uuid, uuid, uuid, text, text, uuid, text) | anon:0',
   '13 exactly the seven scoped RPCs are executable by authenticated and no guard or trigger function '
-  || 'is. Those seven signatures are the rows added to 001_function_privileges.test.sql rule 32 in '
-  || 'the same PR, and anon holds none of them (#60, FAQ-0010)');
+  || 'is, and anon holds none of them. Those seven signatures are the rows added to '
+  || '001_function_privileges.test.sql rule 32 in the same PR (#60, FAQ-0010)');
 
 -- ================================================================ the round trip: a company1 member
 -- …a2 is an active company1 member holding chat.ask at read.
