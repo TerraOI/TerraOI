@@ -11,6 +11,7 @@ export function SignInPage({
   enabledMethods,
   status,
   magicLinkAction,
+  csrfToken,
   passwordAction,
   microsoftHref,
 }: SignInPageProps) {
@@ -32,7 +33,9 @@ export function SignInPage({
         </div>
       )}
 
-      {showMagicLink && magicLinkAction && <MagicLinkForm action={magicLinkAction} />}
+      {showMagicLink && magicLinkAction && (
+        <MagicLinkForm action={magicLinkAction} csrfToken={csrfToken} />
+      )}
 
       {showPassword && passwordAction && <PasswordForm action={passwordAction} defaultOpen={status === "invalid_credentials"} />}
 
