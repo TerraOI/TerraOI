@@ -352,7 +352,10 @@ select is_empty($$
         and p.tablename = t.tbl
         and p.cmd = 'SELECT'
         and p.permissive = 'PERMISSIVE'
-        and p.roles @> array['authenticated']::text[]
+        -- pg_policies.roles is name[], and the array containment operator is defined on matching
+        -- element types, so the literal is cast to name[] rather than text[] (a text[] cast is an
+        -- unresolved operator, not a comparison that quietly fails).
+        and p.roles @> array['authenticated']::name[]
    ) $$,
   '6 each chat table has a permissive SELECT policy for authenticated — the owner-scoped read path '
   || 'plan §9.1 expects. A policy-free table passes 5 and fails here, which is what makes 32-34 and '
