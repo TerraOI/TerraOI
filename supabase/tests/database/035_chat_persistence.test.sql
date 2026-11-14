@@ -426,30 +426,45 @@ select is_empty($$
 -- 13 privileges (#60, FAQ-0010): exactly the seven scoped RPCs are reachable by `authenticated`, and
 -- `anon` reaches none of them. A guard or trigger function that appeared here would be a REST
 -- endpoint by accident — 001 rule 32 is the pair of this assertion.
--- The comparison is built from `oid::regprocedure::text`, not from
--- pg_get_function_identity_arguments: this Postgres renders identity arguments **with** the parameter
--- names (`chat_get_run_v1(p_organisation_id uuid, p_run_id uuid)`), which is a rendering detail rather
--- than a fact about the signature. A regprocedure prints the canonical types-only form and is exactly
--- the spelling 001's rule-32 allow-list uses, so the two assertions cannot drift apart by accident.
+-- Why this assertion changed twice in CI, recorded so nobody rewrites it back:
+-- `pg_get_function_identity_arguments` on this Postgres prints the **parameter names**
+-- (`chat_get_run_v1(p_organisation_id uuid, p_run_id uuid)`), and `oid::regprocedure::text` prints a
+-- search-path-resident function **unqualified** with **no space after the commas**. Both are rendering
+-- details of a version, not facts about a signature. So the comparison below is by identity: the seven
+-- functions are named with the same regprocedure literals 001 rule 32 lists, resolved to oids, and the
+-- assertion counts matches rather than comparing printed text.
+-- `n/m` is the whole assertion: m counts every chat function authenticated can execute, n counts how
+-- many of those are one of the seven named here (the same regprocedure literals 001 rule 32 lists). A
+-- guard or trigger function gaining EXECUTE makes it 7/8; a lost grant makes it 6/7. Counting by oid
+-- rather than by the rendered signature text keeps it independent of how a version chooses to print
+-- argument names.
 select is(
-    (select coalesce(string_agg(p.oid::regprocedure::text, ',' order by p.proname), '(none)')
+    (select count(*)::text || '/' || (
+              select count(*)::text
+                from pg_proc p
+                join pg_namespace n on n.oid = p.pronamespace
+               where n.nspname = 'public' and p.proname like 'chat_%' and p.prokind = 'f'
+                 and has_function_privilege('authenticated', p.oid, 'EXECUTE'))::text
        from pg_proc p
        join pg_namespace n on n.oid = p.pronamespace
-      where n.nspname = 'public' and p.proname like 'chat_%' and p.prokind = 'f'
+      where n.nspname = 'public' and p.prokind = 'f'
+        and p.oid = any (array[
+                'public.chat_append_user_message_v1(uuid, uuid, text, text, text)',
+                'public.chat_complete_run_v1(uuid, uuid, jsonb)',
+                'public.chat_ensure_conversation_v1(uuid, uuid, text, uuid)',
+                'public.chat_get_run_v1(uuid, uuid)',
+                'public.chat_list_conversations_v1(uuid, integer)',
+                'public.chat_load_conversation_v1(uuid, uuid)',
+                'public.chat_start_run_v1(uuid, uuid, uuid, text, text, uuid, text)'
+              ]::regprocedure[]::oid[])
         and has_function_privilege('authenticated', p.oid, 'EXECUTE'))
-  || ' | anon:' ||
+  || ' anon:' ||
     (select count(*)::text
        from pg_proc p
        join pg_namespace n on n.oid = p.pronamespace
       where n.nspname = 'public' and p.proname like 'chat_%' and p.prokind = 'f'
         and has_function_privilege('anon', p.oid, 'EXECUTE')),
-  'public.chat_append_user_message_v1(uuid, uuid, text, text, text),'
-  || 'public.chat_complete_run_v1(uuid, uuid, jsonb),'
-  || 'public.chat_ensure_conversation_v1(uuid, uuid, text, uuid),'
-  || 'public.chat_get_run_v1(uuid, uuid),'
-  || 'public.chat_list_conversations_v1(uuid, integer),'
-  || 'public.chat_load_conversation_v1(uuid, uuid),'
-  || 'public.chat_start_run_v1(uuid, uuid, uuid, text, text, uuid, text) | anon:0',
+  '7/7 anon:0',
   '13 exactly the seven scoped RPCs are executable by authenticated and no guard or trigger function '
   || 'is, and anon holds none of them. Those seven signatures are the rows added to '
   || '001_function_privileges.test.sql rule 32 in the same PR (#60, FAQ-0010)');
@@ -553,11 +568,19 @@ select is((select status || '|' || (completed_at is null)::text
 -- 26-28 complete the run with one answer citing one `public` chunk. The caller declares `public`, but
 -- the employee message it answers is `internal`, so the highest class among the run's dependencies is
 -- `internal` and the row must say so even though the caller asked for less (§6.2: never below).
-select ok(not pg_temp.is_error(pg_temp.complete_run(
-            '11111111-1111-4111-8111-111111111111', '4b000000-0000-4000-8000-000000000001',
-            pg_temp.answer_json('public', pg_temp.evidence_chunk(
-              '71000000-0000-4000-8000-000000000001', '81000000-0000-4000-8000-000000000001')))),
-  '26 complete_run accepts an answer whose cited source the caller may read');
+-- The acceptance is asserted as the wrapper's own answer rather than as `ok(not is_error(…))`, because
+-- the latter reports only "not ok": on a refusal the diff then says nothing about *which* rule refused
+-- it. Comparing to 'accepted' makes a refusal print `error:<sqlstate>`, which is the whole diagnosis.
+select is(
+  (select case when pg_temp.is_error(r) then r else 'accepted' end
+     from (select pg_temp.complete_run(
+             '11111111-1111-4111-8111-111111111111', '4b000000-0000-4000-8000-000000000001',
+             pg_temp.answer_json('public', pg_temp.evidence_chunk(
+               '71000000-0000-4000-8000-000000000001', '81000000-0000-4000-8000-000000000001'))
+           ) as r) s),
+  'accepted',
+  '26 complete_run accepts an answer whose cited source the caller may read (a refusal answers '
+  || 'error:<sqlstate>, so a failure here names the rule that refused it)');
 
 select is((select data_class from public.agent_runs where id = '4b000000-0000-4000-8000-000000000001'),
   'internal',
@@ -594,11 +617,14 @@ select is((select status || '|' || coalesce(answer_status, '(none)') || '|' ||
   '30 a completed run carries the answer status, the completion marker, and the expert versions and '
   || 'corpus generations it was produced under — the staleness probe T-213 reads (§9.4)');
 
-select is(split_part(pg_temp.complete_run(
+-- Compared whole rather than through split_part: `split_part(text, split, count)` takes three
+-- arguments, and the two-argument form CI reported here (`function split_part(text, unknown) does not
+-- exist`) aborts the file mid-run. The wrapper's refusal is already the whole answer.
+select is(pg_temp.complete_run(
             '11111111-1111-4111-8111-111111111111', '4b000000-0000-4000-8000-000000000001',
             pg_temp.answer_json('public', pg_temp.evidence_chunk(
               '71000000-0000-4000-8000-000000000001', '81000000-0000-4000-8000-000000000001'))),
-            'error:'), 'error:42501',
+  'error:42501',
   '31 a run is completed once: the second attempt is refused rather than re-writing an answer that has '
   || 'already been audited and delivered (the answer row is history — §9.4)');
 
