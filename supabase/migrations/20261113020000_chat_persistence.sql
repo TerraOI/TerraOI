@@ -79,6 +79,38 @@
 --     no feedback columns (T-302), no action/draft columns (T-313), and no column for a signed URL,
 --     ever (#10).
 
+-- ---------------------------------------------------------------- constraint helpers
+/**
+ * True when every element of `p_values` is strictly positive.
+ *
+ * It exists as a function because PostgreSQL forbids a subquery inside a CHECK constraint
+ * (`cannot use subquery in check constraint`, SQLSTATE 0A000): the obvious spelling —
+ * `not exists (select 1 from unnest(corpus_generations) g where g <= 0)` — is rejected at
+ * `create table`, not at write time. It is `plpgsql` rather than `sql` for the same reason: a
+ * `language sql` body is inlined into the constraint expression, so a `select` inside it would hit
+ * the identical ban. `data_class_is_valid` (knowledge_core.sql:47) is the precedent for a function in
+ * a column CHECK; the difference is only that this rule needs a loop over an array.
+ *
+ * Guard-supporting, so it is revoked from every request role below and stays off 001's allow-list: it
+ * must never become a PostgREST endpoint (#60, FAQ-0010). It is also why `chat_%_v1` is the pattern
+ * 035 tests 9-13 use — a helper that is not an RPC is not swept into those assertions.
+ */
+create or replace function public.chat_int_array_is_positive(p_values integer[])
+returns boolean language plpgsql immutable strict set search_path = public, pg_temp as $$
+declare
+  v_value integer;
+begin
+  foreach v_value in array p_values loop
+    if v_value is null or v_value <= 0 then
+      return false;
+    end if;
+  end loop;
+  return true;
+end;
+$$;
+comment on function public.chat_int_array_is_positive(integer[]) is
+  'Constraint helper: every element positive. Used by agent_runs.corpus_generations, where a non-positive generation id would be a generation that never existed (§9.4). Guard-only: not executable by any request role.';
+
 -- ---------------------------------------------------------------- tables
 create table public.conversations (
   id uuid primary key,
@@ -169,11 +201,13 @@ create table public.agent_runs (
   policy_revision bigint not null check (policy_revision > 0),
   -- What the answer was produced under, so T-213''s staleness probe is one column read (§9.4).
   expert_versions text[] check (expert_versions is null or array_length(expert_versions, 1) between 1 and 32),
-  corpus_generations integer[] check (corpus_generations is null
-                                      or (array_length(corpus_generations, 1) between 1 and 32
-                                          and not exists (
-                                            select 1 from unnest(corpus_generations) g
-                                             where g <= 0))),
+  -- A generation id is a real generation of the index, so it is positive; the loop lives in
+  -- chat_int_array_is_positive because a CHECK may not contain a subquery (see the helper).
+  corpus_generations integer[]
+    constraint agent_runs_corpus_generations_positive
+    check (corpus_generations is null
+           or (array_length(corpus_generations, 1) between 1 and 32
+               and public.chat_int_array_is_positive(corpus_generations))),
   as_of timestamptz,
   -- The delivered answer, in the shape src/contracts/answer.ts defines. Stored, not recomputed at
   -- read time (FAQ-0004): retention and export decisions read this column''s class, not a new call.
@@ -1214,6 +1248,7 @@ grant select on
 -- sign-in (plan §4.1). 001_function_privileges.test.sql's rule-32 allow-list carries the same seven,
 -- and 035 test 13 pins the set from the catalog.
 revoke execute on function
+  public.chat_int_array_is_positive(integer[]),
   public.chat_json_has_forbidden_key(jsonb, integer),
   public.chat_answer_json_guard(),
   public.chat_run_immutable(),
