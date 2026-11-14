@@ -64,12 +64,20 @@ create extension if not exists pgtap with schema extensions;
 -- Each helper calls the merged signature exactly as the caller does and reports the SQLSTATE instead
 -- of aborting the transaction — the 010/025 idiom. 'error:<sqlstate>' on a refusal, the value as text
 -- otherwise, so one assertion can pin a refusal and the next can pin the row counts around it.
+--
+-- These two return 'scoped', not 'ok', and that is not a style choice. The scope calls are bare
+-- `select pg_temp.try_scope(...)` statements, so whatever they return is **printed into the TAP
+-- stream**: the literal word `ok` is a valid unnumbered TAP test line, and one of them makes
+-- every later numbered line look out of sequence to pg_prove ("Found (14) but expected (15)", 64
+-- times), inflates the test count (76 planned, 87 seen — 11 scope calls), and turns a three-assertion
+-- failure into a reported "Failed tests: 41-42, 67-76, 78". Never let a non-assertion statement in a
+-- pgTAP file emit a value that could parse as `ok`, `not ok` or `1..N`.
 create function pg_temp.try_scope(p_organisation_id uuid) returns text
 language plpgsql security invoker as $fn$
 begin
   begin
     perform public.set_tenant_scope(p_organisation_id);
-    return 'ok';
+    return 'scoped';
   exception when others then
     return 'error:' || sqlstate;
   end;
@@ -80,7 +88,7 @@ create function pg_temp.try_clear_scope() returns text
 language plpgsql security invoker as $fn$
 begin
   perform public.clear_tenant_scope();
-  return 'ok';
+  return 'scoped';
 exception when others then
   return 'error:' || sqlstate;
 end;
@@ -302,8 +310,12 @@ begin
     values (p_run_id, '11111111-1111-4111-8111-111111111111',
             '4a000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-0000000000a2',
             'idem-direct-' || p_run_id::text, 'uav-doc-expert', 'running', 'internal', 1,
-            '{"summary":"Synthetic","dataClass":"internal","claims":[],"unknowns":[],'
-            || '"evidence":[{"download_token":"would-be-a-grant"}]}'::jsonb);
+            -- The whole concatenation is cast, not the last fragment: `::` binds tighter than `||`, so
+            -- `'frag1' || 'frag2'::jsonb` casts **only** 'frag2', which is not valid JSON on its own —
+            -- `invalid input syntax for type json` (SQLSTATE 22P02) before the guard trigger ever ran.
+            -- CI reported exactly that here: `have: error:22P02`, `want: error:23514`.
+            ('{"summary":"Synthetic","dataClass":"internal","claims":[],"unknowns":[],'
+            || '"evidence":[{"download_token":"would-be-a-grant"}]}')::jsonb);
     return 'inserted';
   exception when others then
     return 'error:' || sqlstate;
@@ -698,24 +710,43 @@ select ok(not pg_temp.is_error(pg_temp.start_run(
               where conversation_id = '4a000000-0000-4000-8000-000000000002'), 'internal')),
   '40 and its run');
 
+-- The write itself is asserted here, in test 26's self-revealing form: on a refusal the diff shows
+-- `error:<sqlstate>` instead of a bare "not ok". It was missing from this block entirely — the run was
+-- started but never completed, so 41 and 42 read a `running` row with no dependency rows and CI said
+-- `have: internal|(none)`. `pg_temp.evidence_two` existed for this case and was never called.
+select is(
+  (select case when pg_temp.is_error(r) then r else 'accepted' end
+     from (select pg_temp.complete_run(
+             '11111111-1111-4111-8111-111111111111', '4b000000-0000-4000-8000-000000000002',
+             pg_temp.answer_json('client_confidential', pg_temp.evidence_two(
+               '71000000-0000-4000-8000-000000000001', '81000000-0000-4000-8000-000000000001',
+               '71000000-0000-4000-8000-000000000002', '81000000-0000-4000-8000-000000000004'))
+           ) as r) s),
+  'accepted',
+  '41 the mixed-class answer is accepted for a caller who may read both cited sources — a4 is a Site A '
+  || 'member, so the project-scoped `client_confidential` version clears '
+  || '`source_version_is_readable` (a refusal here would name the rule that refused it)');
+
+-- The stored row and its dependency rows in one comparison: the promotion, each row keeping its own
+-- source''s class, and both source-version ids. Kept in a separate statement from the write above on
+-- purpose — a subquery that reads a row another subquery of the same statement writes has no defined
+-- execution order, so the read has to follow the write across a statement boundary.
 select is((select data_class from public.agent_runs where id = '4b000000-0000-4000-8000-000000000002')
           || '|' ||
           (select coalesce(string_agg(evidence_kind || ':' || data_class, ','
                             order by data_class, chunk_id), '(none)')
              from public.agent_run_evidence
-            where run_id = '4b000000-0000-4000-8000-000000000002'),
-  'client_confidential|chunk:client_confidential,chunk:public',
-  '41 an answer citing one `public` and one `client_confidential` source is stored `client_confidential` '
-  || 'while each dependency row keeps its own source class — the packet''s positive pgTAP case, and '
-  || 'the property T-213/T-214 read (§6.2, F24)');
-
-select is((select coalesce(string_agg(distinct source_version_id::text, ','
+            where run_id = '4b000000-0000-4000-8000-000000000002')
+          || '|' ||
+          (select coalesce(string_agg(distinct source_version_id::text, ','
                                       order by source_version_id::text), '(none)')
              from public.agent_run_evidence
             where run_id = '4b000000-0000-4000-8000-000000000002'),
-  '71000000-0000-4000-8000-000000000001,71000000-0000-4000-8000-000000000002',
-  '42 both source-version dependency ids are recorded, which is the row T-214 withdraws an answer by '
-  || 'and the column its named deferrable FK will point at (§6.2)');
+  'client_confidential|chunk:client_confidential,chunk:public'
+  || '|71000000-0000-4000-8000-000000000001,71000000-0000-4000-8000-000000000002',
+  '42 that answer is stored `client_confidential` while each dependency row keeps its own source class, '
+  || 'and both source-version ids are recorded — the packet''s positive pgTAP case, the property '
+  || 'T-213/T-214 read, and the row its named deferrable FK will point at (§6.2, F24)');
 
 -- ================================================================ 43-47 withheld, refused, cross-tenant
 reset role;
