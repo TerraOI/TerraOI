@@ -25,7 +25,9 @@
 --   orgs      company1 11111111-1111-4111-8111-111111111111 · company2 22222222-2222-4222-8222-222222222222
 --   people    …a1 company1 admin (its seeded role has NO `chat.ask` row) · …a2 company1 member (has
 --             chat.ask at read) · …a3 company1 suspended · …a4 member of BOTH tenants and of project
---             Site A · …b1 company2 admin
+--             Site A · …b1 company2 with an active membership but **no role** — seed.sql:85-87 asks for
+--             the role key 'admin' there and company2 defines only 'member' (seed.sql:67), so b1 holds
+--             no `chat.ask` and can only be used where a scope, not a permission, is what's under test
 --   projects  41000000-…-001 Site A (visibility 'project'; members a1, a4) · 41000000-…-002 field
 --             notes (visibility 'organisation') · 42000000-…-001 (company2)
 --   source versions, company1: 71000000-…-001 (collection 51…001, tenant-wide, `public`) and
@@ -350,7 +352,8 @@ select is_empty($$
         and p.tablename = t.tbl
         and p.cmd = 'SELECT'
         and p.permissive = 'PERMISSIVE'
-        and p.roles @> array['authenticated']::text[] $$,
+        and p.roles @> array['authenticated']::text[]
+   ) $$,
   '6 each chat table has a permissive SELECT policy for authenticated — the owner-scoped read path '
   || 'plan §9.1 expects. A policy-free table passes 5 and fails here, which is what makes 32-34 and '
   || '59-66 the RLS test rather than a tautology (AGENTS.md §4.2)');
@@ -777,26 +780,39 @@ select is((select status || '|' || coalesce(answer_status, '(none)') || '|' || d
   || 'row was invented for an answer that cites nothing (§9.4, §8.2)');
 
 -- ================================================================ 54-56 the second tenant, on its own host
+-- The company2 actor for the two writes is a4, not b1, and the reason is a seeded subtlety worth
+-- stating because it looks like a bug in the test: seed.sql:85-87 assigns each membership the role
+-- whose key is 'admin' for a1/b1 and 'member' otherwise, but company2 defines only a 'member' role
+-- (seed.sql:67). So **b1 holds no role at all** and therefore no `chat.ask` row (seed.sql:77 belongs to
+-- the member role). b1 can still establish a scope — its membership is active — which is exactly the
+-- property assertion 56 needs, so b1 stays there and does nothing that requires permission to ask.
 reset role;
 set local role authenticated;
-set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000b1';
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a4';
 select pg_temp.try_clear_scope();
 
 select ok(not pg_temp.is_error(pg_temp.ensure_conversation(
             '22222222-2222-4222-8222-222222222222', '4a000000-0000-4000-8000-000000000005',
             'gpr-doc-expert', null)),
-  '54 company2''s owner creates a company2 conversation on the company2 scope (the same code path on '
-  || 'another tenant origin, which is what the staging evidence asks for)');
+  '54 a member of both tenants creates a company2 conversation on the company2 scope — the same code '
+  || 'path on another tenant origin, which is what the staging evidence asks for');
 
 select is((select jsonb_array_length(coalesce(payload -> 'conversations', '[]'::jsonb))::text
              from (select pg_temp.list_conversations(
                       '22222222-2222-4222-8222-222222222222', 20)::jsonb as payload) s),
   '1',
-  '55 their own list holds their own one conversation');
+  '55 their company2 list holds the one conversation they created there, and none of the company1 ones '
+  || 'they also own — the caller is the same person, so only the scope separates the two lists');
+
+reset role;
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000b1';
+select pg_temp.try_clear_scope();
 
 select is(pg_temp.list_conversations('11111111-1111-4111-8111-111111111111', 20), 'error:28000',
-  '56 and the same person''s read of the company1 list is refused by the scope before the query runs: '
-  || 'the tenant argument selects among the caller''s own tenants and grants nothing (§4.1 step 4, #163)');
+  '56 a company2-only member dialling the company1 tenant is refused by the scope before the query '
+  || 'runs: the tenant argument selects among the caller''s own tenants and grants nothing '
+  || '(§4.1 step 4, #163). It needs no role of its own to make this point — the membership does it');
 
 -- ================================================================ the negatives, one per row class
 -- a conversation id belonging to another tenant, dialled under a scope the caller does hold. a4 is a
