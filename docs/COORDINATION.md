@@ -130,6 +130,7 @@ One file per packet under `supabase/tests/database/`. Claim a new number in the 
 | 040 | `040_knowledge_uploads` | T-112 (merged) |
 | 041 | `041_knowledge_uploads_guard` | T-112c ([#96](https://github.com/TerraOI/TerraOI/issues/96)) |
 | 045 | `045_ingestion_jobs` | T-211 |
+| 046 | `046_provider_configuration` | T-116 ([#143](https://github.com/TerraOI/TerraOI/pull/143); four §6.1 tables, narrow-only and one-revision guards, and the tenant-policy read closed to both request roles per FAQ-0011) |
 | 050 | `050_review_publish` | T-213 |
 | 060 | `060_project_acl` | T-214 |
 | 070 | `070_exact_lookup` | T-216 |
@@ -141,8 +142,6 @@ One file per packet under `supabase/tests/database/`. Claim a new number in the 
 | 095 | `095_budgets_and_run_audit` | T-313 |
 | 100 | `100_lifecycle_switches` | T-304 |
 | 105 | `105_provider_health` | T-314 |
-
-T-116 claims its slot in the daily sync.
 
 ## 7. Daily and weekly rhythm
 
