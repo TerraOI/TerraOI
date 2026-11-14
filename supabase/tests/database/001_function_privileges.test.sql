@@ -151,7 +151,21 @@ select is_empty($$
            ('public.register_source_version_v1(uuid, text, bigint, text)'::regprocedure),
            ('public.record_upload_outcome_v1(uuid, text, text)'::regprocedure),
            ('public.create_collection_v1(uuid, text, text, text, uuid, text)'::regprocedure),
-           ('public.update_collection_v1(uuid, uuid, text)'::regprocedure)
+           ('public.update_collection_v1(uuid, uuid, text)'::regprocedure),
+           -- T-202 PR-1 (`20261113120000_tenant_admin_rpc.sql`): the seven tenant-admin write RPCs,
+           -- each revoked from all four request roles inside the file that creates it and granted back
+           -- to `authenticated` only. All seven take `p_organisation_id` first and set the scope
+           -- themselves (FAQ-0011), and each decides inside its body on `members.admin` /
+           -- `projects.admin` at `admin`. `bump_policy_revision()` is deliberately **not** here: a
+           -- table's trigger fires without the invoking role holding EXECUTE, and it is granted to
+           -- nobody (tests 23-30 are the precedent for revoked trigger functions).
+           ('public.invite_member_v1(uuid, text)'::regprocedure),
+           ('public.activate_membership_v1(uuid, uuid)'::regprocedure),
+           ('public.grant_membership_role_v1(uuid, uuid, uuid)'::regprocedure),
+           ('public.revoke_membership_role_v1(uuid, uuid, uuid)'::regprocedure),
+           ('public.create_project_v1(uuid, text, text, text)'::regprocedure),
+           ('public.add_project_member_v1(uuid, uuid, uuid)'::regprocedure),
+           ('public.remove_project_member_v1(uuid, uuid, uuid)'::regprocedure)
          ) as allowed(proc)
      )
 $$, '32 no function in public is executable by authenticated beyond the named allow-list (§4.3, #60)');
