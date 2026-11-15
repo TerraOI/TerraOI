@@ -1,6 +1,6 @@
 # T-201 Password sign-in, Microsoft SSO, invites and identity linking
 
-Lane: 1 · Week: 2 · Protected: yes (`src/platform/identity/`) · Depends on: T-002, T-003, T-101, T-102 · Status: ready
+Lane: 1 · Week: 2 · Protected: yes (`src/platform/identity/`) · Depends on: T-002, T-003, T-101, T-102 · Status: in progress (wyuinline)
 Plan refs: §4.2 (TOI-ADR-15), §4.1 step 6, §16 (host/session row); F02, F05 (callback registration)
 
 ## Goal
