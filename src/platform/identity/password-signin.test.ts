@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createLoginState } from "./login-state";
 import { issueCsrfToken } from "./csrf";
 import { handlePasswordSignIn, MAX_PASSWORD_CHARS, type PasswordSignInPorts } from "./password-signin";
+import type { IdentityExchange } from "./signin-completion";
 import { SESSION_COOKIE_BASE, readSession } from "./session";
 import { createTokenCipher, type SessionStore, type StoredSession } from "./session-store";
 
@@ -30,6 +31,8 @@ const C2 = "22222222-2222-4222-8222-222222222222";
 const OWNER1 = "00000000-0000-4000-8000-0000000000a1";
 const FIELD2 = "00000000-0000-4000-8000-0000000000a2";
 const LEFT = "00000000-0000-4000-8000-0000000000a3";
+/** A synthetic Entra tenant id — the shape of an `iss`/`tid` claim, never a real one. */
+const ISSUER_A = "33333333-3333-4333-8333-333333333333";
 const MEMBERSHIP = "55555555-5555-4555-8555-555555555555";
 const PASSWORD = "correct horse battery staple";
 
@@ -94,12 +97,18 @@ interface Harness {
   attempts: Array<{ email: string; password: string; host: string }>;
   memberships: string[];
   redeemed: Array<{ organisationId: string; userId: string; email: string }>;
-  identity: ReturnType<typeof exchangeFor> | { ok: false; reason: "invalid_or_expired" };
+  identity: IdentityExchange;
   membershipFor: (organisationId: string, userId: string) => Membership | null;
   boom: boolean;
   allowRequest: boolean;
   sessionStore: () => SessionStore | null;
   tokenCipher: () => ReturnType<typeof createTokenCipher> | null;
+  /**
+   * The tenant's permitted Entra issuers. `undefined` means the port is absent — the state of the real
+   * adapter until PR-2 lands the SQL — and a policy read that would answer is only installed for the
+   * one case that needs it.
+   */
+  issuers: readonly string[] | null | undefined;
 }
 
 function harness(overrides: Partial<Harness> = {}): Harness {
@@ -112,6 +121,7 @@ function harness(overrides: Partial<Harness> = {}): Harness {
       organisationId !== C1 ? null : userId === OWNER1 ? member("active") : userId === LEFT ? member("suspended") : null,
     boom: false,
     allowRequest: true,
+    issuers: undefined,
     ports: {} as PasswordSignInPorts,
     store: memoryStore(),
     sessionStore: () => state.store,
@@ -147,6 +157,13 @@ function harness(overrides: Partial<Harness> = {}): Harness {
     redeemInvitation: async (input) => {
       state.redeemed.push(input);
       return "not_found";
+    },
+    // Read through a getter so a case that installs a policy (or leaves it absent) is seen by the
+    // handler rather than captured when the harness was built.
+    get allowedEntraIssuers() {
+      return state.issuers === undefined
+        ? undefined
+        : async () => (state.issuers === null ? null : (state.issuers as readonly string[]));
     },
   };
   return state;
@@ -435,5 +452,35 @@ describe("handlePasswordSignIn (POST /auth/password)", () => {
     expect(h.memberships).toHaveLength(0);
     expect(sessionCookieOf(response)).toBe("");
     expect(h.store.rows.size).toBe(0);
+  });
+
+  it("an identity the provider labels Entra goes through the tenant's issuer policy on this path too", async () => {
+    // The password grant shares the adapter's one payload reader with the code exchange, so `provider`
+    // and `issuerTenantId` are populated here as well — and this path has no login state, so there is
+    // no attempt marker to key on. GoTrue is expected to refuse a password grant for a non-mail
+    // identity; the code does not assume it does.
+    const { response, h } = await post({
+      configure: (s) => {
+        s.identity = { ...exchangeFor(OWNER1, "owner1@company1.test"), provider: "azure", issuerTenantId: ISSUER_A };
+      },
+    });
+    expect(outcomeOf(response)).toBe("unavailable");
+    // Refused at the policy, so no tenant data was read and no session was minted.
+    expect(h.memberships).toHaveLength(0);
+    expect(h.store.rows.size).toBe(0);
+    expect(sessionCookieOf(response)).toBe("");
+  });
+
+  it("an allow-listed issuer is not blanket-refused: the gate consults the policy, it is not a ban", async () => {
+    const { response, h } = await post({
+      configure: (s) => {
+        s.issuers = [ISSUER_A];
+        s.identity = { ...exchangeFor(OWNER1, "owner1@company1.test"), provider: "azure", issuerTenantId: ISSUER_A };
+      },
+    });
+    expect(locationOf(response).pathname).toBe("/");
+    expect(h.memberships).toHaveLength(1);
+    expect(sessionCookieOf(response)).toContain("__Host-toi_session=");
+    expect(h.store.rows.size).toBe(1);
   });
 });
