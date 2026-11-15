@@ -1,6 +1,6 @@
 # T-204 Brand contract in all three modes: login, shell, chat, errors, email
 
-Lane: 1 · Week: 2 · Protected: no · Depends on: T-002, T-102, T-103 (only the validator half merged as #119 and the `src/contracts/tenant-brand.ts` contract PR, per [#188](https://github.com/TerraOI/TerraOI/issues/188); the brand rows #150 and the shell #173 are not needed) · Status: ready
+Lane: 1 · Week: 2 · Protected: no · Depends on: T-002, T-102, T-103 (only the validator half merged as #119 and the `src/contracts/tenant-brand.ts` contract PR, per [#188](https://github.com/TerraOI/TerraOI/issues/188); the brand rows #150 and the shell #173 are not needed) · Status: in progress (wyuinline — claimed 2026-11-15, branch `t-204-brand-modes`)
 Plan refs: §5.1, §4.4 (public brand cache), §16 (white-label row), §20.5 (M1 subset); F04
 
 ## Supervisor rulings to apply (2026-11-09)
