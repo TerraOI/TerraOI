@@ -1,5 +1,4 @@
-import { NO_STORE, loginRedirect } from "./http-response";
-import { serializeSetCookie } from "./cookie";
+import { loginRedirect, providerRedirect } from "./http-response";
 import { createLoginState } from "./login-state";
 import { CALLBACK_PATH, readGuardedFormRequest, type SignInRequestPorts } from "./signin-request";
 import { sha256Base64Url } from "./signed-token";
@@ -94,7 +93,7 @@ export async function checkEntraIdentity(input: {
 
 // ---------------------------------------------------------------- the start half: POST /auth/entra
 
-export interface EntraStartPorts extends SignInRequestPorts {
+export interface EntraStartPorts extends SignInRequestPorts, EntraPolicyPorts {
   /** The configured project URL. Never derived from the request, and never a wildcard (F05). */
   supabaseBaseUrl(): string | null;
 }
@@ -131,7 +130,18 @@ export async function handleEntraSignInRequest(input: EntraSignInStartInput): Pr
     return loginRedirect(host, "unavailable", []);
   }
 
-  const loginState = await createLoginState({ host, secret, now: ports.now(), secureTransport });
+  // Before the browser is handed to the IdP: if this deployment cannot read the tenant's issuer policy
+  // at all, the attempt would end at a refusal after a full round trip through Microsoft and an email
+  // the user was led to expect. Refusing here says so at the point where the answer is still useful
+  // (PR-2 `t-201b-invite-reset-sql` lands the SQL; until then this endpoint is deliberately inert).
+  if (typeof ports.allowedEntraIssuers !== "function") {
+    console.error("entra sign-in refused", { host, step: "entra_policy", reason: "unwired" });
+    return loginRedirect(host, "unavailable", []);
+  }
+
+  // The state carries which provider **this host** chose, so the callback's issuer gate is keyed on a
+  // fact this server established and not only on the label the provider puts on its own payload.
+  const loginState = await createLoginState({ host, secret, now: ports.now(), secureTransport, provider: "entra" });
   const callbackUrl = `https://${host}${CALLBACK_PATH}?state=${encodeURIComponent(loginState.nonce)}`;
   const challenge = await sha256Base64Url(loginState.codeVerifier);
 
@@ -141,9 +151,7 @@ export async function handleEntraSignInRequest(input: EntraSignInStartInput): Pr
   url.searchParams.set("code_challenge", challenge);
   url.searchParams.set("code_challenge_method", "s256");
 
-  const headers = new Headers({ location: url.toString(), ...NO_STORE });
-  headers.append("set-cookie", serializeSetCookie(loginState.cookie));
-  return new Response(null, { status: 302, headers });
+  return providerRedirect(url.toString(), [loginState.cookie]);
 }
 
 /** An https origin with no path, query or credentials — anything else is not a binding we will redirect into. */

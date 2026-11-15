@@ -13,6 +13,19 @@
 -- row exists for each deactivated member and authenticates, and the tenant answer is still 28000: the
 -- session proves who signed in, never whether they may be here (ADR-0003 §7, F02).
 --
+-- How to read those assertions honestly: `set_tenant_scope` consults `auth.uid()` and
+-- `is_active_member` and never reads `toi_identity.sessions` (20261105060000_tenancy_core.sql:203-220),
+-- and that separation is the claim, not an accident. So the session rows are what assertions 1 and 6
+-- establish — a live, unrevoked, right-host session for each deactivated member, which is the state the
+-- Worker's own session check accepts — and 3, 5, 7 and 8 then say the tenant answer does not change.
+-- Delete the session fixtures and 1 and 6 fail; that is the pair's job.
+--
+-- Which assertions are new, and which are deliberate re-pins: 1, 6 (the session half) and 9 (the
+-- profiles primary key — the first PK assertion in `supabase/tests/`) are new. 3, 4, 5, 7, 8, 11 and
+-- 14 re-pin 010/011/017 rules *in the shape this packet's sign-in paths produce*, with a live session in
+-- the picture; they are regression cover, not new mechanism. 10, 13, 15 and 19 are count-and-status
+-- controls whose whole purpose is to say "nothing moved". 16 is a non-vacuity control for 17-19.
+--
 -- The second half is the data-level fact a claim RPC must preserve. 011 pins the *grants* (no
 -- INSERT/UPDATE/DELETE for `authenticated` on organisation_memberships); what is pinned here is that
 -- nothing in the data moved after a replay — the count that PR-2's `redeem_invitation_v1` will be held
@@ -237,10 +250,15 @@ insert into t_counts
 select is((select result from t_replay where case_name = 'scope_c2'), '28000',
   '11 the replay could not even take a scope in company2: invited is not active, in that tenant or any other');
 
+-- Pinned to the SQLSTATE, not merely to "nothing was written": a broken helper, a missing table and a
+-- refused privilege would all leave `wrote:%` absent. 011 assertion 13 carries the teeth that prove the
+-- grant is the guard (grant UPDATE, the same write succeeds, savepoint rolled back), so that is not
+-- restated here.
 select is(
-  (select count(*)::int from t_replay where result like 'wrote:%'),
-  0::int,
-  '12 none of the writes a claim replay attempts got through, whoever stopped them (§4.2)');
+  (select string_agg(result, ',' order by case_name) from t_replay
+    where case_name in ('promote_own', 'add_self', 'add_other')),
+  '42501,42501,42501',
+  '12 each write a claim replay attempts is refused with 42501: `authenticated` holds no INSERT or UPDATE grant on organisation_memberships (§4.2)');
 
 select is(
   (select n from t_counts where phase = 'after' and what = 'memberships_c2'),
@@ -263,13 +281,18 @@ select is(
 -- The attacker here is not an outsider: `multi@example.test` is an active member of company2 and can
 -- take its scope. So the refusal below is about *whose* invitation it is, which is exactly the rule
 -- PR-2's claim RPC has to preserve by keying on `auth.uid()` rather than on an address it is handed.
+-- The two write attempts first, and the successful scope **last**: `set_tenant_scope` sets
+-- `app.organisation_id` transaction-locally, so a scope that succeeds is left standing for the rest of
+-- the transaction. Putting it last means nothing else in this file runs under a scope this file created
+-- (010's discipline for a *refused* attempt was "the refusal set no scope"; here the point is the
+-- opposite — the attempt is allowed to scope, and that is exactly why it must come after).
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a4';
 create temp table t_other (case_name text, result text);
 insert into t_other values
-  ('scope_c2', pg_temp.try_scope('22222222-2222-4222-8222-222222222222')),
   ('promote_field2', pg_temp.try_promote('22222222-2222-4222-8222-222222222222', '00000000-0000-4000-8000-0000000000a2')),
-  ('add_for_field2', pg_temp.try_add('22222222-2222-4222-8222-222222222222', '00000000-0000-4000-8000-0000000000a2'));
+  ('add_for_field2', pg_temp.try_add('22222222-2222-4222-8222-222222222222', '00000000-0000-4000-8000-0000000000a2')),
+  ('scope_c2', pg_temp.try_scope('22222222-2222-4222-8222-222222222222'));
 reset role;
 
 insert into t_counts
@@ -279,9 +302,10 @@ insert into t_counts
 select is((select result from t_other where case_name = 'scope_c2'), 'ok',
   '16 (non-vacuity) the person attempting the claim is an active company2 member and can scope it: the refusals below are not about tenancy');
 select is(
-  (select count(*)::int from t_other where result like 'wrote:%'),
-  0::int,
-  '17 a different address in the same tenant cannot activate or duplicate the invitation bound to field2@company1.test (§4.2)');
+  (select string_agg(result, ',' order by case_name) from t_other
+    where case_name in ('promote_field2', 'add_for_field2')),
+  '42501,42501',
+  '17 a different address in the same tenant cannot activate or duplicate the invitation bound to field2@company1.test, and it is the missing grant that says so (42501) (§4.2)');
 select is(
   (select status from public.organisation_memberships
     where organisation_id = '22222222-2222-4222-8222-222222222222'

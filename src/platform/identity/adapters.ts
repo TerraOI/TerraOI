@@ -339,16 +339,14 @@ export function buildIdentityPorts(env: Partial<IdentityEnv>, options: { fetchIm
 
     supabaseBaseUrl: () => (baseUrl.length > 0 ? baseUrl : null),
 
-    // ---- ports whose SQL has not landed yet (T-201 PR-2, `identity_methods` migration) ----------
-    // Refusing is the only honest implementation: the Entra gate treats an unreadable policy as no
-    // permitted issuer, and a recovery with no way to revoke the user's other sessions is not
-    // completed. Neither falls back to "unrestricted", and neither is a placeholder for a decision —
-    // the migration and its pgTAP half are PR-2's deliverable.
-    allowedEntraIssuers: async () => {
-      throw new Error("entra issuer policy not landed (T-201 PR-2: identity_methods migration)");
-    },
-    revokeUserSessions: async () => {
-      throw new Error("session revocation not landed (T-201 PR-2: identity_methods migration)");
-    },
+    // ---- the two ports whose SQL has not landed are **absent**, not stubbed (T-201 PR-2) ----------
+    // `allowedEntraIssuers` and `revokeUserSessions` are deliberately not implemented here. A port that
+    // exists and throws would let the *front* halves of those endpoints do real work first: `POST
+    // /auth/entra` would hand the browser to Microsoft, and `POST /auth/password-reset` would send a
+    // real recovery email whose link is certain to end at a refusal. Absence is the honest shape of
+    // "the SQL is not there", and the handlers check it **before** they dial a provider
+    // (`entra-linking.ts`, `password-reset.ts`), so both endpoints are inert until PR-2's
+    // `identity_methods` migration — which also brings their pgTAP half and the `001` allow-list
+    // entries. Nothing here falls back to "unrestricted".
   };
 }

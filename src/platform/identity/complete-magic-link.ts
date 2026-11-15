@@ -117,15 +117,30 @@ export async function completeMagicLink(input: MagicLinkCallbackInput): Promise<
 
   // An Entra identity carries an issuer the tenant may or may not have allowed, and a link it asserts
   // to a profile that has to be a verified one. Checked before the membership read, so a refused
-  // identity never touches tenant data. A magic-link identity has no issuer and skips the gate.
-  if (isEntraIdentity(identity.provider)) {
+  // identity never touches tenant data.
+  //
+  // Two signals decide, and they are not interchangeable. The **carrier** says this host sent this
+  // browser to Entra — that is the fact the issuer policy exists to govern, and it opens the gate even
+  // if the payload arrives labelled as mail (Supabase attaches an Entra identity to an account that
+  // already exists as a mail one and leaves `app_metadata.provider` as `"email"`). The **payload
+  // label** can only keep the gate open, never close it: an identity the provider itself calls `azure`
+  // is gated whatever the carrier said. A magic-link attempt has neither, and skips the gate — the
+  // email provider has no issuer to allow-list.
+  const entraAttempt = stateCheck.provider === "entra";
+  if (entraAttempt || isEntraIdentity(identity.provider)) {
     const gate = await checkEntraIdentity({
       identity,
       organisationId: organisation.organisationId,
       ports,
     });
     if (!gate.ok) {
-      console.error("entra callback refused", { host: parsed.host, step: "entra_policy", reason: gate.reason });
+      console.error("entra callback refused", {
+        host: parsed.host,
+        step: "entra_policy",
+        reason: gate.reason,
+        // Which signal opened the gate: recorded for the operator, never sent to the browser.
+        keyed_on: entraAttempt ? "attempt" : "payload",
+      });
       return loginRedirect(parsed.host, "unavailable", consumedState);
     }
   }

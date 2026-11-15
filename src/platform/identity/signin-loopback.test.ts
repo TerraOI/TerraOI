@@ -159,12 +159,17 @@ function memoryStore(): SessionStore & { rows: Map<string, StoredSession> } {
  * `fetch`.
  */
 function ports(store: SessionStore & { rows: Map<string, StoredSession> }) {
-  const env: Partial<IdentityEnv> = {
+  const env: Partial<IdentityEnv> & { SUPABASE_SERVICE_ROLE_KEY: string } = {
     SUPABASE_URL: origin,
     SUPABASE_ANON_KEY: ANON_KEY_CANARY,
     IDENTITY_SESSION_KEY: SIGNING_KEY,
     IDENTITY_RATE_LIMITER: { limit: async () => ({ success: true }) },
     SESSION_TOKEN_KEY: "synthetic-loopback-token-key-not-a-real-key-0000",
+    // Planted on purpose, and unused by `buildIdentityPorts` (it has no such binding). Without it the
+    // "no service-role key on the wire" assertion would be a tautology — nothing could have put one
+    // there. With it, the assertion checks what this call path actually sends, and the day someone
+    // wires a privileged key into sign-in, this is the test that notices.
+    SUPABASE_SERVICE_ROLE_KEY: SERVICE_ROLE_CANARY,
   };
   const built = buildIdentityPorts(env, {});
   return {
