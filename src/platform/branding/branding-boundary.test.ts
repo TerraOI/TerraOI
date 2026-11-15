@@ -95,8 +95,7 @@ describe("a surface that renders a brand cannot read a session", () => {
 describe("the module exists", () => {
   it("has implementation files and a test file per rule group", () => {
     expect(brandingCode.length).toBeGreaterThanOrEqual(4);
-    // Prior groups on main (incl. sign-in-brand from #172) plus T-103: deployment reader,
-    // asset handler unit rules, and the §6a loopback harness.
-    expect(brandingFiles.filter((p) => p.includes(".test."))).toHaveLength(10);
+    // Main already has 10 branding test files; this PR adds `brand-modes.test.ts` → 11.
+    expect(brandingFiles.filter((p) => p.includes(".test."))).toHaveLength(11);
   });
 });
