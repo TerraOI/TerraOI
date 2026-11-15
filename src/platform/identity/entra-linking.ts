@@ -18,10 +18,19 @@ import type { IdentityExchange } from "./signin-completion";
  *     identity proves *who*, membership decides *whether* (F02);
  *   * a tenant allow-listed to one Entra tenant ID refuses an account from any other issuer.
  *
- * The fourth needs data the merged schema does not have: a per-tenant list of permitted Entra tenant
- * IDs. So the read is a port that answers "unresolved" until PR-2's `identity_methods` migration, and
- * unresolved **refuses**. That is not a placeholder standing in for a decision — a tenant with no
- * recorded Entra policy genuinely has no permitted issuer, which is the same answer as an empty list.
+ * The fourth needs data: a per-tenant list of permitted Entra tenant ids, which PR-2's
+ * `20261115060000_identity_methods.sql` creates (`public.tenant_entra_issuers`, read by
+ * `entra_allowed_issuers_v1`). A read that cannot be made at all — no Data API configured, a policy
+ * answer this module cannot parse — stays **unresolved**, and unresolved refuses. That is not a
+ * placeholder standing in for a decision: a tenant with no recorded Entra policy genuinely has no
+ * permitted issuer, which is the same answer as an empty list, and the two are kept apart because the
+ * operator's answer differs (`issuer_not_allowed` is a configuration fact, `policy_unresolved` is a
+ * deployment or backend fault).
+ *
+ * What the SQL does *not* do is scope itself: the gate runs before the membership question and must
+ * answer for identities that hold no membership row in this tenant, and `set_tenant_scope` refuses
+ * exactly those callers. `entra_allowed_issuers_v1`'s header says why, and 012 assertions 41-45 pin the
+ * answers.
  *
  * The `tid` claim (the issuing Entra tenant) is read defensively from the identity payload because
  * which field of it Supabase surfaces for `azure` is a provider detail this repo has not yet seen on
@@ -62,15 +71,22 @@ export function decideEntraLink(input: {
 export interface EntraPolicyPorts {
   /**
    * The organization's permitted Entra tenant ids: `[]` for a tenant that has configured none, and
-   * `null` when the policy is not readable at all (the state until PR-2). No implementation is itself
-   * treated as unresolved.
+   * `null` when the policy is not readable at all — which includes a deployment whose Data API is not
+   * configured. No implementation is itself treated as unresolved.
+   *
+   * `accessToken` is the signed-in identity's own token, because `entra_allowed_issuers_v1` is granted
+   * to `authenticated` and not to `anon` (012 assertions 39-41): the gate runs on an identity a provider
+   * has just verified, and the anonymous pre-sign-in surface stays the one host resolver the merged
+   * schema already exposes.
    */
-  allowedEntraIssuers?(organisationId: string): Promise<readonly string[] | null>;
+  allowedEntraIssuers?(organisationId: string, accessToken: string): Promise<readonly string[] | null>;
 }
 
 export async function checkEntraIdentity(input: {
   identity: Pick<Extract<IdentityExchange, { ok: true }>, "emailVerified" | "issuerTenantId">;
   organisationId: string;
+  /** Whose token the policy read is made with — the same identity the gate is about to decide on. */
+  accessToken: string;
   ports: EntraPolicyPorts;
 }): Promise<{ ok: true } | { ok: false; reason: EntraRefusal }> {
   if (typeof input.ports.allowedEntraIssuers !== "function") {
@@ -78,7 +94,7 @@ export async function checkEntraIdentity(input: {
   }
   let allowed: readonly string[] | null;
   try {
-    allowed = await input.ports.allowedEntraIssuers(input.organisationId);
+    allowed = await input.ports.allowedEntraIssuers(input.organisationId, input.accessToken);
   } catch {
     // A policy read that fails is not a policy that permits nothing and not a policy that permits
     // everything: it permits nothing we can check, so the identity is refused.
@@ -131,9 +147,11 @@ export async function handleEntraSignInRequest(input: EntraSignInStartInput): Pr
   }
 
   // Before the browser is handed to the IdP: if this deployment cannot read the tenant's issuer policy
-  // at all, the attempt would end at a refusal after a full round trip through Microsoft and an email
-  // the user was led to expect. Refusing here says so at the point where the answer is still useful
-  // (PR-2 `t-201b-invite-reset-sql` lands the SQL; until then this endpoint is deliberately inert).
+  // at all, the attempt would end at a refusal after a full round trip through Microsoft. Refusing here
+  // says so at the point where the answer is still useful. The SQL behind the port has landed with PR-2,
+  // so the state this catches is a deployment without `SUPABASE_URL`/`SUPABASE_ANON_KEY` — and the port
+  // stays optional rather than becoming a stub, for the reason PR-1 recorded: a port that exists and
+  // throws lets the front half of the endpoint do real work first.
   if (typeof ports.allowedEntraIssuers !== "function") {
     console.error("entra sign-in refused", { host, step: "entra_policy", reason: "unwired" });
     return loginRedirect(host, "unavailable", []);

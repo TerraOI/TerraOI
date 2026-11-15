@@ -44,8 +44,10 @@ export async function handlePasswordResetRequest(input: PasswordResetInput): Pro
   // a deployment that cannot revoke the user's other sessions cannot complete the reset either, so it
   // must not send an email that is certain to end at a refusal. Leading someone through a password
   // change that leaves their old sessions live is worse than saying "unavailable" here — and the link
-  // they would click is a credential that always fails. The revocation SQL is PR-2's
-  // (`t-201b-invite-reset-sql`); until it lands this endpoint is deliberately inert, and says so.
+  // they would click is a credential that always fails. The revocation SQL landed with PR-2
+  // (`toi_identity.revoke_user_sessions_v1`), so what this catches is a deployment with no `SESSION_DB`
+  // binding: the adapter leaves the port absent there rather than present and throwing, and the endpoint
+  // stays inert visibly instead of mailing a doomed link.
   if (typeof ports.revokeUserSessions !== "function") {
     console.error("password reset refused", { host, step: "session_revocation", reason: "unwired" });
     return loginRedirect(host, "unavailable", []);

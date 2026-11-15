@@ -23,6 +23,14 @@ import { TENANT_ARGUMENT } from "@/platform/tenancy/tenant-rpc";
  * asked for someone else's membership — the direct table read it replaces did take a `user_id`
  * filter from the caller.
  *
+ * T-201 PR-2 added two more calls to the same dial site, and they belong here for the reason PR-1 gave
+ * for sharing one payload reader: a second place that builds a PostgREST RPC request is a second place
+ * that can forget the bearer, forget the tenant argument, or read a scalar as a row set. One is a write
+ * (the invite claim) and one a pre-activation configuration read (the Entra issuer policy); neither is a
+ * FAQ-0011 scoped call, both run before any `TenantContext` exists, and both carry the signed-in user's
+ * own token. `findHost` is the only one that runs on the anon key, because it runs before anyone is
+ * signed in at all.
+ *
  * No privileged key appears here: the anon/publishable key is the same one `identity/adapters.ts`
  * uses against Auth REST, and it is only ever a header, never the bearer.
  */
@@ -43,7 +51,31 @@ export type TenancyDataApi = {
   /** The caller's own membership in `organisationId`, or null when they hold none there. */
   findMembership(organisationId: string, accessToken: string): Promise<MembershipRecord | null>;
   policyRevision(organisationId: string, accessToken: string): Promise<number>;
+  /**
+   * T-201 PR-2: the invitee claiming their own `invited` row (`redeem_invitation_v1`). The result is the
+   * RPC's own three-value answer; a fourth value or an unreadable body is a backend failure, never a
+   * guess. No user id is sent: the SQL takes the caller from `auth.uid()` off the bearer token, which is
+   * why this call carries a token at all.
+   */
+  redeemInvitation(organisationId: string, email: string, accessToken: string): Promise<InvitationClaimResult>;
+  /**
+   * T-201 PR-2: the tenant's permitted Entra tenant ids (`entra_allowed_issuers_v1`). An empty array is a
+   * real answer — the tenant has allowed nothing — and it refuses, so it must never be conflated with a
+   * read that failed. A failure here **throws**: `checkEntraIdentity` turns a throw into
+   * `policy_unresolved`, which is the port's refusal answer, and the two stay distinguishable in the log
+   * rather than being flattened into a value this module invented.
+   */
+  entraIssuers(organisationId: string, accessToken: string): Promise<readonly string[]>;
 };
+
+/**
+ * The closed set `redeem_invitation_v1` may answer, mirroring the port in `signin-completion.ts`. The
+ * schema is the single copy: the type is derived from it, so a fourth answer from the SQL has one place
+ * to be added and cannot be silently accepted by the reader that checks it.
+ */
+const CLAIM_RESULTS = z.enum(["redeemed", "not_found", "email_mismatch"]);
+
+export type InvitationClaimResult = z.infer<typeof CLAIM_RESULTS>;
 
 export type TenancyReadFailureKind = "tenancy" | "backend_failure" | "not_configured";
 
@@ -191,6 +223,35 @@ export function createTenancyDataApi(options: TenancyDataApiOptions): TenancyDat
       const parsed = z.number().int().positive().safeParse(value);
       // A scalar RPC answers with the bare value. Anything else — including an empty body — is
       // refused: `0` would be a plausible-looking revision, and a stale revision silently authorizes.
+      if (!parsed.success) throw new TenancyReadError("backend_failure");
+      return parsed.data;
+    },
+
+    async redeemInvitation(organisationId, email, accessToken): Promise<InvitationClaimResult> {
+      // `p_email` is the address the provider verified, already canonical: `canonicalEmail` ran in
+      // `signin-completion.ts`, and the RPC refuses anything else with 22023 rather than nearly
+      // matching it. `TENANT_ARGUMENT` is assembled here like every other call site, and no user id is
+      // sent — the SQL takes the caller from the bearer it is given.
+      const text = await dialRpc(
+        "redeem_invitation_v1",
+        { [TENANT_ARGUMENT]: organisationId, p_email: email },
+        accessToken,
+      );
+      const parsed = CLAIM_RESULTS.safeParse(parseJson(text.trim().length === 0 ? "null" : text));
+      // "The claim worked" cannot be inferred from a 200, and `not_found` cannot be assumed for an
+      // answer this module cannot read: the caller re-reads the membership on `redeemed` only, so a
+      // guess here decides whether somebody sees a workspace or a no-access page.
+      if (!parsed.success) throw new TenancyReadError("backend_failure");
+      return parsed.data;
+    },
+
+    async entraIssuers(organisationId, accessToken): Promise<readonly string[]> {
+      const text = await dialRpc("entra_allowed_issuers_v1", { [TENANT_ARGUMENT]: organisationId }, accessToken);
+      const parsed = z.array(z.string().min(1)).safeParse(parseJson(text.trim().length === 0 ? "null" : text));
+      // `[]` passes and means "this tenant permits no issuer" — a refusal the gate reports as
+      // `issuer_not_allowed`, not a wildcard. A body that is not an array of ids is a backend failure and
+      // throws: the `null` the port reserves for "no policy readable" belongs to an unimplemented port,
+      // and a malformed answer must not be filed under it.
       if (!parsed.success) throw new TenancyReadError("backend_failure");
       return parsed.data;
     },

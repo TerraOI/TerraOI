@@ -77,7 +77,7 @@ interface Harness {
   store: SessionStore & { rows: Map<string, StoredSession> };
   exchanges: Array<{ code: string; state: string; host: string; codeVerifier: string }>;
   memberships: string[];
-  redeemed: Array<{ organisationId: string; userId: string; email: string }>;
+  redeemed: Array<{ organisationId: string; userId: string; email: string; accessToken: string }>;
   identity:
     | { ok: true; userId: string; email: string; emailVerified: boolean; accessToken: string; refreshToken: string; tokenExpiresAt: number }
     | { ok: false; reason: "invalid_or_expired" };
@@ -310,11 +310,15 @@ describe("completeMagicLink (GET /auth/callback)", () => {
       },
     });
     expect(h.redeemed).toHaveLength(1);
-    const claim = h.redeemed[0] as { organisationId: string; userId: string; email: string };
+    const claim = h.redeemed[0] as { organisationId: string; userId: string; email: string; accessToken: string };
     expect(claim.email).toBe("user@example.test");
     expect(claim.email).toBe(claim.email.trim().toLowerCase());
     expect(claim.organisationId).toBe(C1);
     expect(claim.userId).toBe(INVITED);
+    // The claim is made bearing **this** identity's token. `userId` above is the handler's own record and
+    // goes nowhere near the database: `redeem_invitation_v1` decides whose row it is from this bearer
+    // (`auth.uid()`), so a call made with any other credential could only ever refuse (012 tests 23, 38).
+    expect(claim.accessToken).toBe(ACCESS_TOKEN);
     // The handler does not take "redeemed" on trust: it re-reads current membership state.
     expect(h.memberships.length).toBeGreaterThanOrEqual(2);
     expect(locationOf(response).pathname).toBe("/");

@@ -87,6 +87,9 @@ export async function handlePasswordSignIn(input: PasswordSignInInput): Promise<
     const gate = await checkEntraIdentity({
       identity,
       organisationId: organisation.organisationId,
+      // The credential the provider just accepted carries its own token, and the policy read is made
+      // with it — granted to `authenticated`, never to `anon` (012 tests 39-41).
+      accessToken: identity.accessToken,
       ports,
     });
     if (!gate.ok) {

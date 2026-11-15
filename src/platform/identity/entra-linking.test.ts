@@ -119,10 +119,12 @@ interface Harness {
   store: SessionStore & { rows: Map<string, StoredSession> };
   exchanges: Array<{ code: string; host: string }>;
   memberships: string[];
-  redeemed: Array<{ organisationId: string; userId: string; email: string }>;
+  redeemed: Array<{ organisationId: string; userId: string; email: string; accessToken: string }>;
+  /** Every issuer-policy read: with which organization, and bearing whose credential. */
+  issuerReads: Array<{ organisationId: string; accessToken: string }>;
   identity: EntraExchange | { ok: false; reason: "invalid_or_expired" };
   membershipFor: (organisationId: string, userId: string) => Membership | null;
-  issuers: readonly string[] | null | undefined;
+  issuers: readonly string[] | null;
   issuersBoom: boolean;
   boom: boolean;
   /** Set once a claim has "succeeded", so the re-read sees the row as it is now. */
@@ -134,6 +136,7 @@ function harness(overrides: Partial<Harness> = {}): Harness {
     exchanges: [],
     memberships: [],
     redeemed: [],
+    issuerReads: [],
     identity: entraIdentity(),
     membershipFor: (organisationId, userId) =>
       organisationId === C1 && userId === INVITED_USER ? member(state.promoted ? "active" : "invited") : null,
@@ -168,14 +171,15 @@ function harness(overrides: Partial<Harness> = {}): Harness {
     },
     redeemInvitation: async (input) => {
       state.redeemed.push(input);
-      // The claim RPC itself is PR-2's SQL. Until then the fake promotes the row it was handed, so
-      // what this file tests is the linking decision and not the SQL.
+      // The claim RPC is PR-2's SQL and is tested there (pgTAP slot 012). This fake promotes the row it
+      // was handed so what this file tests is the linking decision and not the SQL — and it records the
+      // whole input, which is where "the claim carries the caller's own credential" is pinned.
       state.promoted = true;
       return "redeemed";
     },
-    allowedEntraIssuers: async (organisationId) => {
+    allowedEntraIssuers: async (organisationId, accessToken) => {
+      state.issuerReads.push({ organisationId, accessToken });
       if (state.issuersBoom) throw new Error("policy read unavailable");
-      if (state.issuers === undefined) throw new Error("entra issuer policy not landed (T-201 PR-2)");
       return organisationId === C1 ? state.issuers : [];
     },
   };
@@ -261,9 +265,11 @@ describe("decideEntraLink: the policy, in isolation", () => {
 
 describe("checkEntraIdentity: the policy against its read", () => {
   it("refuses when the read itself fails, instead of treating an outage as no restriction", async () => {
+    const identity = entraIdentity();
     const outcome = await checkEntraIdentity({
-      identity: entraIdentity(),
+      identity,
       organisationId: C1,
+      accessToken: identity.accessToken,
       ports: { allowedEntraIssuers: async () => { throw new Error("policy read down"); } },
     });
     // Pinned to the reason, not just to "refused": an implementation that reported a failed policy read
@@ -272,11 +278,14 @@ describe("checkEntraIdentity: the policy against its read", () => {
     expect(outcome).toEqual({ ok: false, reason: "policy_unresolved" });
   });
 
-  it("refuses when the port has no implementation at all (the state until PR-2's migration)", async () => {
-    expect(await checkEntraIdentity({ identity: entraIdentity(), organisationId: C1, ports: {} })).toEqual({
-      ok: false,
-      reason: "policy_unresolved",
-    });
+  it("refuses when the port has no implementation at all (a deployment with no Data API)", async () => {
+    // The shape `buildIdentityPorts` actually produces without `SUPABASE_URL`/`SUPABASE_ANON_KEY`: the
+    // port is absent, not present-and-throwing. Absent still refuses, so a half-configured deployment
+    // cannot hand an identity past the gate.
+    const identity = entraIdentity();
+    expect(
+      await checkEntraIdentity({ identity, organisationId: C1, accessToken: identity.accessToken, ports: {} }),
+    ).toEqual({ ok: false, reason: "policy_unresolved" });
   });
 });
 
@@ -290,8 +299,20 @@ describe("the Entra leg of GET /auth/callback", () => {
     // The claim names the existing identity and the host's organization, with the canonical verified
     // address: it links, it does not create.
     expect(h.redeemed).toHaveLength(1);
-    const claim = h.redeemed[0] as { organisationId: string; userId: string; email: string };
-    expect(claim).toEqual({ organisationId: C1, userId: INVITED_USER, email: "field2@company1.test" });
+    const claim = h.redeemed[0] as { organisationId: string; userId: string; email: string; accessToken: string };
+    expect(claim).toEqual({
+      organisationId: C1,
+      userId: INVITED_USER,
+      email: "field2@company1.test",
+      // The claim is made with the identity the provider just verified, which is the only credential
+      // `redeem_invitation_v1` can answer for: it takes no user argument and reads its subject from this
+      // bearer (`auth.uid()`), so a call bearing anything else could not claim this row.
+      accessToken: fakeJwt("access", INVITED_USER),
+    });
+
+    // The issuer policy was read with that same identity's token, once, for the routed organization only
+    // — the RPC behind it is granted to `authenticated` and refused to `anon` (012 assertions 39-41).
+    expect(h.issuerReads).toEqual([{ organisationId: C1, accessToken: fakeJwt("access", INVITED_USER) }]);
 
     // One session row, for the identity the provider already had: no second profile, no second id.
     expect(h.store.rows.size).toBe(1);
@@ -367,14 +388,19 @@ describe("the Entra leg of GET /auth/callback", () => {
     }
   });
 
-  it("until the policy read is landed the Entra path grants nothing: unresolved is refuse", async () => {
+  it("a deployment with no issuer read at all grants nothing: an absent port is still a refusal", async () => {
+    // `buildIdentityPorts` installs `allowedEntraIssuers` only where the Data API is configured, so this
+    // is the real deployment shape for a host without it — and the callback must not treat "I could not
+    // look" as "nothing to check". The SQL half is PR-2's; a missing port is a wiring fact either way.
     const { response, h } = await callback({
       configure: (s) => {
-        s.issuers = undefined; // the port throws "not landed", as the real adapter does until PR-2
+        delete s.ports.allowedEntraIssuers;
       },
     });
     expect(outcomeOf(response)).toBe("unavailable");
+    expect(h.issuerReads).toHaveLength(0);
     expect(h.store.rows.size).toBe(0);
+    expect(sessionCookieOf(response)).toBe("");
   });
 
   it("an Entra outage gives the generic failure and no partial session", async () => {
@@ -398,12 +424,15 @@ describe("the Entra leg of GET /auth/callback", () => {
       configure: (s) => {
         s.identity = entraIdentity({ provider: "email", issuerTenantId: null, email: "owner1@company1.test", userId: "00000000-0000-4000-8000-0000000000a1" });
         s.membershipFor = (organisationId, userId) => (organisationId === C1 && userId === "00000000-0000-4000-8000-0000000000a1" ? member("active") : null);
-        s.issuers = undefined; // no Entra policy anywhere: irrelevant to a magic-link identity
+        // No policy read available at all: a mail identity completes anyway, because the email provider
+        // has no issuer to allow-list. The gate is keyed on the provider, not on whether a policy exists.
+        delete s.ports.allowedEntraIssuers;
       },
     });
     expect(locationOf(response).pathname).toBe("/");
     expect(sessionCookieOf(response)).toContain("__Host-toi_session=");
     expect(h.redeemed).toHaveLength(0);
+    expect(h.issuerReads).toHaveLength(0);
   });
 
   it("an Entra **attempt** whose payload comes back labelled `email` is still gated — the carrier decides, not the label", async () => {
@@ -539,10 +568,12 @@ describe("handleEntraSignInRequest (POST /auth/entra)", () => {
     expect(location.searchParams.get("code_challenge")).toBe(await sha256Base64Url(pkce as string));
   });
 
-  it("with the issuer policy not landed there is no hand-off to Microsoft and no half-set state", async () => {
-    // The state the production adapter is actually in until PR-2 lands `identity_methods`: the policy
-    // cannot be read, so the attempt would end at a refusal *after* a round trip through the IdP.
-    // Refusing here is what keeps that trip from being taken on the user's behalf.
+  it("with no issuer read available there is no hand-off to Microsoft and no half-set state", async () => {
+    // The deployment shape `buildIdentityPorts` produces without `SUPABASE_URL`/`SUPABASE_ANON_KEY`: the
+    // port is absent, so the policy cannot be read, and the attempt would end at a refusal *after* a
+    // round trip through the IdP. Refusing here is what keeps that trip from being taken on the user's
+    // behalf. The SQL half landed in PR-2; what stays conditional is the wiring, and the port stays
+    // optional rather than becoming a stub that throws.
     const { response } = await start({ ports: startPorts({ allowedEntraIssuers: undefined }) });
     expect(outcomeOf(response)).toBe("unavailable");
     expect(response.headers.get("location")).toContain("/login");

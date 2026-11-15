@@ -1,7 +1,7 @@
 import { parseHost, requestHost, type HostAdapterOptions } from "@/platform/tenancy/host";
 
 import { isDevelopmentRuntime, isHttpsUrl, type CookieSpec } from "./cookie";
-import { checkEntraIdentity, isEntraIdentity } from "./entra-linking";
+import { checkEntraIdentity, isEntraIdentity, type EntraPolicyPorts } from "./entra-linking";
 import { loginRedirect, statusOnly } from "./http-response";
 import { consumeLoginState, verifyLoginState } from "./login-state";
 import { completeSignIn, type IdentityExchange, type SignInCompletionPorts } from "./signin-completion";
@@ -27,7 +27,7 @@ import { hasUsableSecret } from "./signed-token";
 
 export type { IdentityExchange };
 
-export interface MagicLinkCallbackPorts extends SignInCompletionPorts, HostLookupPorts {
+export interface MagicLinkCallbackPorts extends SignInCompletionPorts, HostLookupPorts, EntraPolicyPorts {
   /** The HMAC key behind the login state and CSRF tokens; unusable or absent means nobody is signed in. */
   signingSecret(): string | null;
   /**
@@ -45,12 +45,6 @@ export interface MagicLinkCallbackPorts extends SignInCompletionPorts, HostLooku
      */
     codeVerifier: string;
   }): Promise<IdentityExchange>;
-  /**
-   * The tenant's permitted Entra tenant ids, read from the organization the **host** resolved (never
-   * from the request). Optional because the SQL behind it is T-201 PR-2's migration: no implementation
-   * means no permitted issuer, which refuses an Entra sign-in (see `entra-linking.ts`).
-   */
-  allowedEntraIssuers?(organisationId: string): Promise<readonly string[] | null>;
 }
 
 export interface MagicLinkCallbackInput {
@@ -131,6 +125,10 @@ export async function completeMagicLink(input: MagicLinkCallbackInput): Promise<
     const gate = await checkEntraIdentity({
       identity,
       organisationId: organisation.organisationId,
+      // The identity the gate is deciding on is the one whose token reads the policy: the issuer read is
+      // granted to `authenticated` and refused to `anon`, and this is the only credential in the request
+      // that belongs to that person.
+      accessToken: identity.accessToken,
       ports,
     });
     if (!gate.ok) {

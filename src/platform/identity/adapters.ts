@@ -3,18 +3,18 @@ import { z } from "zod";
 import type { TenancyStore } from "@/platform/tenancy/resolve-tenant-context";
 
 import type { MagicLinkCallbackPorts } from "./complete-magic-link";
-import type { EntraStartPorts } from "./entra-linking";
+import type { EntraPolicyPorts, EntraStartPorts } from "./entra-linking";
 import type { LoginViewPorts } from "./login-view";
 import type { PasswordResetPorts } from "./password-reset";
 import type { PasswordSignInPorts } from "./password-signin";
 import type { MagicLinkRequestPorts } from "./request-magic-link";
 import type { SignOutPorts } from "./sign-out";
-import { createSessionStore } from "./session-db";
+import { createSessionRevoker, createSessionStore } from "./session-db";
 import type { SessionStore } from "./session-store";
 import { createTokenCipher } from "./session-store";
 import type { TokenCipher } from "./session-store";
 import type { IdentityExchange } from "./signin-completion";
-import { createTenancyDataApi } from "./tenancy-data-api";
+import { createTenancyDataApi, type TenancyDataApi } from "./tenancy-data-api";
 import { bytesToBase64Url, hasUsableSecret, hmacBytes, sha256Base64Url } from "./signed-token";
 
 /**
@@ -98,9 +98,6 @@ export function unresolvedTenancyStore(): TenancyStore {
   };
 }
 
-async function unresolvedRedeemInvitation(): Promise<"not_found"> {
-  throw new Error("invite redemption RPC not landed (t-102e-identity-invites-sql, shape pending on #37)");
-}
 
 /**
  * Kept for tests. Production returns `null` from `sessionStore()` when `SESSION_DB` is unbound.
@@ -196,6 +193,18 @@ function issuerTenantIdOf(user: { app_metadata?: unknown; identities?: unknown }
   return null;
 }
 
+/**
+ * The issuer gate's read, built only for a deployment that has a Data API. Split out so the port's
+ * optionality is a property of the deployment, not of a half-configured adapter: `entra-linking.ts`
+ * treats an absent port as "this host cannot check an issuer", which is a refusal it can act on before
+ * the browser is handed to the IdP.
+ */
+function entraPolicyPorts(api: TenancyDataApi): Pick<EntraPolicyPorts, "allowedEntraIssuers"> {
+  return {
+    allowedEntraIssuers: async (organisationId, accessToken) => api.entraIssuers(organisationId, accessToken),
+  };
+}
+
 export function buildIdentityPorts(env: Partial<IdentityEnv>, options: { fetchImpl?: FetchImpl } = {}): IdentityPorts {
   const fetchImpl: FetchImpl = options.fetchImpl ?? ((fetch as unknown) as FetchImpl);
   const baseUrl = typeof env.SUPABASE_URL === "string" ? env.SUPABASE_URL.replace(/\/+$/, "") : "";
@@ -232,7 +241,17 @@ export function buildIdentityPorts(env: Partial<IdentityEnv>, options: { fetchIm
     binding: env.SESSION_DB ?? null,
   });
 
+  // The two ports whose carriers are conditional stay **absent** rather than present-and-throwing, which
+  // is the shape PR-1 chose for a capability the deployment cannot serve and the handlers rely on:
+  // `handlePasswordResetRequest` and `handleEntraSignInRequest` test for them before dialing a provider,
+  // so an absent port means no recovery email sent and no browser handed to Microsoft. Their carriers
+  // are now real (`20261115060000_identity_methods.sql`); what is conditional is the deployment —
+  // `SESSION_DB` for the revocation, the Data API bindings for the issuer read.
+  const revokeUserSessions = createSessionRevoker({ binding: env.SESSION_DB ?? null });
+
   return {
+    ...(revokeUserSessions ? { revokeUserSessions } : {}),
+    ...(tenancy === null ? {} : entraPolicyPorts(tenancy)),
     findHost: async (host) => {
       if (tenancy === null) throw new Error("SUPABASE_URL and SUPABASE_ANON_KEY bindings are required");
       return tenancy.findHost(host);
@@ -245,7 +264,15 @@ export function buildIdentityPorts(env: Partial<IdentityEnv>, options: { fetchIm
       if (tenancy === null) throw new Error("SUPABASE_URL and SUPABASE_ANON_KEY bindings are required");
       return tenancy.policyRevision(organisationId, accessToken);
     },
-    redeemInvitation: async () => unresolvedRedeemInvitation(),
+    // The invite claim goes out with **the caller's own token**, not the anon key: the RPC reads its
+    // subject from `auth.uid()`, so a call made with any other credential can only ever claim somebody
+    // else's invitation, which is the one thing it must not be able to do (ADR-0003 §7, 012 tests 23
+    // and 38). The `userId` the completion passes is not sent: it is the caller's own record of who is
+    // claiming, and the database decides that question from the bearer.
+    redeemInvitation: async ({ organisationId, email, accessToken }) => {
+      if (tenancy === null) throw new Error("SUPABASE_URL and SUPABASE_ANON_KEY bindings are required");
+      return tenancy.redeemInvitation(organisationId, email, accessToken);
+    },
     sessionStore: () => sessionStore,
     tokenCipher: () => sessionTokenCipher(env),
 
@@ -339,14 +366,10 @@ export function buildIdentityPorts(env: Partial<IdentityEnv>, options: { fetchIm
 
     supabaseBaseUrl: () => (baseUrl.length > 0 ? baseUrl : null),
 
-    // ---- the two ports whose SQL has not landed are **absent**, not stubbed (T-201 PR-2) ----------
-    // `allowedEntraIssuers` and `revokeUserSessions` are deliberately not implemented here. A port that
-    // exists and throws would let the *front* halves of those endpoints do real work first: `POST
-    // /auth/entra` would hand the browser to Microsoft, and `POST /auth/password-reset` would send a
-    // real recovery email whose link is certain to end at a refusal. Absence is the honest shape of
-    // "the SQL is not there", and the handlers check it **before** they dial a provider
-    // (`entra-linking.ts`, `password-reset.ts`), so both endpoints are inert until PR-2's
-    // `identity_methods` migration — which also brings their pgTAP half and the `001` allow-list
-    // entries. Nothing here falls back to "unrestricted".
+    // `allowedEntraIssuers` and `revokeUserSessions` are installed above, conditionally, and never
+    // fallback to "unrestricted": the issuer read only exists where the Data API does, and the
+    // revocation only where `SESSION_DB` does. An Entra tenant list that comes back empty means the
+    // tenant has permitted nothing, and that is a refusal (`entra_allowed_issuers_v1`'s own rule, and
+    // 012 assertion 44 pins it).
   };
 }

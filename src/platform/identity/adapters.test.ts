@@ -12,6 +12,13 @@ const TOKEN_KEY_V2 = "synthetic-session-token-key-v2-not-a-real-key-000";
 const BASE = "https://synthetic.supabase.co";
 const ANON = "synthetic-anon-publishable-key";
 const SERVICE_ROLE_POISON = "poison-service-role-key-never-used";
+// Synthetic tenant and user, shaped like the seed fixtures (`supabase/seed.sql`), for the two T-201 PR-2
+// calls. `CALLER` is the id the fake JWT below carries as its subject, which is what makes the "no user id
+// on the wire" assertion mean something.
+const ORG = "11111111-1111-4111-8111-111111111111";
+const CALLER = "00000000-0000-4000-8000-0000000000a1";
+/** Shape only: a Hyperdrive binding this test never dials. No reachable host, no usable credential (§4.6). */
+const SYNTHETIC_SESSION_DB = { connectionString: "postgresql://toi_session_worker:synthetic-not-a-credential@127.0.0.1:5432/synthetic" };
 
 type Call = { url: string; init: { method: string; headers: Record<string, string>; body: string } };
 
@@ -205,11 +212,85 @@ describe("buildIdentityPorts — limiter, secrets and the #37 seam", () => {
     }
   });
 
-  it("invite redemption is not silently available before its RPC lands", async () => {
-    const ports = buildIdentityPorts(env);
-    await expect(
-      ports.redeemInvitation({ organisationId: "11111111-1111-4111-8111-111111111111", userId: "00000000-0000-4000-8000-0000000000a1", email: "user@example.test" }),
-    ).rejects.toThrow(/t-102e-identity-invites-sql/);
+  // The placeholder this test used to hold (`rejects.toThrow(/t-102e-identity-invites-sql/)`) is gone
+  // because the RPC it waited for has landed: `redeem_invitation_v1` in
+  // `20261115060000_identity_methods.sql`. What is pinned here is the shape of the real call — whose
+  // credential it carries, and what may not appear on the wire.
+  it("claims an invitation through the RPC, bearing the caller's own token", async () => {
+    const callerToken = fakeJwt("caller");
+    const { calls, fetchImpl } = recorder({ ok: true, status: 200, json: async () => "redeemed" });
+    const ports = buildIdentityPorts(env, { fetchImpl });
+
+    const result = await ports.redeemInvitation({
+      organisationId: ORG,
+      userId: CALLER,
+      email: "user@example.test",
+      accessToken: callerToken,
+    });
+
+    expect(calls).toHaveLength(1);
+    const call = calls[0] as Call;
+    expect(call.url).toBe(`${BASE}/rpc/redeem_invitation_v1`);
+    // The handler's `userId` is its own record of who is claiming and goes nowhere near the database:
+    // the RPC reads its subject from the bearer (`auth.uid()`), so there is deliberately no argument on
+    // this wire that could name somebody else's invitation.
+    expect(JSON.parse(call.init.body)).toEqual({ p_organisation_id: ORG, p_email: "user@example.test" });
+    expect(call.init.headers.authorization).toBe(`Bearer ${callerToken}`);
+    expect(call.init.headers.authorization).not.toContain(ANON);
+    expect(call.init.headers.apikey).toBe(ANON);
+    expect(JSON.stringify(calls)).not.toContain(CALLER);
+    expect(result).toBe("redeemed");
+  });
+
+  it("passes the claim's three answers through, and refuses to invent a fourth", async () => {
+    for (const answer of ["redeemed", "not_found", "email_mismatch"] as const) {
+      const { fetchImpl } = recorder({ ok: true, status: 200, json: async () => answer });
+      const ports = buildIdentityPorts(env, { fetchImpl });
+      await expect(
+        ports.redeemInvitation({ organisationId: ORG, userId: CALLER, email: "user@example.test", accessToken: fakeJwt("caller") }),
+      ).resolves.toBe(answer);
+    }
+    // An answer this module cannot read is a service fault, not `not_found`: the handler re-reads the
+    // membership only on `redeemed`, so guessing here decides who sees a workspace.
+    for (const body of [null, [], "revoked", "REDEEMED"]) {
+      const { fetchImpl } = recorder({ ok: true, status: 200, json: async () => body });
+      const ports = buildIdentityPorts(env, { fetchImpl });
+      await expect(
+        ports.redeemInvitation({ organisationId: ORG, userId: CALLER, email: "user@example.test", accessToken: fakeJwt("caller") }),
+      ).rejects.toThrow();
+    }
+  });
+
+  it("reads the tenant's Entra issuers through the Data API, and only where there is one", async () => {
+    const callerToken = fakeJwt("caller");
+    const { calls, fetchImpl } = recorder({ ok: true, status: 200, json: async () => ["6f1e0000-0000-4000-8000-0000000000aa"] });
+    const ports = buildIdentityPorts(env, { fetchImpl });
+
+    const allowed = await ports.allowedEntraIssuers?.(ORG, callerToken);
+
+    expect(allowed).toEqual(["6f1e0000-0000-4000-8000-0000000000aa"]);
+    const call = calls[0] as Call;
+    expect(call.url).toBe(`${BASE}/rpc/entra_allowed_issuers_v1`);
+    expect(JSON.parse(call.init.body)).toEqual({ p_organisation_id: ORG });
+    expect(call.init.headers.authorization).toBe(`Bearer ${callerToken}`);
+    expect(call.init.headers.authorization).not.toContain(ANON);
+  });
+
+  it("installs the two conditional ports by deployment, never as a stub that throws", () => {
+    // `entra-linking.ts` and `password-reset.ts` both test for these before dialing anything, so "this
+    // deployment cannot serve it" has to be visible as an absent port. A present-and-throwing port would
+    // let the front half of those endpoints do real work — hand a browser to Microsoft, mail a recovery
+    // link — and fail only afterwards.
+    const wired = buildIdentityPorts(env);
+    expect(wired.allowedEntraIssuers).toBeInstanceOf(Function);
+    for (const partial of [{ ...env, SUPABASE_URL: undefined }, { ...env, SUPABASE_ANON_KEY: undefined }, {}]) {
+      expect(buildIdentityPorts(partial as Partial<IdentityEnv>).allowedEntraIssuers).toBeUndefined();
+    }
+    // `env` has no `SESSION_DB`, which is the state the session-store test above pins: no revoker either.
+    expect(wired.revokeUserSessions).toBeUndefined();
+    const withSessionDb = buildIdentityPorts({ ...env, SESSION_DB: SYNTHETIC_SESSION_DB });
+    expect(withSessionDb.revokeUserSessions).toBeInstanceOf(Function);
+    expect(withSessionDb.sessionStore()).not.toBeNull();
   });
 });
 
