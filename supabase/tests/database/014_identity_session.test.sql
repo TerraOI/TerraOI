@@ -326,8 +326,10 @@ select is(
      join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'toi_identity'
       and p.prosecdef),
-  5::int,
-  '44 (final) the five session functions really are SECURITY DEFINER, so assertion 5 is not vacuous'
+  6::int,
+  '44 (final) the six session functions really are SECURITY DEFINER, so assertion 5 is not vacuous — '
+  || 'five from 20261107024000_session_store.sql, and revoke_user_sessions_v1 from T-201 PR-2''s '
+  || '20261115060000_identity_methods.sql (the count goes up, which is the point of pinning it)'
 );
 
 select * from finish();

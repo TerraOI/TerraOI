@@ -1,4 +1,5 @@
--- T-102h / #75: toi_session_worker can call the five session functions and nothing else.
+-- T-102h / #75: toi_session_worker can call the session functions and nothing else — five from
+-- 20261112234000_session_worker_role.sql, plus the sixth named at test 16 (T-201 PR-2's revocation).
 begin;
 create extension if not exists pgtap with schema extensions;
 
@@ -93,8 +94,13 @@ select is_empty(
         and a.privilege_type = 'EXECUTE'
         and not (n.nspname = 'toi_identity' and p.proname in (
           'authenticate_session_v1', 'insert_session_v1', 'revoke_session_v1',
-          'rotate_session_tokens_v1', 'prune_expired_sessions_v1')) $$,
-  '16 toi_session_worker is granted execute on no function except the five session functions'
+          'rotate_session_tokens_v1', 'prune_expired_sessions_v1',
+          -- T-201 PR-2 (`20261115060000_identity_methods.sql`): the sixth function on this carrier, and
+          -- the one that widens ADR-0003 §3a's decided grant set from five to six. The supervisor rules
+          -- on that in the PR body; this line names it rather than leaving the set shut against a
+          -- migration the packet asked for. Everything else the role may execute is still a finding.
+          'revoke_user_sessions_v1')) $$,
+  '16 toi_session_worker is granted execute on no function except the six session functions (§3a said five; the sixth is T-201 PR-2''s, and it is named here on purpose)'
 );
 
 select is_empty(
