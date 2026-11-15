@@ -47,7 +47,19 @@ export function redirectSameHost(host: string, path: string, cookies: readonly C
     // someone routed token material into a URL, so the response is refused, not sent.
     throw new Error("a redirect target must not carry token material");
   }
-  const headers = new Headers({ location: `https://${host}${path}`, ...NO_STORE });
+  return redirectResponse(303, `https://${host}${path}`, cookies);
+}
+
+/**
+ * The two #37 refusals and the header assembly, in **one** place. Both redirect shapes below call it:
+ * a rule copied per response is a rule that gets dropped in one of the copies, and the whole point of
+ * this module is that a route cannot forget it.
+ */
+function redirectResponse(status: 302 | 303, location: string, cookies: readonly CookieSpec[]): Response {
+  if (containsTokenMaterial(location)) {
+    throw new Error("a redirect target must not carry token material");
+  }
+  const headers = new Headers({ location, ...NO_STORE });
   for (const cookie of cookies) {
     const serialized = serializeSetCookie(cookie);
     if (containsTokenMaterial(serialized)) {
@@ -55,7 +67,7 @@ export function redirectSameHost(host: string, path: string, cookies: readonly C
     }
     headers.append("set-cookie", serialized);
   }
-  return new Response(null, { status: 303, headers });
+  return new Response(null, { status, headers });
 }
 
 /**
@@ -68,18 +80,7 @@ export function redirectSameHost(host: string, path: string, cookies: readonly C
  * binding and this server's own callback path (plan §4.2 "do not use broad wildcard auth redirects").
  */
 export function providerRedirect(targetUrl: string, cookies: readonly CookieSpec[]): Response {
-  if (containsTokenMaterial(targetUrl)) {
-    throw new Error("a provider redirect target must not carry token material");
-  }
-  const headers = new Headers({ location: targetUrl, ...NO_STORE });
-  for (const cookie of cookies) {
-    const serialized = serializeSetCookie(cookie);
-    if (containsTokenMaterial(serialized)) {
-      throw new Error("a Set-Cookie value must never be a Supabase access or refresh token (#37)");
-    }
-    headers.append("set-cookie", serialized);
-  }
-  return new Response(null, { status: 302, headers });
+  return redirectResponse(302, targetUrl, cookies);
 }
 
 /**

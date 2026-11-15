@@ -1,3 +1,4 @@
+import { checkEntraIdentity, isEntraIdentity, type EntraPolicyPorts } from "./entra-linking";
 import { loginRedirect } from "./http-response";
 import { completeSignIn, signInCarrierReady, type IdentityExchange, type SignInCompletionPorts } from "./signin-completion";
 import { readGuardedFormRequest, type SignInRequestPorts } from "./signin-request";
@@ -24,7 +25,7 @@ import type { HostAdapterOptions } from "@/platform/tenancy/host";
  * `signin-completion.ts`): this method differs only in step one.
  */
 
-export interface PasswordSignInPorts extends SignInRequestPorts, SignInCompletionPorts {
+export interface PasswordSignInPorts extends SignInRequestPorts, SignInCompletionPorts, EntraPolicyPorts {
   /**
    * The provider half (Supabase password grant in the real adapter). `invalid_or_expired` is what
    * GoTrue's "Invalid login credentials" maps to: one reason for two different failures, kept in the
@@ -74,6 +75,27 @@ export async function handlePasswordSignIn(input: PasswordSignInInput): Promise<
     return loginRedirect(host, "unavailable", []);
   }
   if (!identity.ok) return loginRedirect(host, "invalid_credentials", []);
+
+  // The same issuer gate the callback runs, on the path that has no login state to carry an attempt
+  // marker. The password grant shares the adapter's one payload reader with the code exchange, so an
+  // identity the provider labels `azure` can arrive here too — and a password form has no business
+  // consulting a tenant's Entra policy only when the *mail* path did. Here the payload label is the
+  // only signal available, and it is enough: it opens the gate for an Entra-labelled identity and
+  // leaves a mail one alone. GoTrue is expected to refuse the password grant for a non-mail identity;
+  // this does not assume it does.
+  if (isEntraIdentity(identity.provider)) {
+    const gate = await checkEntraIdentity({
+      identity,
+      organisationId: organisation.organisationId,
+      ports,
+    });
+    if (!gate.ok) {
+      // A credential the provider accepted is not a tenant answer: refused here, no session, and the
+      // operator line says which policy step stopped it.
+      console.error("entra password sign-in refused", { host, step: "entra_policy", reason: gate.reason, keyed_on: "payload" });
+      return loginRedirect(host, "unavailable", []);
+    }
+  }
 
   return completeSignIn({
     host,
