@@ -18,19 +18,30 @@ import type { IdentityExchange } from "./signin-completion";
  *     identity proves *who*, membership decides *whether* (F02);
  *   * a tenant allow-listed to one Entra tenant ID refuses an account from any other issuer.
  *
- * The fourth needs data: a per-tenant list of permitted Entra tenant ids, which PR-2's
- * `20261115060000_identity_methods.sql` creates (`public.tenant_entra_issuers`, read by
- * `entra_allowed_issuers_v1`). A read that cannot be made at all — no Data API configured, a policy
- * answer this module cannot parse — stays **unresolved**, and unresolved refuses. That is not a
- * placeholder standing in for a decision: a tenant with no recorded Entra policy genuinely has no
- * permitted issuer, which is the same answer as an empty list, and the two are kept apart because the
- * operator's answer differs (`issuer_not_allowed` is a configuration fact, `policy_unresolved` is a
- * deployment or backend fault).
+ * The fourth needs data: a per-tenant record of permitted Entra tenant ids, which PR-2's
+ * `20261115060000_identity_methods.sql` creates (`public.tenant_entra_issuers`). **On this branch only**,
+ * the read answers the question this module actually asks instead of handing out the list —
+ * `public.entra_issuer_allowed_v1(p_organisation_id, p_issuer_tenant_id)` returning `allowed | denied`,
+ * which is [#185](https://github.com/TerraOI/TerraOI/issues/185)'s option 4. PR #186's head ships
+ * `entra_allowed_issuers_v1(organisationId) -> string[] | null`, and the port here mirrors whichever
+ * shape wins; nothing in the policy above depends on the difference. A read that cannot be made at all —
+ * no Data API configured, a verdict this module cannot parse — stays **unresolved**, and unresolved
+ * refuses. That is not a placeholder standing in for a decision: a tenant with no recorded Entra policy
+ * genuinely has no permitted issuer, which is the same answer as a denial, and the two are kept apart
+ * because the operator's answer differs (`issuer_not_allowed` is a configuration fact, `policy_unresolved`
+ * is a deployment or backend fault).
  *
  * What the SQL does *not* do is scope itself: the gate runs before the membership question and must
  * answer for identities that hold no membership row in this tenant, and `set_tenant_scope` refuses
- * exactly those callers. `entra_allowed_issuers_v1`'s header says why, and 012 assertions 41-45 pin the
- * answers.
+ * exactly those callers. `entra_issuer_allowed_v1`'s header says why, and 012 assertions 41-45 pin the
+ * verdicts.
+ *
+ * What this file no longer owns is the comparison itself. Under a verdict read the match is SQL's `exists`
+ * over `(organisation_id, issuer_tenant_id)`, so the rule below — exact, never case-folded — has to be
+ * pinned there (012 assertion 69) while the branch a verdict cannot express (an identity carrying no
+ * issuer at all) stays pinned here. That split is the cost of the shape, and it is the cost
+ * [#185](https://github.com/TerraOI/TerraOI/issues/185) asks to be paid up front rather than discovered
+ * later.
  *
  * The `tid` claim (the issuing Entra tenant) is read defensively from the identity payload because
  * which field of it Supabase surfaces for `azure` is a provider detail this repo has not yet seen on
@@ -43,12 +54,19 @@ const ENTRA_PROVIDER_KEYS: readonly string[] = ["azure", "microsoft"];
 /** The provider's own authorize endpoint. The path is this server's, never the request's (F05). */
 export const ENTRA_AUTHORIZE_PATH = "/auth/v1/authorize";
 
-/** Exact match, never case-folded: Entra tenant ids are uuids, and a near miss is a refusal. */
+/** The provider key check, exact and never case-folded in either direction: `Azure` is not Entra. */
 export function isEntraIdentity(provider: string | undefined): boolean {
   return typeof provider === "string" && ENTRA_PROVIDER_KEYS.includes(provider);
 }
 
 export type EntraRefusal = "unverified_email" | "issuer_unknown" | "issuer_not_allowed" | "policy_unresolved";
+
+/**
+ * The SQL's answer about one (organization, issuer) pair. `denied` covers both "this tenant permits
+ * somebody else" and "this tenant has configured nothing"; there is no third verdict. That is the whole
+ * economy of the shape — and the reason `checkEntraIdentity` below has to decide issuer-absence itself.
+ */
+export type EntraIssuerVerdict = "allowed" | "denied";
 
 /**
  * The decision, with no I/O in it — so every branch of it is testable, including the ones the merged
@@ -57,29 +75,40 @@ export type EntraRefusal = "unverified_email" | "issuer_unknown" | "issuer_not_a
 export function decideEntraLink(input: {
   emailVerified: boolean;
   issuerTenantId: string | null | undefined;
-  /** The tenant's permitted Entra tenant ids. Null: the policy is not readable, which is a refusal. */
-  allowedIssuers: readonly string[] | null;
+  /** The tenant's verdict on this issuer. Null: no verdict readable, which is a refusal. */
+  issuerVerdict: EntraIssuerVerdict | null;
 }): { ok: true } | { ok: false; reason: EntraRefusal } {
-  if (input.allowedIssuers === null) return { ok: false, reason: "policy_unresolved" };
+  if (input.issuerVerdict === null) return { ok: false, reason: "policy_unresolved" };
   if (!input.emailVerified) return { ok: false, reason: "unverified_email" };
   const issuer = input.issuerTenantId;
   if (typeof issuer !== "string" || issuer.length === 0) return { ok: false, reason: "issuer_unknown" };
-  if (!input.allowedIssuers.some((allowed) => allowed === issuer)) return { ok: false, reason: "issuer_not_allowed" };
+  // Exact match, never case-folded: Entra tenant ids are uuids, and a near miss is a refusal. On this
+  // branch the match itself is SQL's — an `exists` over `(organisation_id, issuer_tenant_id)` with no
+  // `lower()` and no `ilike` — and 012 assertion 69 is the pin that keeps it that way. What is left here
+  // is only the mapping from its verdict to this policy's reason.
+  if (input.issuerVerdict !== "allowed") return { ok: false, reason: "issuer_not_allowed" };
   return { ok: true };
 }
 
 export interface EntraPolicyPorts {
   /**
-   * The organization's permitted Entra tenant ids: `[]` for a tenant that has configured none, and
-   * `null` when the policy is not readable at all — which includes a deployment whose Data API is not
-   * configured. No implementation is itself treated as unresolved.
+   * The verdict for **one** (organization, issuer) pair: `denied` for a tenant that has configured none
+   * as well as for a tenant that configured somebody else, and `null` when no verdict is readable at all
+   * — which includes a deployment whose Data API is not configured. No implementation is itself treated
+   * as unresolved.
    *
-   * `accessToken` is the signed-in identity's own token, because `entra_allowed_issuers_v1` is granted
-   * to `authenticated` and not to `anon` (012 assertions 39-41): the gate runs on an identity a provider
-   * has just verified, and the anonymous pre-sign-in surface stays the one host resolver the merged
-   * schema already exposes.
+   * `accessToken` is the signed-in identity's own token, because `entra_issuer_allowed_v1` is granted to
+   * `authenticated` and not to `anon` (012 assertions 39-41): the gate runs on an identity a provider has
+   * just verified, and the anonymous pre-sign-in surface stays the one host resolver the merged schema
+   * already exposes.
+   *
+   * The issuer is an argument rather than a returned set, and that is the substance of
+   * [#185](https://github.com/TerraOI/TerraOI/issues/185)'s option 4: nothing on this path can learn
+   * which issuers a tenant permits unless it already holds a candidate to ask about. The trade is that a
+   * verdict cannot say "you gave me nothing to check", so `checkEntraIdentity` decides that case before
+   * dialing — and the Vitest case pinning that it does not dial is #185's acceptance item 2.
    */
-  allowedEntraIssuers?(organisationId: string, accessToken: string): Promise<readonly string[] | null>;
+  entraIssuerAllowed?(organisationId: string, issuerTenantId: string, accessToken: string): Promise<EntraIssuerVerdict | null>;
 }
 
 export async function checkEntraIdentity(input: {
@@ -89,12 +118,21 @@ export async function checkEntraIdentity(input: {
   accessToken: string;
   ports: EntraPolicyPorts;
 }): Promise<{ ok: true } | { ok: false; reason: EntraRefusal }> {
-  if (typeof input.ports.allowedEntraIssuers !== "function") {
+  if (typeof input.ports.entraIssuerAllowed !== "function") {
     return { ok: false, reason: "policy_unresolved" };
   }
-  let allowed: readonly string[] | null;
+  const issuer = input.identity.issuerTenantId;
+  // Issuer-absence is decided here, before the read, because a verdict read cannot express it: an empty
+  // candidate against an organization that exists answers `denied`, which would report "who is this?" as
+  // "the tenant refuses them" — the exact confusion the operator log line keeps the two apart. This is
+  // the branch #185's acceptance item 2 says stays Vitest's, and the test pins that no call is made.
+  // (One ordering consequence of the shape, noted rather than hidden: an identity that is *both*
+  // unverified and issuer-less is now reported as `issuer_unknown` rather than `unverified_email`. Both
+  // refuse, and `decideEntraLink` still answers `unverified_email` first whenever a verdict was read.)
+  if (typeof issuer !== "string" || issuer.length === 0) return { ok: false, reason: "issuer_unknown" };
+  let verdict: EntraIssuerVerdict | null;
   try {
-    allowed = await input.ports.allowedEntraIssuers(input.organisationId, input.accessToken);
+    verdict = await input.ports.entraIssuerAllowed(input.organisationId, issuer, input.accessToken);
   } catch {
     // A policy read that fails is not a policy that permits nothing and not a policy that permits
     // everything: it permits nothing we can check, so the identity is refused.
@@ -102,8 +140,8 @@ export async function checkEntraIdentity(input: {
   }
   return decideEntraLink({
     emailVerified: input.identity.emailVerified,
-    issuerTenantId: input.identity.issuerTenantId,
-    allowedIssuers: allowed,
+    issuerTenantId: issuer,
+    issuerVerdict: verdict,
   });
 }
 
@@ -152,7 +190,9 @@ export async function handleEntraSignInRequest(input: EntraSignInStartInput): Pr
   // so the state this catches is a deployment without `SUPABASE_URL`/`SUPABASE_ANON_KEY` — and the port
   // stays optional rather than becoming a stub, for the reason PR-1 recorded: a port that exists and
   // throws lets the front half of the endpoint do real work first.
-  if (typeof ports.allowedEntraIssuers !== "function") {
+  // (`entraIssuerAllowed` is checked for existence only: at this point there is no identity and so no
+  // issuer to ask about — the start half refuses because the callback half would have nothing to read.)
+  if (typeof ports.entraIssuerAllowed !== "function") {
     console.error("entra sign-in refused", { host, step: "entra_policy", reason: "unwired" });
     return loginRedirect(host, "unavailable", []);
   }

@@ -67,9 +67,9 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
--- 19 in PR-1; 68 with the three objects PR-2's migration adds. CI checks this number against the
--- assertions that actually run (FAQ-0009: pgTAP cannot run on a builder machine).
-select plan(68);
+-- 19 in PR-1; 68 with the three objects PR-2's migration adds, and 69 on this prototype branch: the
+-- extra assertion is the price of the verdict read — the SQL-side pin of the never-case-folded rule (69).
+select plan(69);
 
 -- ---------------------------------------------------------------- fixtures, in this transaction only
 -- `removed` is a status the merged check constraint allows and no seeded row holds, so it is created
@@ -433,17 +433,17 @@ begin
 end;
 $fn$;
 
--- `(empty)` and `(null)` are the two answers the port must never confuse: an empty allow-list refuses
--- Entra sign-ins for that tenant, and a policy that cannot be read refuses them too but says why.
-create function pg_temp.try_issuers(p_organisation_id uuid) returns text
+-- The verdict read's two answers plus the raise: `allowed` and `denied` are policy facts, and
+-- `sqlstate:…` is the one case that is not — a policy that cannot be read refuses for a different
+-- reason, and the gate's operator line says which.
+create function pg_temp.try_verdict(p_organisation_id uuid, p_issuer_tenant_id text) returns text
 language plpgsql security invoker set search_path = pg_temp as $fn$
-declare v text[];
+declare v text;
 begin
   begin
-    select public.entra_allowed_issuers_v1(p_organisation_id) into v;
+    select public.entra_issuer_allowed_v1(p_organisation_id, p_issuer_tenant_id) into v;
     if v is null then return '(null)'; end if;
-    if array_length(v, 1) is null then return '(empty)'; end if;
-    return array_to_string(v, ',');
+    return v;
   exception when others then
     return 'sqlstate:' || sqlstate::text;
   end;
@@ -617,34 +617,38 @@ select is((select result from t_claim where case_name = 'claim_no_uid'), 'sqlsta
   '38 a caller with no auth.uid() is refused with 28000 rather than answered with a claim: the RPC''s only bound is the subject, so a request without one gets nothing (§4.2)');
 
 -- ----------------------------------- 39-51: the per-tenant Entra issuer policy
-select is(has_function_privilege('anon', 'public.entra_allowed_issuers_v1(uuid)', 'execute'), false,
-  '39 anon cannot read a tenant''s Entra allow-list: the gate runs only after a provider has verified somebody (§4.1)');
-select is(has_function_privilege('service_role', 'public.entra_allowed_issuers_v1(uuid)', 'execute'), false,
+select is(has_function_privilege('anon', 'public.entra_issuer_allowed_v1(uuid, text)', 'execute'), false,
+  '39 anon cannot ask a tenant''s issuer gate: the gate runs only after a provider has verified somebody (§4.1)');
+select is(has_function_privilege('service_role', 'public.entra_issuer_allowed_v1(uuid, text)', 'execute'), false,
   '40 service_role holds no grant on the issuer read either (FAQ-0010)');
-select ok(has_function_privilege('authenticated', 'public.entra_allowed_issuers_v1(uuid)', 'execute'),
-  '41 authenticated can read it: an Entra identity with no membership row in this tenant still has to be put through the issuer gate (plan §4.2, the packet''s no-access case)');
+select ok(has_function_privilege('authenticated', 'public.entra_issuer_allowed_v1(uuid, text)', 'execute'),
+  '41 authenticated can ask it: an Entra identity with no membership row in this tenant still has to be put through the issuer gate (plan §4.2, the packet''s no-access case)');
 
 select is(
-  pg_get_function_identity_arguments('public.entra_allowed_issuers_v1(uuid)'::regprocedure),
-  'p_organisation_id uuid',
-  '42 the issuer read takes one argument: the tenant, which the Worker took from the routed host and never from the request (§4.1)');
+  pg_get_function_identity_arguments('public.entra_issuer_allowed_v1(uuid, text)'::regprocedure),
+  'p_organisation_id uuid, p_issuer_tenant_id text',
+  '42 the issuer read takes the tenant and the issuer being decided on, both of which the Worker derived itself — the organization from the routed host, the issuer from the provider-verified payload — and neither from the request (§4.1)');
 
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000b1';
 create temp table t_issuers (case_name text, result text);
 insert into t_issuers values
-  ('c1', pg_temp.try_issuers('11111111-1111-4111-8111-111111111111')),
-  ('c2', pg_temp.try_issuers('22222222-2222-4222-8222-222222222222')),
-  ('missing', pg_temp.try_issuers('33333333-3333-4333-8333-333333333333'));
+  ('own', pg_temp.try_verdict('11111111-1111-4111-8111-111111111111', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')),
+  ('foreign_row', pg_temp.try_verdict('11111111-1111-4111-8111-111111111111', 'cccccccc-cccc-4ccc-8ccc-cccccccccccc')),
+  ('unconfigured', pg_temp.try_verdict('22222222-2222-4222-8222-222222222222', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')),
+  ('missing_org', pg_temp.try_verdict('33333333-3333-4333-8333-333333333333', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'));
 reset role;
 
-select is((select result from t_issuers where case_name = 'c1'),
-  'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa,bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
-  '43 a tenant''s own list comes back in full and ordered, and company3''s issuer row is not in it: the read is bounded to the organization named, not to the rows that exist (§4.2)');
-select is((select result from t_issuers where case_name = 'c2'), '(empty)',
-  '44 a tenant that has configured nothing answers empty, never null: empty means no permitted issuer, which is a refusal, not a wildcard — and the empty is filtered, because company3 has a row of its own that this answer correctly excludes (entra-linking.ts:24)');
-select is((select result from t_issuers where case_name = 'missing'), 'sqlstate:28000',
-  '45 an organization that does not exist is refused rather than answered with an empty list: a mis-provisioned tenant must not look like one that has deliberately allowed nothing');
+select is((select result from t_issuers where case_name = 'own'), 'allowed',
+  '43 a permitted issuer asks and is allowed: the verdict is the whole policy the packet states, "refuse an issuer outside the tenant''s allow-list", answered at the point of deciding (§4.2)');
+select is((select result from t_issuers where case_name = 'foreign_row'), 'denied',
+  '44 company3''s permitted issuer asked against company1 is denied, not allowed: the predicate is bounded to the organization named, so a real row belonging to someone else confers nothing (the packet''s fourth policy sentence)');
+-- One assertion, two cases, because the pair is the point: the file's own idiom (as at 27-28 and 30-31),
+-- and the two answers must never be interchangeable.
+select is((select string_agg(case_name || '=' || result, ' ' order by case_name) from t_issuers
+            where case_name in ('missing_org', 'unconfigured')),
+  'missing_org=sqlstate:28000 unconfigured=denied',
+  '45 a tenant that has configured nothing answers denied, and an organization that does not exist raises: "allowed nothing" and "permits everything" are different answers, and a mis-provisioned tenant is a third — the gate maps the raise to policy_unresolved (entra-linking.ts decideEntraLink, §4.2)');
 
 select is(has_table_privilege('anon', 'public.tenant_entra_issuers', 'select'), false,
   '46 anon cannot select the issuer table: a new table in public may arrive with default privileges, so this is revoked per-table and not left to the merged blanket revoke (§4.2)');
@@ -668,7 +672,7 @@ select ok(
   exists (
     select 1 from pg_proc p
       join pg_namespace n on n.oid = p.pronamespace
-     where n.nspname = 'public' and p.proname = 'entra_allowed_issuers_v1' and p.prosecdef
+     where n.nspname = 'public' and p.proname = 'entra_issuer_allowed_v1' and p.prosecdef
   ),
   '51 the issuer read is SECURITY DEFINER, which is the opposite trade to 017 test 7 and a deliberate one: the table has no policy, so an INVOKER read would answer "empty" to everyone and refuse every Entra sign-in plausibly instead of visibly');
 
@@ -774,6 +778,24 @@ select is(
     where session_key = 't201rvna' || repeat('F', 35) and revoked_at is null),
   1::int,
   '68 a session minted after the revocation on the same host and for the same user is untouched by it: revoke-then-mint is the order, and the new session is the one the browser keeps');
+
+-- The cost of moving the membership test into SQL, pinned rather than described. `decideEntraLink` used
+-- to do the comparison in TypeScript (`allowedIssuers.some(a => a === issuer)`), and the only pin for the
+-- rule its comment states — "Exact match, never case-folded: Entra tenant ids are uuids, and a near miss
+-- is a refusal" — was a Vitest case. Under a verdict read the predicate is the rule, and a `lower(...)`
+-- or an `ilike` inside it would leave every other issuer assertion in this file passing while turning a
+-- refusal into an allowance. This is the assertion that stops that.
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000b1';
+insert into t_issuers values
+  ('uppercase_ask', pg_temp.try_verdict('11111111-1111-4111-8111-111111111111', 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA')),
+  ('prefix_ask', pg_temp.try_verdict('11111111-1111-4111-8111-111111111111', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa'));
+reset role;
+
+select is((select string_agg(case_name || '=' || result, ' ' order by case_name) from t_issuers
+            where case_name in ('prefix_ask', 'uppercase_ask')),
+  'prefix_ask=denied uppercase_ask=denied',
+  '69 the exact-match rule the moved comparison carried in TypeScript is enforced in SQL: an upper-cased uuid and a truncated one are both denied against a lower-cased stored row, so case-folding or prefix matching in the predicate fails here instead of granting what the tenant never permitted (§4.2)');
 
 select * from finish();
 rollback;

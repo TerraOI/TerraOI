@@ -118,14 +118,16 @@ $$, '31 no function in public is executable by anon except resolve_tenant_host(t
 --     inside the function on `knowledge.admin` at `admin`. The two signatures take `p_organisation_id`
 --     first and establish the scope themselves (#163, FAQ-0011), so both rows are re-pinned here
 --   sign-in methods (`20261115060000_identity_methods.sql`, T-201 PR-2): redeem_invitation_v1,
---     entra_allowed_issuers_v1 — the two RPCs the sign-in path calls **with the signed-in user's own
+--     entra_issuer_allowed_v1 — the two RPCs the sign-in path calls **with the signed-in user's own
 --     token** (ADR-0003 §7: no privileged key anywhere on this path). Neither is a FAQ-0011 scoped RPC,
 --     and that is not an oversight: both run before a `TenantContext` exists, and `set_tenant_scope`
 --     refuses the very callers they serve — an `invited` membership claiming itself, and an Entra
 --     identity with no membership row at all. Their bounds are inside the body and are pinned in slot
---     012 (the claim has no user argument at 23 and sets no scope at 29; the issuer read takes exactly
---     one argument at 42 and answers one organization at 43). `anon` holds neither grant, and 012 test
---     38 pins the claim's refusal for a caller with no subject.
+--     012 (the claim has no user argument at 23 and sets no scope at 29; the issuer gate takes the tenant
+--     and the issuer being decided on at 42 and answers one pair, allowed or denied, at 43-45). `anon`
+--     holds neither grant, and 012 test 38 pins the claim's refusal for a caller with no subject.
+--     **On this branch only** the issuer entry is the verdict shape #185's option 4 would land, so the
+--     allow-list line it costs is visible in the diff; PR #186's head pins `entra_allowed_issuers_v1(uuid)`.
 -- The session functions the ruling also lists live in `toi_identity`, not `public`
 -- (`20261107024000_session_store.sql:122-219`), and that migration grants them to **no role** at all
 -- pending #75 — so they cannot appear in a `public` allow-list; test 33 pins them closed instead.
@@ -162,13 +164,16 @@ select is_empty($$
            ('public.create_collection_v1(uuid, text, text, text, uuid, text)'::regprocedure),
            ('public.update_collection_v1(uuid, uuid, text)'::regprocedure),
            -- T-201 PR-2 (`20261115060000_identity_methods.sql`): the invite claim and the Entra issuer
-           -- read. Both are revoked from all four roles inside the file that creates them and granted
+           -- gate. Both are revoked from all four roles inside the file that creates them and granted
            -- back to `authenticated` only; both take `p_organisation_id` first and set no scope, by the
            -- ADR-0003 §3b argument rather than FAQ-0011's, and slot 012 pins that instead of leaving it
-           -- to this list. T-202 PR-1 (#179) adds seven more rows here — the later of the two PRs
-           -- rebases, and these are list additions on the same lines, not a conflict of meaning.
+           -- to this list. **On this branch only** the second row is the verdict shape: the second
+           -- argument is what closes #185's enumeration, and this line moving with it is part of the
+           -- change's cost, not an extra claim on slot 012. T-202 PR-1 (#179) adds seven more rows here
+           -- — the later of the two PRs rebases, and these are list additions on the same lines, not a
+           -- conflict of meaning.
            ('public.redeem_invitation_v1(uuid, text)'::regprocedure),
-           ('public.entra_allowed_issuers_v1(uuid)'::regprocedure)
+           ('public.entra_issuer_allowed_v1(uuid, text)'::regprocedure)
          ) as allowed(proc)
      )
 $$, '32 no function in public is executable by authenticated beyond the named allow-list (§4.3, #60)');

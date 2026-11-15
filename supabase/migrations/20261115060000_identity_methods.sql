@@ -15,10 +15,12 @@
 --      only in canonical form (`:59`, pinned by 011 assertions 1-6).
 --   2. `toi_identity.revoke_user_sessions_v1` — the revocation a completed password reset owes, over the
 --      session store's own carrier (#75).
---   3. `public.tenant_entra_issuers` + `public.entra_allowed_issuers_v1` — plan §4.2: "tenant admins may
---      additionally restrict a tenant to an allow-listed Entra tenant ID". The read behind
---      `allowedEntraIssuers(organisationId) -> string[] | null`, where `null` must stay a refusal
---      (`src/platform/identity/entra-linking.ts:24`, `decideEntraLink`).
+--   3. `public.tenant_entra_issuers` + `public.entra_issuer_allowed_v1` — plan §4.2: "tenant admins may
+--      additionally restrict a tenant to an allow-listed Entra tenant ID". **On this branch only**, that
+--      read is the verdict-shaped one (`entraIssuerAllowed(organisationId, issuerTenantId) -> 'allowed' |
+--      'denied' | null`, `null` still a refusal) rather than the list-shaped `entra_allowed_issuers_v1`
+--      that #186 ships, because the branch exists to price the shape question in `#185`. Same policy,
+--      same table, same privileges; what moves is where the exact-match comparison happens.
 --
 -- pgTAP: every assertion this file needs joins slot **012** (`012_auth_methods.test.sql`), which
 -- COORDINATION §6b reserves to T-201 and whose header already said these land in PR-2. Two merged
@@ -104,33 +106,54 @@ revoke all on table public.tenant_entra_issuers from anon, authenticated, servic
 -- reachable by `anon` (every caller holds the signed-in user's token by the time the gate runs), and it
 -- returns one tenant's list to a caller who must already name that tenant's id, which the Worker takes
 -- from the routed host and never from the request (AGENTS.md §4.1).
-create or replace function public.entra_allowed_issuers_v1(p_organisation_id uuid)
-returns text[]
+-- PROTOTYPE (the branch is `t-201c-proto-issuer-verdict`; #186 ships the list-shaped read): the same
+-- policy asked as the question the gate actually asks, so there is no configuration list for a caller
+-- to iterate. `#185`'s option 4, and the shape is the supervisor's to rule on — this branch exists to
+-- show what choosing it costs, in the two places the cost lands: the exact-match rule moves from
+-- `entra-linking.ts` into this predicate (pinned by slot `012` assertion 69), and the "no issuer at all"
+-- answer has to stay a caller-side answer (pinned in Vitest).
+create or replace function public.entra_issuer_allowed_v1(p_organisation_id uuid, p_issuer_tenant_id text)
+returns text
 language plpgsql stable security definer set search_path = public, pg_temp as $$
-declare
-  v_issuers text[];
 begin
-  if p_organisation_id is null then
-    raise exception 'organization id is required' using errcode = '22023';
+  if p_organisation_id is null or p_issuer_tenant_id is null then
+    raise exception 'organization id and issuer tenant id are both required' using errcode = '22023';
   end if;
 
-  -- An organization this host does not have is not an organization with an empty allow-list. Both
-  -- answers refuse the sign-in, but only the raise says so in the log; `[]` here would make a
-  -- mis-provisioned tenant indistinguishable from a tenant that has deliberately allowed nothing.
+  -- An identity the provider gave no issuer for is **not** a denied issuer: it is an unknown identity,
+  -- and `entra-linking.ts` answers that before dialing anything. An empty candidate reaching this
+  -- function is a caller bug, refused rather than answered — answering `denied` here would turn a
+  -- "who is this?" into "this tenant refuses them", which is the one confusion the gate's two outcomes
+  -- exist to keep apart.
+  if btrim(p_issuer_tenant_id) = '' then
+    raise exception 'issuer tenant id is required' using errcode = '22023';
+  end if;
+
+  -- An organization this host does not have is not an organization that permits nothing. The raise is
+  -- the same signal the request-side read already maps to `policy_unresolved`, which is why the verdict
+  -- set stays two-valued: `unknown_tenant` as a return value would be a third way to say what a raise
+  -- says, and a third state is one more branch to pin in two venues.
   if not exists (select 1 from public.organisations o where o.id = p_organisation_id) then
     raise exception 'no such organization' using errcode = '28000';
   end if;
 
-  select coalesce(array_agg(i.issuer_tenant_id order by i.issuer_tenant_id), '{}'::text[])
-    into v_issuers
-    from public.tenant_entra_issuers i
-   where i.organisation_id = p_organisation_id;
-  return v_issuers;
+  -- Exact match, never case-folded: the payload's uuid must equal a stored row. The rule is stated at
+  -- `src/platform/identity/entra-linking.ts` and used to be enforced there; here it is the predicate
+  -- itself, which is why slot `012` assertion 69 asks an upper-cased uuid against a lower-cased row.
+  -- A `lower(...)` or `ilike` in this comparison would leave every other issuer assertion passing.
+  if exists (
+    select 1 from public.tenant_entra_issuers i
+     where i.organisation_id = p_organisation_id
+       and i.issuer_tenant_id = p_issuer_tenant_id
+  ) then
+    return 'allowed';
+  end if;
+  return 'denied';
 end;
 $$;
 
-comment on function public.entra_allowed_issuers_v1(uuid) is
-  'The Entra issuer gate''s read (plan §4.2): the ids one tenant permits, ordered, empty when it has configured none. Pre-activation and deliberately unscoped — the gate runs before the membership question and must answer for identities with no membership row; the bound is the exact-organisation predicate, and anon never reaches it. A missing organization raises rather than returning an empty list.';
+comment on function public.entra_issuer_allowed_v1(uuid, text) is
+  'The Entra issuer gate''s verdict (plan §4.2): does this tenant permit this issuer — allowed or denied, nothing else enumerable. Pre-activation and deliberately unscoped — the gate runs before the membership question and must answer for identities with no membership row; the bound is the exact-organisation predicate, and anon never reaches it. A missing organization raises rather than answering denied.';
 
 -- ---------------------------------------------------------------- 2. the invite claim (F05)
 -- The one write in this file, and the one function here that is SECURITY DEFINER out of necessity:
@@ -289,7 +312,7 @@ comment on function toi_identity.revoke_user_sessions_v1(uuid, text, timestamptz
 -- (001 tests 34-38 record why, and FAQ-0010 is the rule), so each function is revoked by full
 -- signature in the file that creates it and granted back to exactly the role named.
 revoke execute on function
-  public.entra_allowed_issuers_v1(uuid),
+  public.entra_issuer_allowed_v1(uuid, text),
   public.redeem_invitation_v1(uuid, text)
   from public, anon, authenticated, service_role;
 
@@ -298,7 +321,7 @@ revoke execute on function
 -- resolver is the one pre-sign-in function the merged schema exposes, and neither of these runs before
 -- a provider has verified somebody.
 grant execute on function
-  public.entra_allowed_issuers_v1(uuid),
+  public.entra_issuer_allowed_v1(uuid, text),
   public.redeem_invitation_v1(uuid, text)
   to authenticated;
 
