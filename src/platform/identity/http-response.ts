@@ -59,6 +59,30 @@ export function redirectSameHost(host: string, path: string, cookies: readonly C
 }
 
 /**
+ * Handing the browser to an **external** identity provider (T-201's Entra start). This is the only
+ * place a sign-in endpoint sends a location that is not this host, so it goes through here rather
+ * than a private `new Response`: the same #37 refusals apply, because the artifacts being set on that
+ * response are the same ones — a signed login state, and a redirect target built from a verifier.
+ *
+ * Nothing about the request chooses the target: callers pass a URL built from the configured project
+ * binding and this server's own callback path (plan §4.2 "do not use broad wildcard auth redirects").
+ */
+export function providerRedirect(targetUrl: string, cookies: readonly CookieSpec[]): Response {
+  if (containsTokenMaterial(targetUrl)) {
+    throw new Error("a provider redirect target must not carry token material");
+  }
+  const headers = new Headers({ location: targetUrl, ...NO_STORE });
+  for (const cookie of cookies) {
+    const serialized = serializeSetCookie(cookie);
+    if (containsTokenMaterial(serialized)) {
+      throw new Error("a Set-Cookie value must never be a Supabase access or refresh token (#37)");
+    }
+    headers.append("set-cookie", serialized);
+  }
+  return new Response(null, { status: 302, headers });
+}
+
+/**
  * The one way a sign-in endpoint answers a visitor: 303 to the tenant's own login surface carrying
  * one value from the closed outcome set. Three T-102/T-201 endpoints used to hold their own private
  * copy of these two lines; one copy is the point, because the rule is that nothing about the request

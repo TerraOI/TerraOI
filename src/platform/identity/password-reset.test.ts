@@ -4,7 +4,7 @@ import { completeMagicLink, type MagicLinkCallbackPorts } from "./complete-magic
 import { createLoginState, LOGIN_STATE_COOKIE_BASE } from "./login-state";
 import { handlePasswordResetRequest, type PasswordResetPorts } from "./password-reset";
 import { issueCsrfToken } from "./csrf";
-import { signToken } from "./signed-token";
+import { signToken, verifyToken } from "./signed-token";
 import { SESSION_COOKIE_BASE } from "./session";
 import { createTokenCipher, type SessionStore, type StoredSession } from "./session-store";
 
@@ -39,14 +39,23 @@ function fakeJwt(what: string, sub: string): string {
 }
 const JWT_IN_TEXT = /eyJ[A-Za-z0-9_-]{4,}\.eyJ[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}/;
 
-function memoryStore(): SessionStore & { rows: Map<string, StoredSession>; revocations: string[] } {
+/**
+ * `order` records every write to the store as it happens, in sequence. The ordering claim in this file
+ * ("revokes the other sessions **before** it issues the new one") is only testable if both sides of it
+ * append to the same list — and only falsifiable if the new row is then checked for being revoked.
+ */
+function memoryStore(order?: string[]): SessionStore & { rows: Map<string, StoredSession>; revocations: string[] } {
   const rows = new Map<string, StoredSession>();
   const revocations: string[] = [];
+  const note = (what: string) => {
+    if (order) order.push(what);
+  };
   return {
     rows,
     revocations,
     async insert({ sessionKey, session }) {
       rows.set(sessionKey, session);
+      note(`insert:${sessionKey}`);
     },
     async find({ sessionKey }) {
       return rows.get(sessionKey) ?? null;
@@ -54,6 +63,7 @@ function memoryStore(): SessionStore & { rows: Map<string, StoredSession>; revoc
     async revoke(sessionKey, at) {
       const row = rows.get(sessionKey);
       if (row) rows.set(sessionKey, { ...row, revokedAt: at });
+      note(`revoke-row:${sessionKey}`);
     },
     async replaceTokens(sessionKey, replacement) {
       const row = rows.get(sessionKey);
@@ -71,10 +81,19 @@ interface RequestHarness {
   recoveries: Array<{ email: string; redirectTo: string }>;
   allowRequest: boolean;
   boom: boolean;
+  /** Present in every case but the one that tests its absence: the deployment can complete a reset. */
+  revokeUserSessions: ((input: { userId: string; host: string; now: number }) => Promise<boolean>) | undefined;
 }
 
 function requestHarness(overrides: Partial<RequestHarness> = {}): RequestHarness {
-  const state: RequestHarness = { ports: {} as PasswordResetPorts, recoveries: [], allowRequest: true, boom: false, ...overrides };
+  const state: RequestHarness = {
+    ports: {} as PasswordResetPorts,
+    recoveries: [],
+    allowRequest: true,
+    boom: false,
+    revokeUserSessions: async () => true,
+    ...overrides,
+  };
   state.ports = {
     now: () => NOW,
     signingSecret: () => SECRET,
@@ -85,6 +104,9 @@ function requestHarness(overrides: Partial<RequestHarness> = {}): RequestHarness
     sendPasswordRecovery: async (input) => {
       if (state.boom) throw new Error("provider unavailable");
       state.recoveries.push(input);
+    },
+    get revokeUserSessions() {
+      return state.revokeUserSessions;
     },
   };
   return state;
@@ -170,6 +192,36 @@ describe("handlePasswordResetRequest (POST /auth/password-reset)", () => {
     expect(outcomeOf(limitedUnknown.response)).toBe("rate_limited");
   });
 
+  it("the state cookie it hands the recovery link is marked `recovery`, so the callback knows what it owes", async () => {
+    // The one mechanism that makes a completed reset a reset. Tested on the wire, not by constructing a
+    // marked state by hand: if this claim were dropped the recovery link would complete as an ordinary
+    // sign-in — a new session, and the user's other sessions left live — with every test still green.
+    const { response } = await resetRequest({ email: "owner1@company1.test" });
+    const cookie = stateCookieOf(response);
+    expect(cookie).not.toBe("");
+    const value = cookie.split(";")[0]?.split("=").slice(1).join("=") ?? "";
+    const claims = await verifyToken(value, SECRET);
+    expect(claims).not.toBeNull();
+    expect(claims?.typ).toBe("login_state");
+    expect(claims?.host).toBe(HOST_A);
+    expect(claims?.flow).toBe("recovery");
+    // A sign-in asked for on the same host is not marked: only this endpoint writes the claim.
+    const plain = await createLoginState({ host: HOST_A, secret: SECRET, now: NOW, secureTransport: true });
+    expect((await verifyToken(plain.cookie.value, SECRET))?.flow).toBeUndefined();
+  });
+
+  it("a deployment that cannot revoke other sessions sends no recovery email at all", async () => {
+    // Checked before the provider is dialed, not at the end of the link's journey: an email whose link
+    // is certain to fail would lead the user through a password change that leaves their old sessions
+    // live. This is the state of this repo until PR-2 lands the revocation SQL.
+    const { response, h } = await resetRequest({ email: "owner1@company1.test", configure: (s) => { s.revokeUserSessions = undefined; } });
+    expect(outcomeOf(response)).toBe("unavailable");
+    expect(h.recoveries).toHaveLength(0);
+    // Nothing half-built goes out either: no state cookie, because no attempt was started.
+    expect(cookiesOf(response)).toHaveLength(0);
+    expect(cookieShape(response)).toEqual([]);
+  });
+
   it("a provider outage stays generic and keeps the state cookie it issued", async () => {
     const { response, h } = await resetRequest({ email: "owner1@company1.test", configure: (s) => { s.boom = true; } });
     expect(outcomeOf(response)).toBe("unavailable");
@@ -192,18 +244,21 @@ interface CallbackHarness {
 }
 
 function callbackHarness(overrides: Partial<CallbackHarness> = {}): CallbackHarness {
+  // One sequence for every write to the store, so "revoked before issued" is a claim that can fail.
+  const order: string[] = [];
+  const store = memoryStore(order);
   const state: CallbackHarness = {
     ports: {} as MagicLinkCallbackPorts,
-    store: memoryStore(),
+    store,
     exchanges: [],
     redeemed: [],
     revokeUserSessions: async (input) => {
-      state.order.push(`revoke:${input.userId}@${input.host}`);
-      state.store.revocations.push(`${input.userId}@${input.host}`);
+      order.push(`revoke:${input.userId}@${input.host}`);
+      store.revocations.push(`${input.userId}@${input.host}`);
       return true;
     },
     identity: "valid",
-    order: [],
+    order,
     ...overrides,
   };
   state.ports = {
@@ -273,7 +328,14 @@ describe("completing a password reset through the callback", () => {
   it("revokes the user's other sessions on this host before it issues the new one", async () => {
     const { response, h } = await complete({ flow: "recovery" });
     expect(h.store.revocations).toEqual([`${OWNER1}@${HOST_A}`]);
+    // Both halves of the sequence are recorded by the store itself, so this fails if the completion is
+    // reordered to issue first — and the surviving row is checked for not being revoked, which is the
+    // only way to notice a revoke that ran *after* the mint and took the new session down with it.
+    expect(h.order.map((step) => step.split(":")[0])).toEqual(["revoke", "insert"]);
     expect(h.order[0]).toBe(`revoke:${OWNER1}@${HOST_A}`);
+    const surviving = [...h.store.rows.values()];
+    expect(surviving).toHaveLength(1);
+    expect(surviving[0]?.revokedAt).toBeNull();
     expect(h.store.rows.size).toBe(1);
     expect(outcomeOf(response)).toBeNull();
     expect(locationOf(response).pathname).toBe("/");
@@ -332,9 +394,15 @@ describe("completing a password reset through the callback", () => {
     expect(h.store.revocations).toHaveLength(0);
   });
 
-  it("an expired or already-used recovery link answers identically, with no session and no revocation", async () => {
-    const used = await complete({ flow: "recovery", configure: (s) => { s.identity = "invalid"; } });
+  it("a code the provider refuses and an expired state answer identically, with no session and no revocation", async () => {
+    // The two are deliberately not told apart to the browser (T-131, and #44's ruling that one message
+    // covers an invalid, expired or already-used link). A genuinely replayed single-use state is pinned
+    // in `complete-magic-link.test.ts`; what this case adds is that **neither** half of a refused reset
+    // leaves a session or a revocation behind, on either harness.
+    const refused = await complete({ flow: "recovery", configure: (s) => { s.identity = "invalid"; } });
     const fresh = callbackHarness();
+    // Issued at NOW+601, so at the harness's NOW+1201 it is ten minutes old — past
+    // `LOGIN_STATE_TTL_SECONDS`, and the provider is not contacted at all.
     const loginState = await createLoginState({ host: HOST_A, secret: SECRET, now: NOW + 601, secureTransport: true, flow: "recovery" });
     const expired = await completeMagicLink({
       request: new Request(`https://${HOST_A}/auth/callback?code=synthetic-code&state=${loginState.nonce}`, {
@@ -342,13 +410,21 @@ describe("completing a password reset through the callback", () => {
       }),
       ports: { ...fresh.ports, now: () => NOW + 1201 },
     });
-    for (const response of [used.response, expired]) {
+    for (const response of [refused.response, expired]) {
       expect(outcomeOf(response)).toBe("unavailable");
       expect(sessionCookieOf(response)).toBe("");
     }
-    expect(used.response.headers.get("location")).toBe(expired.headers.get("location"));
-    expect(used.h.store.rows.size).toBe(0);
-    expect(used.h.store.revocations).toHaveLength(0);
+    expect(refused.response.headers.get("location")).toBe(expired.headers.get("location"));
+    for (const h of [refused.h, fresh]) {
+      expect(h.store.rows.size).toBe(0);
+      expect(h.store.revocations).toHaveLength(0);
+      expect(h.order).toHaveLength(0);
+    }
+    // The two differ only in *where* they stop, and neither is allowed to reach the next step: an
+    // expired state never contacts the provider, and a refused code never reaches the membership read.
+    expect(refused.h.exchanges).toHaveLength(1);
+    expect(refused.h.redeemed).toHaveLength(0);
+    expect(fresh.exchanges).toHaveLength(0);
   });
 
   it("a forged or unknown `flow` claim is not a recovery: the state is refused outright", async () => {

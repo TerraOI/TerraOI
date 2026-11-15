@@ -10,7 +10,7 @@ import {
   type EntraStartPorts,
 } from "./entra-linking";
 import { issueCsrfToken } from "./csrf";
-import { verifyToken } from "./signed-token";
+import { sha256Base64Url, verifyToken } from "./signed-token";
 import { SESSION_COOKIE_BASE } from "./session";
 import { createTokenCipher, type SessionStore, type StoredSession } from "./session-store";
 
@@ -182,11 +182,13 @@ function harness(overrides: Partial<Harness> = {}): Harness {
   return state;
 }
 
-async function callback(input: { host?: string; configure?: (h: Harness) => void } = {}) {
+async function callback(input: { host?: string; attempt?: "entra"; configure?: (h: Harness) => void } = {}) {
   const h = harness();
   if (input.configure) input.configure(h);
   const host = input.host ?? HOST_A;
-  const loginState = await createLoginState({ host, secret: SECRET, now: NOW, secureTransport: true });
+  // `attempt: "entra"` is what `handleEntraSignInRequest` writes into the carrier: the fact that **this
+  // host** sent this browser to Microsoft, which the callback can rely on and the payload cannot supply.
+  const loginState = await createLoginState({ host, secret: SECRET, now: NOW, secureTransport: true, ...(input.attempt ? { provider: input.attempt } : {}) });
   const response = await completeMagicLink({
     request: new Request(`https://${host}/auth/callback?code=synthetic-code&state=${loginState.nonce}`, {
       headers: new Headers({ cookie: `${loginState.cookie.name}=${loginState.cookie.value}` }),
@@ -264,7 +266,10 @@ describe("checkEntraIdentity: the policy against its read", () => {
       organisationId: C1,
       ports: { allowedEntraIssuers: async () => { throw new Error("policy read down"); } },
     });
-    expect(outcome).toMatchObject({ ok: false });
+    // Pinned to the reason, not just to "refused": an implementation that reported a failed policy read
+    // as `issuer_unknown` would be describing the identity rather than its own outage, and the operator
+    // log line that distinguishes the two would be wrong.
+    expect(outcome).toEqual({ ok: false, reason: "policy_unresolved" });
   });
 
   it("refuses when the port has no implementation at all (the state until PR-2's migration)", async () => {
@@ -388,7 +393,7 @@ describe("the Entra leg of GET /auth/callback", () => {
     expect(wire.toLowerCase()).not.toContain("entra");
   });
 
-  it("an email-verification identity is untouched by the Entra gate (no issuer, no refusal)", async () => {
+  it("a magic-link identity is untouched by the Entra gate: no issuer, no policy read, no refusal", async () => {
     const { response, h } = await callback({
       configure: (s) => {
         s.identity = entraIdentity({ provider: "email", issuerTenantId: null, email: "owner1@company1.test", userId: "00000000-0000-4000-8000-0000000000a1" });
@@ -399,6 +404,44 @@ describe("the Entra leg of GET /auth/callback", () => {
     expect(locationOf(response).pathname).toBe("/");
     expect(sessionCookieOf(response)).toContain("__Host-toi_session=");
     expect(h.redeemed).toHaveLength(0);
+  });
+
+  it("an Entra **attempt** whose payload comes back labelled `email` is still gated — the carrier decides, not the label", async () => {
+    // The case the payload label alone cannot see: Supabase attaches a Microsoft identity to an account
+    // that already exists as a mail one, and `app_metadata.provider` stays `"email"`. The gate is keyed
+    // on this host's own record of where it sent the browser, so the issuer policy is consulted — and
+    // with no issuer on the payload there is nothing to allow-list, so the identity is refused. The
+    // tenant's membership row is not the only thing standing between a non-permitted identity and a
+    // session, which is what the packet's fourth policy sentence requires.
+    const { response, h } = await callback({
+      attempt: "entra",
+      configure: (s) => {
+        s.identity = entraIdentity({ provider: "email", issuerTenantId: null, email: "owner1@company1.test", userId: "00000000-0000-4000-8000-0000000000a1" });
+        s.membershipFor = (organisationId, userId) => (organisationId === C1 && userId === "00000000-0000-4000-8000-0000000000a1" ? member("active") : null);
+        s.issuers = [TENANT_ALLOWED]; // a policy that exists and would allow its own tenant
+      },
+    });
+    expect(outcomeOf(response)).toBe("unavailable");
+    expect(sessionCookieOf(response)).toBe("");
+    expect(h.store.rows.size).toBe(0);
+    // Refused at the gate, so no tenant data was read and no invitation was touched.
+    expect(h.memberships).toHaveLength(0);
+    expect(h.redeemed).toHaveLength(0);
+  });
+
+  it("a payload the provider itself calls `azure` is gated even when the carrier said nothing", async () => {
+    // The label can keep the gate open; it can never close it. A `state` from an ordinary (mail) login
+    // attempt carrying an Entra-labelled identity is still put through the policy.
+    const { response, h } = await callback({
+      configure: (s) => {
+        s.identity = entraIdentity({ provider: "azure", issuerTenantId: TENANT_OUTSIDE, email: "owner1@company1.test", userId: "00000000-0000-4000-8000-0000000000a1" });
+        s.membershipFor = (organisationId, userId) => (organisationId === C1 && userId === "00000000-0000-4000-8000-0000000000a1" ? member("active") : null);
+        s.issuers = [TENANT_ALLOWED];
+      },
+    });
+    expect(outcomeOf(response)).toBe("unavailable");
+    expect(h.store.rows.size).toBe(0);
+    expect(h.memberships).toHaveLength(0);
   });
 
   it("an Entra callback for company1 replayed on company2's host never reaches the provider", async () => {
@@ -431,6 +474,9 @@ describe("handleEntraSignInRequest (POST /auth/entra)", () => {
       rateLimitKey: async ({ host }) => `${host}|entra`,
       allowRequest: async () => true,
       supabaseBaseUrl: () => BASE,
+      // Present here so the *guard* and *redirect-building* tests exercise a wired deployment; the
+      // unwired state — the one the production adapter is in until PR-2 — has its own test below.
+      allowedEntraIssuers: async () => [TENANT_ALLOWED],
       ...overrides,
     };
   }
@@ -483,6 +529,27 @@ describe("handleEntraSignInRequest (POST /auth/entra)", () => {
     expect(claims?.host).toBe(HOST_A);
     expect(claims?.typ).toBe("login_state");
     expect(claims?.flow).toBeUndefined();
+    // This host's own record of where it sent the browser, which the callback's issuer gate is keyed
+    // on. Not something the request or the provider payload can supply.
+    expect(claims?.provider).toBe("entra");
+    // And the challenge the IdP is given is *this* attempt's verifier, hashed — not merely the same
+    // shape. A challenge that drifted from the verifier is how a PKCE exchange stops meaning anything.
+    const pkce = claims?.pkce;
+    expect(typeof pkce).toBe("string");
+    expect(location.searchParams.get("code_challenge")).toBe(await sha256Base64Url(pkce as string));
+  });
+
+  it("with the issuer policy not landed there is no hand-off to Microsoft and no half-set state", async () => {
+    // The state the production adapter is actually in until PR-2 lands `identity_methods`: the policy
+    // cannot be read, so the attempt would end at a refusal *after* a round trip through the IdP.
+    // Refusing here is what keeps that trip from being taken on the user's behalf.
+    const { response } = await start({ ports: startPorts({ allowedEntraIssuers: undefined }) });
+    expect(outcomeOf(response)).toBe("unavailable");
+    expect(response.headers.get("location")).toContain("/login");
+    expect(cookiesOf(response)).toHaveLength(0);
+    const wire = `${response.headers.get("location") ?? ""}${cookiesOf(response).join("\n")}`;
+    expect(wire).not.toContain("supabase.co");
+    expect(wire).not.toMatch(JWT_IN_TEXT);
   });
 
   it("takes nothing about the destination from the request", async () => {

@@ -1,5 +1,6 @@
 import { loginRedirect } from "./http-response";
 import { createLoginState } from "./login-state";
+import type { SignInCompletionPorts } from "./signin-completion";
 import { CALLBACK_PATH, readGuardedFormRequest, type SignInRequestPorts } from "./signin-request";
 import type { HostAdapterOptions } from "@/platform/tenancy/host";
 
@@ -21,7 +22,7 @@ import type { HostAdapterOptions } from "@/platform/tenancy/host";
  * reads "if this address can sign in, we've sent a link".
  */
 
-export interface PasswordResetPorts extends SignInRequestPorts {
+export interface PasswordResetPorts extends SignInRequestPorts, Pick<SignInCompletionPorts, "revokeUserSessions"> {
   /** The provider half: a recovery email carrying this host's callback and this attempt's PKCE verifier. */
   sendPasswordRecovery(input: { email: string; redirectTo: string; codeVerifier: string }): Promise<void>;
 }
@@ -38,6 +39,17 @@ export async function handlePasswordResetRequest(input: PasswordResetInput): Pro
   const guarded = await readGuardedFormRequest(input);
   if (!guarded.ok) return guarded.response;
   const { host, secret, secureTransport } = guarded;
+
+  // Checked **before the provider is dialed**, for the same reason the callback checks the carrier:
+  // a deployment that cannot revoke the user's other sessions cannot complete the reset either, so it
+  // must not send an email that is certain to end at a refusal. Leading someone through a password
+  // change that leaves their old sessions live is worse than saying "unavailable" here — and the link
+  // they would click is a credential that always fails. The revocation SQL is PR-2's
+  // (`t-201b-invite-reset-sql`); until it lands this endpoint is deliberately inert, and says so.
+  if (typeof ports.revokeUserSessions !== "function") {
+    console.error("password reset refused", { host, step: "session_revocation", reason: "unwired" });
+    return loginRedirect(host, "unavailable", []);
+  }
 
   const loginState = await createLoginState({ host, secret, now: ports.now(), secureTransport, flow: "recovery" });
   const callbackUrl = `https://${host}${CALLBACK_PATH}?state=${encodeURIComponent(loginState.nonce)}`;

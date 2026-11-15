@@ -406,9 +406,12 @@ describe("handlePasswordSignIn (POST /auth/password)", () => {
     expect(outcomeOf(response)).toBe("unavailable");
     expect(h.attempts).toHaveLength(0);
     expect(sessionCookieOf(response)).toBe("");
-    const wire = `${await response.text()}${cookiesOf(response).join("\n")}`;
+    const wire = `${await response.text()}${cookiesOf(response).join("\n")}${response.headers.get("location") ?? ""}`;
     expect(wire).not.toMatch(JWT_IN_TEXT);
-    expect(wire.toLowerCase()).not.toContain("unavailable provider".toLowerCase());
+    // The harness's own failure strings, so this can fail: the detail that says *which* dependency broke
+    // (provider or database) is exactly what must not reach a browser.
+    expect(wire).not.toContain("auth provider unavailable");
+    expect(wire).not.toContain("database unavailable");
     expect(wire.toLowerCase()).not.toContain(PASSWORD.toLowerCase());
   });
 

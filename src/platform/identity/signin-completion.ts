@@ -68,6 +68,13 @@ export interface SignInCompletionPorts {
    * host. Host-scoped like every other session rule — a company1 reset cannot reach a company2 row.
    * Absent means the SQL half has not landed, which refuses a reset rather than completing one without
    * it (PR-2 `t-201b-invite-reset-sql` writes `revoke_user_sessions_v1`).
+   *
+   * `true` means **the revocation ran**, not "it revoked at least one row": a user with no other live
+   * session has nothing to revoke and their reset must still complete. PR-2's RPC and its pgTAP
+   * assertion have to keep that meaning, because a completion that read "zero rows" as a failure would
+   * lock the first-ever reset out. Whether a credential change should also revoke sessions on this
+   * organization's *other* hosts is an open question for PR-2 to settle, not one this signature
+   * pre-empts.
    */
   revokeUserSessions?(input: { userId: string; host: string; now: number }): Promise<boolean>;
 }
