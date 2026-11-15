@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { BRAND_SURFACES, brandSurfaceContract, checkProductContent, type BrandSurface } from "./brand-modes";
+import { BRAND_FACT_MARKERS, BRAND_SURFACES, brandSurfaceContract, checkProductContent, type BrandSurface } from "./brand-modes";
 import { platformBrand, platformBrandForHost } from "./kit-brand";
 import { parseTenantBrand, type BrandSource, type TenantBrand } from "./tenant-brand";
 
@@ -144,7 +144,7 @@ describe("checkProductContent automates the kit's acceptance check", () => {
   it("flags a provider reference in customer-mode product content", () => {
     const verdict = checkProductContent(customerBrand, "login", "Continue with Powered by TerraOI");
     expect(verdict.ok).toBe(false);
-    expect(verdict.references.filter((reference) => !reference.exempt)).toHaveLength(1);
+    expect(verdict.references.filter((reference) => reference.fact === "identity")).toHaveLength(1);
   });
 
   it("treats a browser title as product content, because §5.1 lists browser titles", () => {
@@ -156,7 +156,7 @@ describe("checkProductContent automates the kit's acceptance check", () => {
   it("exempts the reference inside the host the plan requires to be shown", () => {
     const verdict = checkProductContent(customerBrand, "shell", `Signed in at ${TENANT_HOST}`);
     expect(verdict.ok).toBe(true);
-    expect(verdict.references.every((reference) => reference.exempt)).toBe(true);
+    expect(verdict.references.every((reference) => reference.fact === "routing")).toBe(true);
   });
 
   it("matches the provider reference whatever its case", () => {
@@ -218,5 +218,68 @@ describe("the mode never arrives from the request", () => {
     // module ever starts reading request state.
     expect(brandSurfaceContract.length).toBe(2);
     expect(checkProductContent.length).toBe(3);
+  });
+});
+
+/**
+ * The supervisor's answer on [#65](https://github.com/TerraOI/TerraOI/issues/65) (2026-11-09) is the
+ * authority for this block, and it is more specific than the one-line summary T-204 carries. Its
+ * words: "The rule is 'no provider identity', not 'no `terraoi` substring'", with three named
+ * categories —
+ *
+ * 1. **provider identity**: "never visible in `customer` mode" — the name, wordmark, logo, the
+ *    "Powered by" attribution, TerraOI support or marketing links, the favicon, browser titles and
+ *    social metadata, email sender **display names**, report and document headers, export metadata
+ *    and filenames;
+ * 2. **routing facts**: "always shown, never hidden" — the host as text and links to the tenant's
+ *    own host, because "showing the real address is a security property: it lets a user tell the
+ *    real site from a phishing page";
+ * 3. **legal facts**: "shown only where the law needs them … only inside dedicated legal elements …
+ *    never as product branding".
+ *
+ * and its test mechanism: "routing and legal facts are rendered inside elements marked
+ * `data-brand-fact="routing"` or `data-brand-fact="legal"`", the customer-mode test removing those
+ * elements and then asserting no `/terraoi/i` anywhere else — "so a builder cannot 'fix' it by
+ * hiding the host".
+ */
+describe("the #65 categories: identity, routing, legal", () => {
+  it("exports exactly the two marker values the ruling names, in the ruling's own words", () => {
+    expect(BRAND_FACT_MARKERS).toEqual({ routing: "routing", legal: "legal" });
+    expect(Object.keys(BRAND_FACT_MARKERS)).toEqual(["routing", "legal"]);
+  });
+
+  it("counts the reference inside the host as a routing fact, category 2", () => {
+    const verdict = checkProductContent(customerBrand, "shell", `You are on ${TENANT_HOST}`);
+    expect(verdict.references[0]?.fact).toBe("routing");
+    expect(verdict.ok).toBe(true);
+  });
+
+  it("counts a provider name in customer-mode product content as identity, category 1", () => {
+    const verdict = checkProductContent(customerBrand, "chatError", "Ask TerraOI to continue");
+    expect(verdict.references[0]?.fact).toBe("identity");
+    expect(verdict.ok).toBe(false);
+  });
+
+  it("counts a provider name on the legal surface as a legal fact, category 3", () => {
+    const verdict = checkProductContent(customerBrand, "legal", "TerraOI acts as our processor for this workspace");
+    expect(verdict.references[0]?.fact).toBe("legal");
+    expect(verdict.ok).toBe(true);
+  });
+
+  it("requires the routing fact to be present in customer mode, so hiding the host is not a fix", () => {
+    // Category 2 is not merely permitted: the ruling pairs it with an assertion that "the routing
+    // element exists and shows the host", which is what stops the substring test being satisfied by
+    // deleting the address.
+    const contract = brandSurfaceContract(customerBrand, "shell");
+    expect(contract.routingFact).toBe(true);
+    expect(contract.hostDisplay).toBe(TENANT_HOST);
+    expect(brandSurfaceContract(customerBrand, "legal").routingFact).toBe(true);
+  });
+
+  it("marks browser metadata as an identity surface, because the ruling lists titles and social metadata", () => {
+    expect(brandSurfaceContract(customerBrand, "metadata").mayNameProviderInProductContent).toBe(false);
+    expect(brandSurfaceContract(customerBrand, "email").mayNameProviderInProductContent).toBe(false);
+    // A title cannot carry a routing island, so the metadata surface has no routing fact to show.
+    expect(brandSurfaceContract(customerBrand, "metadata").routingFact).toBe(false);
   });
 });
