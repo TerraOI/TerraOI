@@ -1,6 +1,6 @@
 # T-201 Password sign-in, Microsoft SSO, invites and identity linking
 
-Lane: 1 · Week: 2 · Protected: yes (`src/platform/identity/`) · Depends on: T-002, T-003, T-101, T-102; the invite claim also on T-202 PR-1b (`tenant_invitations`, [#179 ruling](https://github.com/TerraOI/TerraOI/pull/179#issuecomment-6985900913)) · Status: ready
+Lane: 1 · Week: 2 · Protected: yes (`src/platform/identity/`) · Depends on: T-002, T-003, T-101, T-102; the invite claim also on T-202 PR-1b (`tenant_invitations`, [#179 ruling](https://github.com/TerraOI/TerraOI/pull/179#issuecomment-6985900913)) · Status: in progress (wyuinline)
 Plan refs: §4.2 (TOI-ADR-15), §4.1 step 6, §16 (host/session row); F02, F05 (callback registration)
 
 ## Supervisor rulings to apply (2026-11-18)
