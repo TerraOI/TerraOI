@@ -368,14 +368,23 @@ insert into public.organisation_memberships (organisation_id, user_id, status)
 values ('11111111-1111-4111-8111-111111111111', '00000000-0000-4000-8000-0000000000c1', 'invited')
 on conflict (organisation_id, user_id) do nothing;
 
--- Two permitted Entra tenants for company1, none for company2, and one for company2 that must never
+-- A third organization, created here and rolled back with everything else in this file. It exists for
+-- one reason: so that the *empty* answer below is a filtered empty. With rows for one organization only,
+-- "company2 answers nothing" would also be what an unfiltered read of an empty-looking table returns, and
+-- the assertion would prove nothing about the `where organisation_id = …` bound. `seed.sql` has exactly
+-- two organizations, so the third one is made here rather than added to the shared seed.
+insert into public.organisations (id, slug, display_name, status) values
+  ('44444444-4444-4444-8444-444444444444', 'pgtap-company3', 'Company3 (pgTAP fixture only)', 'active')
+on conflict (id) do nothing;
+
+-- Two permitted Entra tenants for company1, none for company2, and one for company3 that must never
 -- appear in company1's answer. These are invented uuids (AGENTS.md §4.7): a real customer's Entra
 -- tenant id does not belong in this repository, and `supabase/seed.sql` gains no issuer row for the
 -- same reason — populating a real one is an owner step, named in the PR body.
 insert into public.tenant_entra_issuers (organisation_id, issuer_tenant_id) values
   ('11111111-1111-4111-8111-111111111111', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
   ('11111111-1111-4111-8111-111111111111', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'),
-  ('22222222-2222-4222-8222-222222222222', 'cccccccc-cccc-4ccc-8ccc-cccccccccccc')
+  ('44444444-4444-4444-8444-444444444444', 'cccccccc-cccc-4ccc-8ccc-cccccccccccc')
 on conflict (organisation_id, issuer_tenant_id) do nothing;
 
 -- The five session rows for …0c1 on two hosts: two live, one expired-but-never-revoked, one
@@ -631,9 +640,9 @@ reset role;
 
 select is((select result from t_issuers where case_name = 'c1'),
   'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa,bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
-  '43 a tenant''s own list comes back in full and ordered, and company2''s issuer is not in it: the read is bounded to one organization (§4.2)');
+  '43 a tenant''s own list comes back in full and ordered, and company3''s issuer row is not in it: the read is bounded to the organization named, not to the rows that exist (§4.2)');
 select is((select result from t_issuers where case_name = 'c2'), '(empty)',
-  '44 a tenant that has configured nothing answers empty, never null: empty means no permitted issuer, which is a refusal, not a wildcard (entra-linking.ts:24)');
+  '44 a tenant that has configured nothing answers empty, never null: empty means no permitted issuer, which is a refusal, not a wildcard — and the empty is filtered, because company3 has a row of its own that this answer correctly excludes (entra-linking.ts:24)');
 select is((select result from t_issuers where case_name = 'missing'), 'sqlstate:28000',
   '45 an organization that does not exist is refused rather than answered with an empty list: a mis-provisioned tenant must not look like one that has deliberately allowed nothing');
 
@@ -675,7 +684,11 @@ select ok(has_function_privilege('toi_session_worker', 'toi_identity.revoke_user
 
 select is(
   pg_get_function_identity_arguments('toi_identity.revoke_user_sessions_v1(uuid, text, timestamptz)'::regprocedure),
-  'p_user_id uuid, p_host text, p_now timestamptz',
+  -- The catalog prints the expanded type name, so the expected string is the catalog's spelling and not
+  -- the migration's: `timestamptz` normalizes to `timestamp with time zone` here. Pinned as the catalog
+  -- says because what matters is the third parameter's type, and a signature that drifted to `date` or
+  -- `timestamp` (no zone) would fail this instead of matching a hand-written guess.
+  'p_user_id uuid, p_host text, p_now timestamp with time zone',
   '56 the revocation names its subject, its host and its instant: unlike the public RPCs above, this carrier has no auth.uid() to key on, which is why insert_session_v1 takes one too');
 
 -- A user with no session row at all, and no `profiles` row either: the row count is the fixture for 58,
