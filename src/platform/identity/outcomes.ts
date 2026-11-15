@@ -15,6 +15,11 @@ export const SIGNIN_OUTCOMES = [
   "rate_limited",
   "unavailable",
   "not_a_member",
+  // T-201: a failed password credential check. One value covers "no such address" and "wrong
+  // password" because the provider's own answer does not distinguish them either, and it maps to the
+  // copy value T-131 already ships (`invalid_credentials`: "Email or password is incorrect.") — so no
+  // new copy string and no account probing (#44 set the same rule for a bad link).
+  "invalid_credentials",
 ] as const;
 
 export type SigninOutcome = (typeof SIGNIN_OUTCOMES)[number];

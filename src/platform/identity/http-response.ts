@@ -1,5 +1,6 @@
 import type { CookieSpec } from "./cookie";
 import { serializeSetCookie } from "./cookie";
+import type { SigninOutcome } from "./outcomes";
 
 /**
  * The response shape for the sign-in endpoints. Both are reached by a browser form post or a
@@ -55,6 +56,16 @@ export function redirectSameHost(host: string, path: string, cookies: readonly C
     headers.append("set-cookie", serialized);
   }
   return new Response(null, { status: 303, headers });
+}
+
+/**
+ * The one way a sign-in endpoint answers a visitor: 303 to the tenant's own login surface carrying
+ * one value from the closed outcome set. Three T-102/T-201 endpoints used to hold their own private
+ * copy of these two lines; one copy is the point, because the rule is that nothing about the request
+ * can influence the target and no free-text reason travels (plan §4.2, §8.2).
+ */
+export function loginRedirect(host: string, outcome: SigninOutcome, cookies: readonly CookieSpec[]): Response {
+  return redirectSameHost(host, `${LOGIN_PATH}?outcome=${outcome}`, cookies);
 }
 
 /** Reads at most `limit` bytes, returning null as soon as the body is larger than that. */

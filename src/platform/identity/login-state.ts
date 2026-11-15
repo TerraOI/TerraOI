@@ -26,8 +26,21 @@ export type LoginStateRejection =
   | "host_mismatch"
   | "state_mismatch";
 
+/**
+ * Which flow a login state belongs to. Only the non-default value is ever written into a token: an
+ * ordinary sign-in state carries no `flow` claim at all, so the absence of the claim means "sign-in"
+ * and there is no third state a client could invent.
+ *
+ * Why the carrier has to say anything: a password-recovery link lands on the same callback as a magic
+ * link and the provider's exchange looks identical from here. What the callback must do differently —
+ * revoke the user's other sessions before it mints the new one — is a fact about **this** browser's
+ * request, and the only thing binding this browser to that request is this signed, host-bound,
+ * single-use state (#37's carrier, T-201's reset item).
+ */
+export type LoginStateFlow = "recovery";
+
 export type LoginStateCheck =
-  | { ok: true; codeVerifier: string }
+  | { ok: true; codeVerifier: string; flow?: LoginStateFlow }
   | { ok: false; reason: LoginStateRejection };
 
 export async function createLoginState(input: {
@@ -46,6 +59,11 @@ export async function createLoginState(input: {
    * keyed store and a retention story for something that lives ten minutes.
    */
   codeVerifier?: string;
+  /**
+   * `recovery` for the state a password-reset request hands its recovery link. Absent means an
+   * ordinary sign-in, and no other value is accepted — a client cannot ask for a flow.
+   */
+  flow?: LoginStateFlow;
 }): Promise<{ nonce: string; codeVerifier: string; cookie: CookieSpec }> {
   if (!NormalizedHost.safeParse(input.host).success) {
     throw new Error("login state host must be a normalized host");
@@ -62,6 +80,9 @@ export async function createLoginState(input: {
         jti: nonce,
         host: input.host,
         pkce: codeVerifier,
+        // Only a non-default flow is written at all, so an ordinary sign-in token is byte-identical to
+        // one issued before T-201 and "no claim" cannot be confused with a claim of its own.
+        ...(input.flow === "recovery" ? { flow: input.flow } : {}),
         iat: input.now,
         exp: input.now + LOGIN_STATE_TTL_SECONDS,
       },
@@ -111,10 +132,16 @@ export async function verifyLoginState(input: {
   if (typeof codeVerifier !== "string" || codeVerifier.length === 0) {
     return { ok: false, reason: "malformed" };
   }
+  // A `flow` claim is only ever the one value, and only ever written by `createLoginState` above.
+  // Anything else is a forged or stale token: refusing it is what stops a caller from asking the
+  // callback to run the recovery half of the flow (or from hiding a recovery as a plain sign-in).
+  const flow = claims.flow;
+  if (flow !== undefined && flow !== "recovery") return { ok: false, reason: "malformed" };
+
   if (host !== input.host) return { ok: false, reason: "host_mismatch" };
   if (input.now >= exp) return { ok: false, reason: "expired" };
   if (!safeEqualStrings(nonce, input.presentedState)) return { ok: false, reason: "state_mismatch" };
-  return { ok: true, codeVerifier };
+  return { ok: true, codeVerifier, ...(flow === "recovery" ? { flow: "recovery" as const } : {}) };
 }
 
 /** Consuming the state: the cookie goes away, so the same callback URL cannot be used twice. */
