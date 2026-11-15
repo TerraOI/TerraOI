@@ -28,6 +28,17 @@ export function bytesToBase64Url(bytes: Uint8Array): string {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
+/**
+ * The PKCE `code_challenge` for a verifier: base64url(SHA-256(verifier)), unpadded (RFC 7636 §4.2,
+ * which is the form Supabase's `/authorize` and token endpoints expect). Shared because the magic-link
+ * send and the Entra start send the same shape, and a second implementation of a challenge is how a
+ * verifier stops matching the code it was issued with.
+ */
+export async function sha256Base64Url(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return bytesToBase64Url(new Uint8Array(digest));
+}
+
 function base64UrlToBytes(value: string): Uint8Array | null {
   if (!TOKEN_SHAPE.test(value)) return null;
   try {
