@@ -246,7 +246,7 @@ select is((select count(*)
 select is((select reason from public.lifecycle_switch_history_v1('platform', null, null) limit 1),
   'all clear, signed off in the incident note',
   '31 the most recent flip comes first, so an operator sees the latest attribution without ordering it');
-select ok(has_function_privilege('anon',
+select is(has_function_privilege('anon',
   'public.lifecycle_switch_state_v1(text, uuid, text)', 'execute'), false,
   '32 anon may not read switch state');
 select is(pg_temp.try_switch('expert', null, 'geotech_screening', 'off',
