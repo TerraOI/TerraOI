@@ -1,7 +1,7 @@
 # ADR-0005 OCR job API, lease fencing, and the artifact home (T-211 prerequisite)
 
 Status: **accepted** — this PR is the implementation: the one migration
-[`20261109230000_ocr_job_leases.sql`](../../supabase/migrations/20261109230000_ocr_job_leases.sql),
+[`20261116211000_ocr_job_leases.sql`](../../supabase/migrations/20261116211000_ocr_job_leases.sql),
 pgTAP [`045_ingestion_jobs.test.sql`](../../supabase/tests/database/045_ingestion_jobs.test.sql),
 [ADR-0011](0011-object-bytes-for-the-extraction-workers.md) and
 [`scripts/worker-credential.mjs`](../../scripts/worker-credential.mjs). The sketches below stay in
@@ -322,7 +322,7 @@ Supervisor ruling, recorded here so §3 and §5b have one answer:
 This section is the rewrite §5 and §6 promised. Where a sketch above and the migration disagree, **this
 section and the migration win**; the sketches stay for the review trail.
 
-**Job API, as merged** — one migration, `20261109230000_ocr_job_leases.sql`:
+**Job API, as merged** — one migration, `20261116211000_ocr_job_leases.sql`:
 
 - One column: `ingestion_jobs.lease_fence bigint not null default 0` with its own non-negative CHECK.
 - One public table: `public.extraction_artifacts`, plus `public.extraction_artifacts_guard()` and its
@@ -415,7 +415,7 @@ see all three rather than one:
 
 ## Consequences
 
-- Landing this design adds, in **one** migration (`20261109230000_ocr_job_leases.sql`, as built — see §10c): one column (`ingestion_jobs.lease_fence`), one public table (`public.extraction_artifacts`) with its guard function and trigger, one schema (`job_api`), one small credential table (`job_api.worker_credentials`), six functions (`lease`/`renew`/`complete`/`abort`/`retarget_extract_job_v1`/`object_ref_for_lease_v1`) plus four bound helpers (`max_attempts`, `max_lease_seconds`, `abort_reasons`, `retarget_reasons`) and one clearance helper, one reconciler **view** (`job_api.reconciler_findings`, granted to nobody), and one role (`toi_job_api`, `NOLOGIN`, `usage` + `execute` by name, **no table grants**). The packet's "its own job and artifact views" is satisfied by the RPC result shapes rather than by granted views: `045`'s privilege group proves the worker role selects no table at all, which is a narrower reading than literal views and the one this PR ships — if the supervisor wants the literal views, that is a new migration and a new pair of grants, not a change to any signature.
+- Landing this design adds, in **one** migration (`20261116211000_ocr_job_leases.sql`, as built — see §10c): one column (`ingestion_jobs.lease_fence`), one public table (`public.extraction_artifacts`) with its guard function and trigger, one schema (`job_api`), one small credential table (`job_api.worker_credentials`), six functions (`lease`/`renew`/`complete`/`abort`/`retarget_extract_job_v1`/`object_ref_for_lease_v1`) plus four bound helpers (`max_attempts`, `max_lease_seconds`, `abort_reasons`, `retarget_reasons`) and one clearance helper, one reconciler **view** (`job_api.reconciler_findings`, granted to nobody), and one role (`toi_job_api`, `NOLOGIN`, `usage` + `execute` by name, **no table grants**). The packet's "its own job and artifact views" is satisfied by the RPC result shapes rather than by granted views: `045`'s privilege group proves the worker role selects no table at all, which is a narrower reading than literal views and the one this PR ships — if the supervisor wants the literal views, that is a new migration and a new pair of grants, not a change to any signature.
 - Migration mechanics are fixed by the repo, not by taste: the newest merged file is `20261106100000_knowledge_uploads.sql`, and a new migration's timestamp must be later than the newest on main, merged files are never edited, and a PR may add exactly one migration ([`scripts/migrations.mjs:22-24,33-37`](../../scripts/migrations.mjs)). The in-flight session migration (#77) will raise that floor before this PR is reviewable, so the filename is fixed at claim time in the daily sync (COORDINATION §3).
 - **Recommended landing order: answer #51 and #66 first.** One migration cannot carry two undecided designs: #51 decides whether §4's table exists at all, and #66 decides whether §5 exists. Then implement in this order, test-first: artifact table + guard + RLS; fence + lease/renew; complete; retarget; abort/revocation.
 - If the supervisor chooses #68 option 2, §3–§5 keep their signatures and gain a history table; if #66 option 1 wins, §5 is deleted and a merged pgTAP assertion changes in the same PR; if #51 option 2 wins, §4 remains and the fill is added on top. No other combination rewrites this ADR.

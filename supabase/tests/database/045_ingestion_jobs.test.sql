@@ -1,5 +1,5 @@
 -- T-211 PR-1 — the job API, the artifact home and the reconciler
--- (supabase/migrations/20261109230000_ocr_job_leases.sql). Plan §7.2 (extraction executors), §7.5
+-- (supabase/migrations/20261116211000_ocr_job_leases.sql). Plan §7.2 (extraction executors), §7.5
 -- (bounded retries, dead letter, reconciler), §13 (the box is outbound-only), §12.4; F12, F32.
 -- Rulings pinned here: #99 (max_attempts, inline reclaim, `failed` as the dead letter, the reconciler,
 -- duplicate dispatch), #134 (the credential digest inside the same compare as tenant, version, stage,
