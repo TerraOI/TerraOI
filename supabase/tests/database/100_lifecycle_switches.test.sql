@@ -261,7 +261,7 @@ select is(pg_temp.try_suspend('11111111-1111-4111-8111-111111111111'), 'ok',
 select is(status, 'suspended',
   '36 and it moves organisations.status, the one status resolve_tenant_host and is_active_member read')
   from public.organisations where id = '11111111-1111-4111-8111-111111111111';
-select is(policy_revision, 1,
+select is(policy_revision::text, '1',
   '37 #98: this migration does not bump policy_revision, and pinning that keeps the gap visible until '
   || 'T-202 status trigger (the #98 writer, #179) merges')
   from public.organisations where id = '11111111-1111-4111-8111-111111111111';
