@@ -10,5 +10,9 @@ Repository policy checks. Each check keeps its rules in a pure, unit-tested modu
 | `pnpm check:migrations` | `check-migrations.mjs` | `migrations.mjs`: one new, later migration per PR; merged ones immutable | CI `migrations` |
 | (CI only) | `check-provisional.mjs` | `provisional.mjs`: a PR built on an open question cannot merge | CI `provisional` |
 | (CI only) | `check-pr-provenance.mjs` | `provenance.mjs`: commits on `main` came through merged, reviewed PRs | `main-guard`, `deploy-staging` |
+| `node scripts/check-release-preflight.mjs --env <name>` | `check-release-preflight.mjs` | `release-preflight.mjs`: no production route, Worker name or service target under `env.staging` and no staging one in production; the bindings the code reads are declared; no secret-shaped value or project ref in the config (T-404, plan §17.2 step 2) | `pnpm test` covers the rules today; wiring the CLI into a release job is **proposed, not done** (`.github/` is protected — see T-404's Owns) |
+| `node scripts/workers-rollback.mjs --env staging --list` / `--to <version-id> [--execute]` | the same file | `workers-rollback.mjs`: a rollback names a version wrangler listed, refuses the one already serving, and refuses `production` without an explicit flag | a rehearsal tool run by a person, **never CI** |
+
+The last row is the one exception to the shape above: it is an operator tool rather than a policy check, so its CLI sits with its rules and no `check-*` wrapper exists. Its `exec` is injected for the same reason — the tests run against a fake, so no test can deploy anything.
 
 Change a rule by editing its module and its tests together; the supervisor reviews changes to policy checks.
