@@ -61,7 +61,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(73);
+select plan(93);
 
 -- ---------------------------------------------------------------- helpers (pg_temp, security invoker)
 -- SQLSTATE instead of an abort, the 010/016/025 idiom: a red run names which object is missing
@@ -123,6 +123,34 @@ returns text language plpgsql security invoker as $fn$
 begin
   begin
     perform public.set_tenant_scope(p_organisation_id);
+    return 'ok';
+  exception when others then
+    return sqlstate::text;
+  end;
+end;
+$fn$;
+
+-- Two more capture helpers, same idiom: the role in force is the one being tested.
+create function pg_temp.try_host(p_host text)
+returns text language plpgsql security invoker as $fn$
+begin
+  begin
+    perform public.resolve_tenant_host(p_host);
+    return 'ok';
+  exception when others then
+    return sqlstate::text;
+  end;
+end;
+$fn$;
+
+-- A dynamic select, so the privilege checked is the caller's and not the helper owner's. The name is
+-- format('%I')-quoted, so a table name cannot turn into a query.
+create function pg_temp.try_table(p_table text)
+returns text language plpgsql security invoker as $fn$
+declare v integer;
+begin
+  begin
+    execute format('select count(*) from public.%I', p_table) into v;
     return 'ok';
   exception when others then
     return sqlstate::text;
@@ -400,5 +428,135 @@ select is((select count(*) from pg_tables where schemaname = 'public' and tablen
   '73 F05 says "defaults and entitlements": no entitlement table exists on main and no packet owns one, '
   || 'so provisioning seeds none and this assertion says so instead of creating one quietly');
 
+-- ------------------------------------------ 74-93 the switch reaching the code that already runs
+-- §15.2's gate item is "kill switches **verified**", and verified has to mean the entry points that
+-- already exist on `main` refuse — not that a settings row reads a certain way. Two merged predicates
+-- do that work: `resolve_tenant_host` returns rows only where `o.status in ('provisioning','active')`
+-- (`20261105060000_tenancy_core.sql:244-248`), and `is_active_member` requires `o.status = 'active'`
+-- (`:176-187`). `010_tenancy.test.sql` already pins the resolver's **host** cases — unknown,
+-- look-alike, staging, normalization — but never a suspended organisation, because nothing could
+-- suspend one until this migration added `suspend_tenant_v1`. So these are the organisation-status
+-- half of the same entry point, not a second copy of 010.
+--
+-- No new grant is needed to test any of it: `resolve_tenant_host(text)` is already the single named
+-- exception in 001's rule 31 for `anon`, which is exactly the pre-sign-in path a tenant switch has to
+-- stop. That is also why this section adds assertions and no privileges.
+set local role anon;
+create temp table t_anon_hosts (case_name text primary key, row_count integer not null);
+insert into t_anon_hosts values
+  ('company2_before', (select count(*) from public.resolve_tenant_host('company2.terraoi.app')));
+reset role;
+
+select is(pg_temp.try_resume('22222222-2222-4222-8222-222222222222'), 'ok',
+  '74 company2 is resumed first, because test 46 suspended it: this section needs one tenant stopped and '
+  || 'one serving, and which one happened to be switched off earlier must not be what makes the answers '
+  || 'look right');
+
+select is(pg_temp.try_suspend('11111111-1111-4111-8111-111111111111'), 'ok',
+  '75 the suspend a drill would run, on the tenant whose host resolution is about to be watched');
+
+set local role anon;
+insert into t_anon_hosts values
+  ('company1_tenant', (select count(*) from public.resolve_tenant_host('company1.terraoi.app'))),
+  ('company1_staging', (select count(*) from public.resolve_tenant_host('company1-staging.terraoi.app'))),
+  ('company2_after', (select count(*) from public.resolve_tenant_host('company2.terraoi.app')));
+reset role;
+
+select is((select row_count::text from t_anon_hosts where case_name = 'company2_before'), '1',
+  '76 baseline read **before** the suspend: company2 resolves, so no zero below can be the resolver being '
+  || 'broken for everybody rather than the switch working');
+select is((select row_count::text from t_anon_hosts where case_name = 'company1_tenant'), '0',
+  '77 the suspended tenant resolves to nothing, so sign-in never receives a tenant to offer — which is '
+  || 'what §15.2 means by a verified kill switch, asserted through the merged resolver and not through my '
+  || 'own read');
+select is((select row_count::text from t_anon_hosts where case_name = 'company1_staging'), '0',
+  '78 and its staging origin stops with it: the resolver joins on the organisation, so there is no second '
+  || 'status for a staging host to forget');
+select is((select row_count::text from t_anon_hosts where case_name = 'company2_after'), '1',
+  '79 the tenant nobody switched off still resolves during the suspension: per-tenant at the entry point, '
+  || 'not a global pause wearing a tenant-shaped mask');
+
+select is(pg_temp.try_host('company1.terraoi.app'), 'ok',
+  '80 the refusal is a missing row and not a raised exception: §4.1 step 3 asks for a generic failure with '
+  || 'no tenant detail, so an error out of the resolver would itself be a leak of that detail');
+
+select is(pg_temp.try_resume('11111111-1111-4111-8111-111111111111'), 'ok',
+  '81 the same call that stopped it starts it again');
+
+set local role anon;
+insert into t_anon_hosts values
+  ('company1_resumed', (select count(*) from public.resolve_tenant_host('company1.terraoi.app')));
+reset role;
+select is((select row_count::text from t_anon_hosts where case_name = 'company1_resumed'), '1',
+  '82 the host resolves again, so the packet''s drill can be run twice on one tenant instead of once '
+  || 'against a fresh database');
+
+select is((select count(*) from public.lifecycle_switch_flips
+            where scope_kind = 'tenant'
+              and organisation_id = '11111111-1111-4111-8111-111111111111')::text, '4',
+  '83 four tenant flips for company1 across this file — suspend, resume, suspend, resume — and the count '
+  || 'is four rather than five because the already-suspended call at test 39 recorded nothing');
+
+select is(public.lifecycle_switch_state_v1('tenant', '11111111-1111-4111-8111-111111111111', null), 'on',
+  '84 with `left@company1.test` still holding a suspended membership (seed.sql:57) the tenant reads on: a '
+  || 'membership is not a tenant switch, so it may neither write a flip nor stop a tenant');
+
+set local role authenticated;
+insert into t_user values
+  ('table_switches_as_user', pg_temp.try_table('lifecycle_switches')),
+  ('table_flips_as_user', pg_temp.try_table('lifecycle_switch_flips'));
+reset role;
+select is((select result from t_user where case_name = 'table_switches_as_user'), '42501',
+  '85 the grant wall is not only about functions: a signed-in user cannot select the switch table at all');
+select is((select result from t_user where case_name = 'table_flips_as_user'), '42501',
+  '86 nor the flip history, which is where an operator identity and a stated reason would be readable if '
+  || 'anyone could select it');
+
+set local role anon;
+create temp table t_anon_denials (case_name text primary key, result text not null);
+insert into t_anon_denials values ('table_switches_as_anon', pg_temp.try_table('lifecycle_switches'));
+reset role;
+select is((select result from t_anon_denials where case_name = 'table_switches_as_anon'), '42501',
+  '87 anon is refused the same way, so the pre-sign-in path cannot enumerate what is switched off — which '
+  || 'matters precisely because that is the path a tenant switch does have to reach');
+
+set local role service_role;
+create temp table t_svc_denials (case_name text primary key, result text not null);
+insert into t_svc_denials values ('table_flips_as_service', pg_temp.try_table('lifecycle_switch_flips'));
+reset role;
+select is((select result from t_svc_denials where case_name = 'table_flips_as_service'), '42501',
+  '88 service_role is revoked at the table too. This one is a decision about the next slice, not a '
+  || 'description of the last: if the pipeline needs a switch read, what gets granted is a function with a '
+  || 'signature and a shape, never raw SELECT on the settings rows');
+
+select is(pg_temp.try_switch('platform', null, null, 'off', 'pinned absence, not an incident', 'ops@terraoi.test'),
+  'ok', '89 a platform switch can be set at all (the write half of §972''s platform row)');
+
+set local role anon;
+insert into t_anon_hosts values
+  ('company1_platform_off', (select count(*) from public.resolve_tenant_host('company1.terraoi.app')));
+reset role;
+select is((select row_count::text from t_anon_hosts where case_name = 'company1_platform_off'), '1',
+  '90 with the platform switch off, host resolution still answers. Pinned as an **absence**, in the shape '
+  || 'of test 37: nothing on `main` consumes a platform switch yet — the consumers are Lane 2''s chain '
+  || 'selection and the sign-in path — so this reads as owed, not as handled');
+
+select is(pg_temp.try_switch('platform', null, null, 'on', 'end of block: the pinned switch goes back on', 'ops@terraoi.test'),
+  'ok', '91 the platform switch can be set back on, so an assertion that runs after this one is not '
+  || 'silently reading my incidental state');
+
+select is(public.lifecycle_switch_state_v1('tenant',
+        (select id from public.organisations where slug = 'acme-surveys'), null), 'on',
+  '92 the tenant provisioned at test 53 is still `provisioning` and reads on. The state function admits '
+  || 'exactly the statuses resolve_tenant_host admits — provisioning and active — so the two mechanisms '
+  || 'cannot disagree about a tenant nobody switched off');
+
+set local role anon;
+insert into t_anon_hosts values
+  ('provisioned_host', (select count(*) from public.resolve_tenant_host('acme-surveys.terraoi.app')));
+reset role;
+select is((select row_count::text from t_anon_hosts where case_name = 'provisioned_host'), '1',
+  '93 and that tenant''s host resolves, which is one predicate answering in two places rather than two '
+  || 'predicates free to drift');
 select * from finish();
 rollback;
