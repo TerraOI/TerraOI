@@ -443,14 +443,20 @@ select is((select count(*) from pg_tables where schemaname = 'public' and tablen
 -- stop. That is also why this section adds assertions and no privileges.
 set local role anon;
 create temp table t_anon_hosts (case_name text primary key, row_count integer not null);
-insert into t_anon_hosts values
-  ('company2_before', (select count(*) from public.resolve_tenant_host('company2.terraoi.app')));
 reset role;
 
 select is(pg_temp.try_resume('22222222-2222-4222-8222-222222222222'), 'ok',
   '74 company2 is resumed first, because test 46 suspended it: this section needs one tenant stopped and '
   || 'one serving, and which one happened to be switched off earlier must not be what makes the answers '
   || 'look right');
+
+-- The baseline is read here, not above, for a reason: test 46 left company2 suspended, and a read taken
+-- before the resume at 74 is a suspended tenant's correct zero rather than a baseline. That is exactly
+-- the false pass this guard exists to catch, so the guard could not be left ordering itself wrongly.
+set local role anon;
+insert into t_anon_hosts values
+  ('company2_before', (select count(*) from public.resolve_tenant_host('company2.terraoi.app')));
+reset role;
 
 select is(pg_temp.try_suspend('11111111-1111-4111-8111-111111111111'), 'ok',
   '75 the suspend a drill would run, on the tenant whose host resolution is about to be watched');
