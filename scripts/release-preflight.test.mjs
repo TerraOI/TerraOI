@@ -219,6 +219,16 @@ describe("checkReleaseConfig: it refuses to check nothing", () => {
   });
 });
 
+describe("a config with no env.production block at all", () => {
+  it("says so, instead of quietly checking the top level as if it were complete", () => {
+    const partial = config();
+    delete partial.env.production;
+    const r = checkReleaseConfig(partial, "production");
+    expect(r.ok).toBe(false);
+    expect(rules(r)).toContain("production-has-no-env-block");
+  });
+});
+
 describe("the real wrangler.jsonc", () => {
   const path = fileURLToPath(new URL("../wrangler.jsonc", import.meta.url));
   const real = parseJsonc(readFileSync(path, "utf8"));
@@ -228,19 +238,42 @@ describe("the real wrangler.jsonc", () => {
     expect(real.env.staging.routes.length).toBeGreaterThan(0);
   });
 
-  it("passes the preflight for staging today", () => {
-    const r = checkReleaseConfig(real, "staging");
-    expect(r.findings).toEqual([]);
+  it("declares an explicit production environment, so a staging value can no longer be inherited", () => {
+    expect(real.env.production).toBeTypeOf("object");
+    expect(real.env.production.name).toBe("terraoi-web");
   });
 
-  it("fails today for a production environment that does not exist yet", () => {
-    // Honest about the current state of the repository: production is the top-level config, which
-    // has no routes and no bindings, and the packet's job is to change that in the file, not to
-    // pretend it already passes.
+  it("passes the preflight for staging", () => {
+    expect(checkReleaseConfig(real, "staging").findings).toEqual([]);
+  });
+
+  it("leaves production with exactly one finding, and that finding is the owner's line to fill", () => {
+    // The block declares the bindings by name and the routes are deliberately empty until the owner
+    // verifies DNS and adds them (T-004, and the file's own comment). So the honest expectation is not
+    // "production passes" — it is "production is complete except for the one thing an agent must not
+    // do", and the preflight is what keeps a production deploy from happening before then.
     const r = checkReleaseConfig(real, "production");
+    expect(rules(r)).toEqual(["no-routes-declared"]);
+  });
+
+  it("refuses a staging route copied into env.production", () => {
+    const tampered = structuredClone(real);
+    tampered.env.production.routes = [{ pattern: "company1-staging.terraoi.app/*", zone_name: "terraoi.app" }];
+    const r = checkReleaseConfig(tampered, "production");
     expect(r.ok).toBe(false);
-    expect(rules(r)).toEqual(
-      expect.arrayContaining(["production-has-no-env-block", "no-routes-declared", "missing-binding"]),
-    );
+    expect(rules(r)).toContain("production-route-is-staging");
+  });
+
+  it("refuses a secret-shaped value in env.production, where the placeholders live", () => {
+    const tampered = structuredClone(real);
+    tampered.env.production.vars.SESSION_TOKEN_KEY = "eyJhbGciOiJIUzI1NiJ9.e30.e30";
+    const r = checkReleaseConfig(tampered, "production");
+    expect(rules(r)).toContain("secret-shaped-var");
+  });
+
+  it("refuses a staging Worker name in env.production", () => {
+    const tampered = structuredClone(real);
+    tampered.env.production.name = "terraoi-web-staging";
+    expect(rules(checkReleaseConfig(tampered, "production"))).toContain("production-uses-staging-worker-name");
   });
 });
