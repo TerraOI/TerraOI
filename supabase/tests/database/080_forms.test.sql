@@ -88,13 +88,15 @@ select has_function('public', 'save_form_draft_v1',
   '9 save_form_draft_v1 takes p_organisation_id first, like every scoped RPC (FAQ-0011)');
 select has_function('public', 'submit_form_v1', array['uuid', 'uuid'],
   '10 submit_form_v1 is scoped the same way');
-select has_function_privilege('authenticated', 'public.save_form_draft_v1(uuid,uuid,text,jsonb,uuid)', 'execute',
+-- Postgres has_function_privilege / has_table_privilege are boolean helpers (2–3 args),
+-- not pgTAP assertions. Wrap with is(...), matching 001/010/025; a 4-arg call is SQLSTATE 42883.
+select is(has_function_privilege('authenticated', 'public.save_form_draft_v1(uuid,uuid,text,jsonb,uuid)', 'execute'), true,
   '11 the request role may call the draft RPC');
-select hasnt_function_privilege('anon', 'public.submit_form_v1(uuid,uuid)', 'execute',
+select is(has_function_privilege('anon', 'public.submit_form_v1(uuid,uuid)', 'execute'), false,
   '12 anon cannot submit: a submission is an employee action (4.2)');
-select has_table_privilege('authenticated', 'public.form_templates', 'select',
+select is(has_table_privilege('authenticated', 'public.form_templates', 'select'), true,
   '13 templates are readable through RLS, so the shell can render one');
-select hasnt_table_privilege('authenticated', 'public.form_templates', 'insert',
+select is(has_table_privilege('authenticated', 'public.form_templates', 'insert'), false,
   '14 templates are not writable by the request role: only platform seeds and later admin RPCs (7.6)');
 
 -- ------------------------------------------------------------------- 15..16 the seeded catalogue
