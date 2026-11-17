@@ -142,8 +142,8 @@ insert into pg_temp.drafts (tag, result) values
                                 ('{"airframe_check": "synthetic", "battery_pct": 92,'
                                 || ' "weather_notes": "synthetic"}')::jsonb));
 
--- isnt_null has no uuid overload in our pgTAP; keep the probe as text (uuid shape checked below).
-select isnt_null((select result from pg_temp.drafts where tag = 'a1_uav'),
+-- Prefer ok(... is not null): isnt_null(text, text) is missing in the CI pgTAP build.
+select ok((select result from pg_temp.drafts where tag = 'a1_uav') is not null,
   '17 an owner with knowledge.write can open a draft against the published version');
 select is((select state from public.form_submissions
             where id = (select result::uuid from pg_temp.drafts where tag = 'a1_uav')), 'draft',
@@ -194,9 +194,9 @@ select is((select count(*) from public.form_templates), 2::bigint,
 select set_tenant_scope('22222222-2222-4222-8222-222222222222');
 select is((select count(*) from public.form_templates), 1::bigint,
   '30 the same person scoped to company2 sees one template: the same id in both tenants is not a leak');
-select isnt_null(pg_temp.try_draft('22222222-2222-4222-8222-222222222222'::uuid,
+select ok(pg_temp.try_draft('22222222-2222-4222-8222-222222222222'::uuid,
                                    '80000000-0000-4000-8000-000000000003'::uuid, 'v1',
-                                   '{"line_id": "L1", "passes": 3}'::jsonb),
+                                   '{"line_id": "L1", "passes": 3}'::jsonb) is not null,
   '31 a member of the second tenant can draft in it: nothing about the first tenant leaks in');
 
 -- The schema, not only the RPC, must make a cross-tenant row impossible: a hand-built insert with
@@ -282,7 +282,7 @@ insert into pg_temp.drafts (tag, result) values
                                 '80000000-0000-4000-8000-000000000002'::uuid, 'v1',
                                 '{"location": "synthetic", "observation": "synthetic"}'::jsonb));
 
-select isnt_null((select result from pg_temp.drafts where tag = 'a2_uav'),
+select ok((select result from pg_temp.drafts where tag = 'a2_uav') is not null,
   '47 a plain member may open a draft: filling a form is not publishing (7.6 step 2)');
 select is((select result from pg_temp.drafts where tag = 'a2_site_a'), '42501',
   '48 a Site A template refuses a submitter outside Site A: audience is the collection''s (T-214)');
@@ -297,9 +297,9 @@ set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
 select is((select count(*) from public.form_submissions
             where created_by = '00000000-0000-4000-8000-0000000000a2'), 0::bigint,
   '51 an admin in the same tenant cannot read a colleague''s draft: drafts are private (7.6 step 2)');
-select isnt_null(pg_temp.try_draft('11111111-1111-4111-8111-111111111111'::uuid,
+select ok(pg_temp.try_draft('11111111-1111-4111-8111-111111111111'::uuid,
                                    '80000000-0000-4000-8000-000000000002'::uuid, 'v1',
-                                   '{"location": "synthetic", "observation": "synthetic"}'::jsonb),
+                                   '{"location": "synthetic", "observation": "synthetic"}'::jsonb) is not null,
   '52 a Site A member may draft on the project-scoped client_confidential template');
 
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a3';
@@ -342,12 +342,12 @@ insert into pg_temp.drafts (tag, result) values
                                 || ' "weather_notes": "synthetic"}')::jsonb,
                                 '99999999-9999-4999-8999-999999999999'::uuid));
 
-select isnt_null((select result from pg_temp.drafts where tag = 'a1_fix'),
+select ok((select result from pg_temp.drafts where tag = 'a1_fix') is not null,
   '56 a correction opens as a new draft linked to the one it replaces (7.6 step 4)');
 select is((select result from pg_temp.drafts where tag = 'a1_fix_foreign'), '42501',
   '57 a correction cannot point at a submission from another tenant, even by guessed uuid');
-select isnt_null(pg_temp.try_submit('11111111-1111-4111-8111-111111111111',
-                                    (select result::uuid from pg_temp.drafts where tag = 'a1_fix')),
+select ok(pg_temp.try_submit('11111111-1111-4111-8111-111111111111'::uuid,
+                                    (select result::uuid from pg_temp.drafts where tag = 'a1_fix')) is not null,
   '58 the correction submits: the corrected field values are citable as form_field evidence');
 select is((select supersedes_submission_id = (select result::uuid from pg_temp.drafts
                                                where tag = 'a1_uav')
