@@ -410,6 +410,9 @@ select is(pg_temp.try_submit('11111111-1111-4111-8111-111111111111',
 -- ----------------------------------------------------- 62..67 untrusted template content at write
 -- A template is untrusted content with a path into retrieval (4.8), so the guard lives in the
 -- schema as well as in the contract: these inserts are hand-built and must never be storable.
+-- Templates have no authenticated INSERT policy (seed/admin writer only); probe as the migration
+-- role so RLS does not mask the CHECK/guard with 42501 before the content rules fire.
+reset role;
 create function pg_temp.try_raw_template(p_json_schema jsonb, p_ui_hints jsonb, p_data_class text)
 returns text language plpgsql security invoker as $fn$
 begin
