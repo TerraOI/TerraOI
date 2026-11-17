@@ -196,6 +196,9 @@ begin
       new.published_at := coalesce(new.published_at, now());
     elsif new.status = 'published' then
       new.published_at := old.published_at;
+    elsif new.status = 'retired' then
+      -- form_templates_published_marker: published_at is only legal while status = published.
+      new.published_at := null;
     end if;
   end if;
   return new;

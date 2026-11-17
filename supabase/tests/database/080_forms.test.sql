@@ -396,7 +396,8 @@ insert into pg_temp.drafts (tag, result) values
                                  ('{"airframe_check": "synthetic", "battery_pct": 88,'
                                  || ' "weather_notes": "synthetic"}')::jsonb));
 reset role;
-update public.form_templates set status = 'retired'
+-- published_at must clear with retirement (form_templates_published_marker).
+update public.form_templates set status = 'retired', published_at = null
   where id = '80000000-0000-4000-8000-000000000001';
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
