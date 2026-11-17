@@ -118,29 +118,29 @@ set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
 create table pg_temp.drafts (tag text primary key, result text);
 
 insert into pg_temp.drafts (tag, result) values
-  ('a1_uav', pg_temp.try_draft('11111111-1111-4111-8111-111111111111',
-                                '80000000-0000-4000-8000-000000000001', 'v1',
-                                '{"airframe_check": "tether and props checked", "battery_pct": 92,'
-                                || ' "weather_notes": "wind 4 m/s, synthetic"}')),
-  ('a1_uav_badtype', pg_temp.try_draft('11111111-1111-4111-8111-111111111111',
-                                '80000000-0000-4000-8000-000000000001', 'v1',
-                                '{"airframe_check": "synthetic", "battery_pct": "full",'
-                                || ' "weather_notes": "synthetic"}')),
-  ('a1_uav_missing', pg_temp.try_draft('11111111-1111-4111-8111-111111111111',
-                                '80000000-0000-4000-8000-000000000001', 'v1',
-                                '{"airframe_check": "synthetic"}')),
-  ('a1_uav_unknown', pg_temp.try_draft('11111111-1111-4111-8111-111111111111',
-                                '80000000-0000-4000-8000-000000000001', 'v1',
-                                '{"airframe_check": "synthetic", "battery_pct": 92,'
-                                || ' "weather_notes": "synthetic", "sql": "drop table things"}')),
-  ('a1_uav_oversize', pg_temp.try_draft('11111111-1111-4111-8111-111111111111',
-                                '80000000-0000-4000-8000-000000000001', 'v1',
+  ('a1_uav', pg_temp.try_draft('11111111-1111-4111-8111-111111111111'::uuid,
+                                '80000000-0000-4000-8000-000000000001'::uuid, 'v1',
+                                ('{"airframe_check": "tether and props checked", "battery_pct": 92,'
+                                || ' "weather_notes": "wind 4 m/s, synthetic"}')::jsonb)),
+  ('a1_uav_badtype', pg_temp.try_draft('11111111-1111-4111-8111-111111111111'::uuid,
+                                '80000000-0000-4000-8000-000000000001'::uuid, 'v1',
+                                ('{"airframe_check": "synthetic", "battery_pct": "full",'
+                                || ' "weather_notes": "synthetic"}')::jsonb)),
+  ('a1_uav_missing', pg_temp.try_draft('11111111-1111-4111-8111-111111111111'::uuid,
+                                '80000000-0000-4000-8000-000000000001'::uuid, 'v1',
+                                '{"airframe_check": "synthetic"}'::jsonb)),
+  ('a1_uav_unknown', pg_temp.try_draft('11111111-1111-4111-8111-111111111111'::uuid,
+                                '80000000-0000-4000-8000-000000000001'::uuid, 'v1',
+                                ('{"airframe_check": "synthetic", "battery_pct": 92,'
+                                || ' "weather_notes": "synthetic", "sql": "drop table things"}')::jsonb)),
+  ('a1_uav_oversize', pg_temp.try_draft('11111111-1111-4111-8111-111111111111'::uuid,
+                                '80000000-0000-4000-8000-000000000001'::uuid, 'v1',
                                 jsonb_build_object('airframe_check', repeat('x', 4000),'battery_pct', 92,
                                                    'weather_notes', 'synthetic'))),
-  ('a1_uav_version', pg_temp.try_draft('11111111-1111-4111-8111-111111111111',
-                                '80000000-0000-4000-8000-000000000001', 'v0',
-                                '{"airframe_check": "synthetic", "battery_pct": 92,'
-                                || ' "weather_notes": "synthetic"}'));
+  ('a1_uav_version', pg_temp.try_draft('11111111-1111-4111-8111-111111111111'::uuid,
+                                '80000000-0000-4000-8000-000000000001'::uuid, 'v0',
+                                ('{"airframe_check": "synthetic", "battery_pct": 92,'
+                                || ' "weather_notes": "synthetic"}')::jsonb));
 
 select isnt_null((select result::uuid from pg_temp.drafts where tag = 'a1_uav'),
   '17 an owner with knowledge.write can open a draft against the published version');
@@ -171,13 +171,13 @@ select is((select values_json ->> 'battery_pct' from public.form_submissions
 -- company2's owner tries company1's template. The scope argument is honoured, so the template is
 -- simply not in scope: 42501, never "not found" with a different tenant's row (4.1).
 insert into pg_temp.drafts (tag, result) values
-  ('b1_company1_template', pg_temp.try_draft('22222222-2222-4222-8222-222222222222',
-                                '80000000-0000-4000-8000-000000000001', 'v1',
-                                '{"airframe_check": "synthetic", "battery_pct": 92,'
-                                || ' "weather_notes": "synthetic"}')),
-  ('a1_as_company2', pg_temp.try_draft('22222222-2222-4222-8222-222222222222',
-                                '80000000-0000-4000-8000-000000000003', 'v1',
-                                '{"line_id": "L1", "passes": 3}'));
+  ('b1_company1_template', pg_temp.try_draft('22222222-2222-4222-8222-222222222222'::uuid,
+                                '80000000-0000-4000-8000-000000000001'::uuid, 'v1',
+                                ('{"airframe_check": "synthetic", "battery_pct": 92,'
+                                || ' "weather_notes": "synthetic"}')::jsonb)),
+  ('a1_as_company2', pg_temp.try_draft('22222222-2222-4222-8222-222222222222'::uuid,
+                                '80000000-0000-4000-8000-000000000003'::uuid, 'v1',
+                                '{"line_id": "L1", "passes": 3}'::jsonb));
 
 select is((select result from pg_temp.drafts where tag = 'b1_company1_template'), '42501',
   '27 a company2 member cannot draft on a company1 template, even with a valid company2 scope');
@@ -193,9 +193,9 @@ select is((select count(*) from public.form_templates), 2::bigint,
 select set_tenant_scope('22222222-2222-4222-8222-222222222222');
 select is((select count(*) from public.form_templates), 1::bigint,
   '30 the same person scoped to company2 sees one template: the same id in both tenants is not a leak');
-select isnt_null(pg_temp.try_draft('22222222-2222-4222-8222-222222222222',
-                                   '80000000-0000-4000-8000-000000000003', 'v1',
-                                   '{"line_id": "L1", "passes": 3}'),
+select isnt_null(pg_temp.try_draft('22222222-2222-4222-8222-222222222222'::uuid,
+                                   '80000000-0000-4000-8000-000000000003'::uuid, 'v1',
+                                   '{"line_id": "L1", "passes": 3}'::jsonb),
   '31 a member of the second tenant can draft in it: nothing about the first tenant leaks in');
 
 -- The schema, not only the RPC, must make a cross-tenant row impossible: a hand-built insert with
@@ -273,13 +273,13 @@ select is(pg_temp.try_submit('11111111-1111-4111-8111-111111111111',
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a2';
 insert into pg_temp.drafts (tag, result) values
-  ('a2_uav', pg_temp.try_draft('11111111-1111-4111-8111-111111111111',
-                                '80000000-0000-4000-8000-000000000001', 'v1',
-                                '{"airframe_check": "synthetic", "battery_pct": 70,'
-                                || ' "weather_notes": "synthetic"}')),
-  ('a2_site_a', pg_temp.try_draft('11111111-1111-4111-8111-111111111111',
-                                '80000000-0000-4000-8000-000000000002', 'v1',
-                                '{"location": "synthetic", "observation": "synthetic"}'));
+  ('a2_uav', pg_temp.try_draft('11111111-1111-4111-8111-111111111111'::uuid,
+                                '80000000-0000-4000-8000-000000000001'::uuid, 'v1',
+                                ('{"airframe_check": "synthetic", "battery_pct": 70,'
+                                || ' "weather_notes": "synthetic"}')::jsonb)),
+  ('a2_site_a', pg_temp.try_draft('11111111-1111-4111-8111-111111111111'::uuid,
+                                '80000000-0000-4000-8000-000000000002'::uuid, 'v1',
+                                '{"location": "synthetic", "observation": "synthetic"}'::jsonb));
 
 select isnt_null((select result from pg_temp.drafts where tag = 'a2_uav')::uuid,
   '47 a plain member may open a draft: filling a form is not publishing (7.6 step 2)');
@@ -296,16 +296,16 @@ set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
 select is((select count(*) from public.form_submissions
             where created_by = '00000000-0000-4000-8000-0000000000a2'), 0::bigint,
   '51 an admin in the same tenant cannot read a colleague''s draft: drafts are private (7.6 step 2)');
-select isnt_null(pg_temp.try_draft('11111111-1111-4111-8111-111111111111',
-                                   '80000000-0000-4000-8000-000000000002', 'v1',
-                                   '{"location": "synthetic", "observation": "synthetic"}'),
+select isnt_null(pg_temp.try_draft('11111111-1111-4111-8111-111111111111'::uuid,
+                                   '80000000-0000-4000-8000-000000000002'::uuid, 'v1',
+                                   '{"location": "synthetic", "observation": "synthetic"}'::jsonb),
   '52 a Site A member may draft on the project-scoped client_confidential template');
 
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a3';
-select is(pg_temp.try_draft('11111111-1111-4111-8111-111111111111',
-                            '80000000-0000-4000-8000-000000000001', 'v1',
-                            '{"airframe_check": "synthetic", "battery_pct": 10,'
-                            || ' "weather_notes": "synthetic"}'), '28000',
+select is(pg_temp.try_draft('11111111-1111-4111-8111-111111111111'::uuid,
+                            '80000000-0000-4000-8000-000000000001'::uuid, 'v1',
+                            ('{"airframe_check": "synthetic", "battery_pct": 10,'
+                            || ' "weather_notes": "synthetic"}')::jsonb), '28000',
   '53 a suspended membership cannot open a draft at all (4.2 negative: deactivated member)');
 select is((select count(*) from public.form_templates), 0::bigint,
   '54 a suspended membership reads no templates either: the catalogue is membership-scoped too');
@@ -330,16 +330,16 @@ select is(pg_temp.try_update_submission((select result::uuid from pg_temp.drafts
           '42501',
   '55 a submitted row cannot be edited in place, not even by its author: corrections are versions (4.1)');
 insert into pg_temp.drafts (tag, result) values
-  ('a1_fix', pg_temp.try_draft('11111111-1111-4111-8111-111111111111',
-                                '80000000-0000-4000-8000-000000000001', 'v1',
-                                '{"airframe_check": "tether and props checked, corrected",'
-                                || ' "battery_pct": 92, "weather_notes": "wind 4 m/s, synthetic"}',
+  ('a1_fix', pg_temp.try_draft('11111111-1111-4111-8111-111111111111'::uuid,
+                                '80000000-0000-4000-8000-000000000001'::uuid, 'v1',
+                                ('{"airframe_check": "tether and props checked, corrected",'
+                                || ' "battery_pct": 92, "weather_notes": "wind 4 m/s, synthetic"}')::jsonb,
                                 (select result::uuid from pg_temp.drafts where tag = 'a1_uav'))),
-  ('a1_fix_foreign', pg_temp.try_draft('11111111-1111-4111-8111-111111111111',
-                                '80000000-0000-4000-8000-000000000001', 'v1',
-                                '{"airframe_check": "synthetic", "battery_pct": 92,'
-                                || ' "weather_notes": "synthetic"}',
-                                '99999999-9999-4999-8999-999999999999'));
+  ('a1_fix_foreign', pg_temp.try_draft('11111111-1111-4111-8111-111111111111'::uuid,
+                                '80000000-0000-4000-8000-000000000001'::uuid, 'v1',
+                                ('{"airframe_check": "synthetic", "battery_pct": 92,'
+                                || ' "weather_notes": "synthetic"}')::jsonb,
+                                '99999999-9999-4999-8999-999999999999'::uuid));
 
 select isnt_null((select result from pg_temp.drafts where tag = 'a1_fix')::uuid,
   '56 a correction opens as a new draft linked to the one it replaces (7.6 step 4)');
@@ -361,10 +361,10 @@ select is((select state || '/' || values_json ->> 'airframe_check' from public.f
 
 -- ------------------------------------------------- 61 a re-versioned or retired template mid-draft
 insert into pg_temp.drafts (tag, result) values
-  ('a1_late', pg_temp.try_draft('11111111-1111-4111-8111-111111111111',
-                                 '80000000-0000-4000-8000-000000000001', 'v1',
-                                 '{"airframe_check": "synthetic", "battery_pct": 88,'
-                                 || ' "weather_notes": "synthetic"}'));
+  ('a1_late', pg_temp.try_draft('11111111-1111-4111-8111-111111111111'::uuid,
+                                 '80000000-0000-4000-8000-000000000001'::uuid, 'v1',
+                                 ('{"airframe_check": "synthetic", "battery_pct": 88,'
+                                 || ' "weather_notes": "synthetic"}')::jsonb));
 reset role;
 update public.form_templates set status = 'retired'
   where id = '80000000-0000-4000-8000-000000000001';
