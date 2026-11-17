@@ -142,7 +142,8 @@ insert into pg_temp.drafts (tag, result) values
                                 ('{"airframe_check": "synthetic", "battery_pct": 92,'
                                 || ' "weather_notes": "synthetic"}')::jsonb));
 
-select isnt_null((select result::uuid from pg_temp.drafts where tag = 'a1_uav'),
+-- isnt_null has no uuid overload in our pgTAP; keep the probe as text (uuid shape checked below).
+select isnt_null((select result from pg_temp.drafts where tag = 'a1_uav'),
   '17 an owner with knowledge.write can open a draft against the published version');
 select is((select state from public.form_submissions
             where id = (select result::uuid from pg_temp.drafts where tag = 'a1_uav')), 'draft',
@@ -281,7 +282,7 @@ insert into pg_temp.drafts (tag, result) values
                                 '80000000-0000-4000-8000-000000000002'::uuid, 'v1',
                                 '{"location": "synthetic", "observation": "synthetic"}'::jsonb));
 
-select isnt_null((select result from pg_temp.drafts where tag = 'a2_uav')::uuid,
+select isnt_null((select result from pg_temp.drafts where tag = 'a2_uav'),
   '47 a plain member may open a draft: filling a form is not publishing (7.6 step 2)');
 select is((select result from pg_temp.drafts where tag = 'a2_site_a'), '42501',
   '48 a Site A template refuses a submitter outside Site A: audience is the collection''s (T-214)');
@@ -341,7 +342,7 @@ insert into pg_temp.drafts (tag, result) values
                                 || ' "weather_notes": "synthetic"}')::jsonb,
                                 '99999999-9999-4999-8999-999999999999'::uuid));
 
-select isnt_null((select result from pg_temp.drafts where tag = 'a1_fix')::uuid,
+select isnt_null((select result from pg_temp.drafts where tag = 'a1_fix'),
   '56 a correction opens as a new draft linked to the one it replaces (7.6 step 4)');
 select is((select result from pg_temp.drafts where tag = 'a1_fix_foreign'), '42501',
   '57 a correction cannot point at a submission from another tenant, even by guessed uuid');
