@@ -61,13 +61,8 @@ create table public.form_templates (
   -- client_confidential is project-scoped in M1, exactly as for collections (section 6.2).
   constraint form_templates_confidential_requires_project
     check (data_class <> 'client_confidential' or project_id is not null),
-  -- Audience may not exceed the collection's audience: a template narrowed to a project is fine, a
-  -- template broader than the corpus it writes into is not, because the corpus is what the reviewer
-  -- authorized (section 6.2).
-  constraint form_templates_project_within_collection
-    check (project_id is null or project_id = (
-      select kc.project_id from public.knowledge_collections kc
-       where kc.id = form_templates.default_collection_id)),
+  -- Audience vs collection is enforced in form_templates_guard (below): Postgres forbids a subquery
+  -- inside a CHECK (SQLSTATE 0A000), and the corpus the reviewer authorized is still what decides.
   constraint form_templates_published_marker
     check (published_at is null or status = 'published'),
   -- Anti-cross-tenant key for children (tenancy_core convention).
@@ -163,6 +158,17 @@ begin
     raise exception 'a form template schema must be a JSON Schema object and its ui hints must be whitelisted'
       using errcode = '23514';
   end if;
+  -- Same rule the abandoned CHECK stated: a set project_id must equal the collection's project_id.
+  -- Lives here because CHECK cannot contain a subquery (SQLSTATE 0A000 on apply).
+  if new.project_id is not null
+     and new.project_id is distinct from (
+           select kc.project_id
+             from public.knowledge_collections kc
+            where kc.id = new.default_collection_id
+              and kc.organisation_id = new.organisation_id) then
+    raise exception 'a form template project audience must match its default collection'
+      using errcode = '23514';
+  end if;
   if tg_op = 'UPDATE' then
     -- Published content is frozen: re-validating an existing submission against edited fields is
     -- exactly the silent re-validation section 16 forbids. Retiring is allowed, editing is not.
@@ -190,7 +196,7 @@ begin
 end;
 $$;
 comment on function public.form_templates_guard() is
-  'Refuses unsafe template content at write time and freezes a published version''s content; only lifecycle fields may change afterwards.';
+  'Refuses unsafe template content at write time, keeps project_id aligned with the default collection (CHECK cannot express that subquery), and freezes a published version''s content; only lifecycle fields may change afterwards.';
 
 create trigger form_templates_guard
   before insert or update on public.form_templates
