@@ -103,11 +103,14 @@ export type RegisterResult =
  * version, the outbox event and the stage row in one transaction and derives the index generation
  * from the tenant's active `corpus` index (never a client value, never a constant — an unpin
  * tenant is refused rather than given an invented generation, keeping open issue #6 out of scope).
+ *
+ * `beginSession` carries no caller identity (#163, FAQ-0011): the user comes from the verified token,
+ * exactly as the scoped RPCs read auth.uid(), so no command in this port can be handed a different
+ * user's identity by a caller.
  */
 export interface UploadStore {
   beginSession(cmd: {
     organisationId: string;
-    userId: string;
     collectionId: string;
     idempotencyKey: string;
     filename: string;
@@ -302,14 +305,13 @@ export async function handleCreateUpload(request: Request, deps: UploadDeps): Pr
   if (!body.ok) return body.response;
   const parsed = CreateUploadBody.safeParse(body.value);
   if (!parsed.success) return reply(400, "invalid_request");
-  const { organisationId, userId } = resolution.context;
+  const { organisationId } = resolution.context;
   const limits = limitsOf(deps);
 
   let started: BeginSessionResult;
   try {
     started = await deps.store.beginSession({
       organisationId,
-      userId,
       collectionId: parsed.data.collectionId,
       idempotencyKey: parsed.data.idempotencyKey,
       filename: parsed.data.filename,

@@ -98,20 +98,23 @@ function makeFakeStore(options: FakeOptions = {}) {
   const jobs: { organisationId: string; sourceVersionId: string; stage: string; parserGeneration: string; indexGeneration: number }[] = [];
   const outbox: { organisationId: string; eventType: string; aggregateId: string }[] = [];
   const reads: string[] = [];
+  // The store's caller identity is the verified token, never a command argument (#163): this is the
+  // fake's stand-in for auth.uid(), and makeDeps sets it to whoever the route actually resolved.
+  const ident = { user: OWNER1 };
 
   const store: UploadStore = {
     async beginSession(cmd) {
-      if (!members.has(key(cmd.organisationId, cmd.userId))) return { status: "no_tenant_scope" };
+      if (!members.has(key(cmd.organisationId, ident.user))) return { status: "no_tenant_scope" };
       const collection = collections.get(cmd.collectionId);
       // Another tenant's collection id and an unknown one look identical: no existence signal.
       if (!collection || collection.organisationId !== cmd.organisationId) return { status: "collection_not_found" };
-      if (!mayPublish.has(key(cmd.collectionId, cmd.userId))) return { status: "not_publishable" };
+      if (!mayPublish.has(key(cmd.collectionId, ident.user))) return { status: "not_publishable" };
       const open = [...sessions.values()].filter(
-        (s) => s.organisationId === cmd.organisationId && s.createdBy === cmd.userId && s.state === "awaiting_upload" && Date.parse(s.expiresAt) > Date.now(),
+        (s) => s.organisationId === cmd.organisationId && s.createdBy === ident.user && s.state === "awaiting_upload" && Date.parse(s.expiresAt) > Date.now(),
       );
       if (open.length >= (options.openSessionLimit ?? 10)) return { status: "quota_exceeded" };
       const existing = [...sessions.values()].find(
-        (s) => s.organisationId === cmd.organisationId && s.createdBy === cmd.userId && s.idempotencyKey === cmd.idempotencyKey,
+        (s) => s.organisationId === cmd.organisationId && s.createdBy === ident.user && s.idempotencyKey === cmd.idempotencyKey,
       );
       if (existing) return { status: "ok", session: existing };
       const id = crypto.randomUUID();
@@ -119,7 +122,7 @@ function makeFakeStore(options: FakeOptions = {}) {
         id,
         organisationId: cmd.organisationId,
         collectionId: cmd.collectionId,
-        createdBy: cmd.userId,
+        createdBy: ident.user,
         idempotencyKey: cmd.idempotencyKey,
         // The key is issued here, exactly as the SQL RPC issues it: no caller input contributes.
         objectRef: `knowledge/${cmd.organisationId}/uploads/${id}/object`,
@@ -212,7 +215,7 @@ function makeFakeStore(options: FakeOptions = {}) {
     },
   };
 
-  return { store, sessions, versions, jobs, outbox, reads, mayPublish, mayRead };
+  return { store, sessions, versions, jobs, outbox, reads, mayPublish, mayRead, token: ident };
 }
 
 function makeObjects(objects: Map<string, Uint8Array>, fake: { reads: string[] }): {
@@ -237,11 +240,15 @@ function makeDeps(options: {
   ctx?: TenantResolution;
 }): Pick<UploadDeps, "store" | "objects" | "resolveContext"> {
   const fakeObjects = makeObjects(options.objects, options.fake);
+  const resolution: TenantResolution =
+    options.ctx ?? { ok: true, context: context(COMPANY1, OWNER1, "company1.terraoi.app") };
+  // Whatever caller the route resolves is the caller the store sees, so no test can pair a context with
+  // a store that believes a different user by accident (#163).
+  if (resolution.ok) options.fake.token.user = resolution.context.userId;
   return {
     store: options.fake.store,
     objects: fakeObjects,
-    resolveContext: async () =>
-      options.ctx ?? { ok: true, context: context(COMPANY1, OWNER1, "company1.terraoi.app") },
+    resolveContext: async () => resolution,
   };
 }
 
