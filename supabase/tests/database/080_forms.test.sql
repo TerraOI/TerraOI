@@ -222,14 +222,6 @@ select is((select count(*) from public.form_submissions
 -- if another packet seeds anything).
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
-create table pg_temp.baseline (sources bigint, versions bigint, outbox bigint);
-insert into pg_temp.baseline
-  select (select count(*) from public.knowledge_sources
-           where organisation_id = '11111111-1111-4111-8111-111111111111'),
-         (select count(*) from public.source_versions
-           where organisation_id = '11111111-1111-4111-8111-111111111111'),
-         (select count(*) from public.outbox_events);
-
 select is(pg_temp.try_submit('11111111-1111-4111-8111-111111111111',
           (select result::uuid from pg_temp.drafts where tag = 'a1_uav')),
           (select result from pg_temp.drafts where tag = 'a1_uav'),
