@@ -171,17 +171,23 @@ select is((select values_json ->> 'battery_pct' from public.form_submissions
 -- --------------------------------------------------------------------- 27..34 tenancy and scope
 -- company2's owner tries company1's template. The scope argument is honoured, so the template is
 -- simply not in scope: 42501, never "not found" with a different tenant's row (4.1).
+-- Must run as ...b1: as ...a1 the company2 scope is refused first (28000), which is test 28.
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000b1';
 insert into pg_temp.drafts (tag, result) values
   ('b1_company1_template', pg_temp.try_draft('22222222-2222-4222-8222-222222222222'::uuid,
                                 '80000000-0000-4000-8000-000000000001'::uuid, 'v1',
                                 ('{"airframe_check": "synthetic", "battery_pct": 92,'
-                                || ' "weather_notes": "synthetic"}')::jsonb)),
+                                || ' "weather_notes": "synthetic"}')::jsonb));
+
+select is((select result from pg_temp.drafts where tag = 'b1_company1_template'), '42501',
+  '27 a company2 member cannot draft on a company1 template, even with a valid company2 scope');
+
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+insert into pg_temp.drafts (tag, result) values
   ('a1_as_company2', pg_temp.try_draft('22222222-2222-4222-8222-222222222222'::uuid,
                                 '80000000-0000-4000-8000-000000000003'::uuid, 'v1',
                                 '{"line_id": "L1", "passes": 3}'::jsonb));
 
-select is((select result from pg_temp.drafts where tag = 'b1_company1_template'), '42501',
-  '27 a company2 member cannot draft on a company1 template, even with a valid company2 scope');
 select is((select result from pg_temp.drafts where tag = 'a1_as_company2'), '28000',
   '28 a company1 member cannot take a company2 scope at all: the scope is checked, not assumed (4.1)');
 
@@ -225,6 +231,14 @@ select is((select count(*) from public.form_submissions
 -- if another packet seeds anything).
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+create table pg_temp.baseline (sources bigint, versions bigint, outbox bigint);
+insert into pg_temp.baseline
+  select (select count(*) from public.knowledge_sources
+           where organisation_id = '11111111-1111-4111-8111-111111111111'),
+         (select count(*) from public.source_versions
+           where organisation_id = '11111111-1111-4111-8111-111111111111'),
+         (select count(*) from public.outbox_events);
+
 select is(pg_temp.try_submit('11111111-1111-4111-8111-111111111111',
           (select result::uuid from pg_temp.drafts where tag = 'a1_uav')),
           (select result from pg_temp.drafts where tag = 'a1_uav'),
