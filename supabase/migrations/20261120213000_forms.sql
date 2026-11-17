@@ -88,18 +88,24 @@ comment on column public.form_templates.default_collection_id is
 create function public.form_template_value_is_safe(p_value jsonb) returns boolean
 language sql stable security definer set search_path = public, pg_temp
 as $$
+  -- One recursive UNION ALL only: a second top-level UNION ALL that also
+  -- references `node` makes Postgres treat the middle arm as part of the
+  -- non-recursive term (SQLSTATE 42P19). Object keys and array items expand
+  -- in a single lateral recursive arm instead.
   with recursive node (key, value) as (
     select null::text, p_value
     union all
-    select f.key, f.value
-      from node n,
-           jsonb_each(case when jsonb_typeof(n.value) = 'object' then n.value
-                           else '{}'::jsonb end) as f(key, value)
-    union all
-    select null, e.item
-      from node n,
-           jsonb_array_elements(case when jsonb_typeof(n.value) = 'array' then n.value
-                                     else '[]'::jsonb end) as e(item)
+    select child.key, child.value
+      from node n
+      cross join lateral (
+        select f.key, f.value
+          from jsonb_each(case when jsonb_typeof(n.value) = 'object' then n.value
+                               else '{}'::jsonb end) as f(key, value)
+        union all
+        select null::text, e.item
+          from jsonb_array_elements(case when jsonb_typeof(n.value) = 'array' then n.value
+                                         else '[]'::jsonb end) as e(item)
+      ) as child(key, value)
   )
   select not exists (
     select 1
