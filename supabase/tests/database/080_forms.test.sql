@@ -428,16 +428,16 @@ end;
 $fn$;
 
 select is(pg_temp.try_raw_template(
-            '{"type": "object", "properties": {"note": {"type": "string", "href": '
-            || '"https://example.invalid/x"}}}'::jsonb, '{}'::jsonb, 'public'), '23514',
+            ('{"type": "object", "properties": {"note": {"type": "string", "href": '
+            || '"https://example.invalid/x"}}}')::jsonb, '{}'::jsonb, 'public'), '23514',
   '62 a template holding a remote URL is refused at write (7.6, 4.8)');
 select is(pg_temp.try_raw_template(
-            '{"type": "object", "properties": {"note": {"type": "string"}}, "$ref": '
-            || '"https://example.invalid/schema.json"}'::jsonb, '{}'::jsonb, 'public'), '23514',
+            ('{"type": "object", "properties": {"note": {"type": "string"}}, "$ref": '
+            || '"https://example.invalid/schema.json"}')::jsonb, '{}'::jsonb, 'public'), '23514',
   '63 a $ref is refused: a template may not pull in a schema it does not contain');
 select is(pg_temp.try_raw_template(
-            '{"type": "object", "properties": {"note": {"type": "string", "default": '
-            || '"<script>alert(1)</script>"}}}'::jsonb, '{}'::jsonb, 'public'), '23514',
+            ('{"type": "object", "properties": {"note": {"type": "string", "default": '
+            || '"<script>alert(1)</script>"}}}')::jsonb, '{}'::jsonb, 'public'), '23514',
   '64 markup in a default is refused: the renderer never evaluates template content');
 select is(pg_temp.try_raw_template(
             '{"type": "object", "properties": {"note": {"type": "string"}}}'::jsonb,
