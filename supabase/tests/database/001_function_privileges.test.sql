@@ -134,6 +134,9 @@ $$, '31 no function in public is executable by anon except the named allow-list 
 --     by that migration and granted to no
 --     request role at all, so it must not appear here: 026_brand_config.test.sql test 9 pins that
 --     closed until the admin surface and its seeded permission arrive.
+--   forms (`20261120213000_forms.sql`, T-301): save_form_draft_v1, submit_form_v1 — same shape,
+--     `p_organisation_id` first and the scope set inside. The validators, the two guard trigger
+--     functions and the template-safety helpers are revoked and deliberately not listed here.
 -- The session functions the ruling also lists live in `toi_identity`, not `public`
 -- (`20261107024000_session_store.sql:122-219`), and that migration grants them to **no role** at all
 -- pending #75 — so they cannot appear in a `public` allow-list; test 33 pins them closed instead.
@@ -170,7 +173,9 @@ select is_empty($$
            ('public.create_collection_v1(uuid, text, text, text, uuid, text)'::regprocedure),
            ('public.update_collection_v1(uuid, uuid, text)'::regprocedure),
            ('public.load_public_brand(text)'::regprocedure),
-           ('public.get_tenant_brand_v1(uuid)'::regprocedure)
+           ('public.get_tenant_brand_v1(uuid)'::regprocedure),
+           ('public.save_form_draft_v1(uuid, uuid, text, jsonb, uuid)'::regprocedure),
+           ('public.submit_form_v1(uuid, uuid)'::regprocedure)
          ) as allowed(proc)
      )
 $$, '32 no function in public is executable by authenticated beyond the named allow-list (§4.3, #60)');
