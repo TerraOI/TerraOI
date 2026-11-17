@@ -226,52 +226,64 @@ select is((select count(*) from public.form_submissions
 
 
 -- --------------------------------------------------------------- 35..46 submit becomes knowledge
--- Back to company1's admin, whose draft 'a1_uav' is still open. Baselines first: the seed holds
--- knowledge fixtures, so every pipeline count below is a delta, not an absolute (020's rows move
--- if another packet seeds anything).
+-- Back to company1's admin, whose draft 'a1_uav' is still open. Assert the capture by this
+-- submission's own source / version / outbox row as the migration superuser: tenant-wide count
+-- deltas are fragile against seed rows, and outbox_events RLS is not the knowledge one (551ae7e).
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
-create table pg_temp.baseline (sources bigint, versions bigint, outbox bigint);
-insert into pg_temp.baseline
-  select (select count(*) from public.knowledge_sources
-           where organisation_id = '11111111-1111-4111-8111-111111111111'),
-         (select count(*) from public.source_versions
-           where organisation_id = '11111111-1111-4111-8111-111111111111'),
-         (select count(*) from public.outbox_events);
+select set_tenant_scope('11111111-1111-4111-8111-111111111111');
 
 select is(pg_temp.try_submit('11111111-1111-4111-8111-111111111111',
           (select result::uuid from pg_temp.drafts where tag = 'a1_uav')),
           (select result from pg_temp.drafts where tag = 'a1_uav'),
   '35 submit_form_v1 returns the submission it captured, so the caller can cite it immediately');
+
+reset role;
 select is((select count(*) from public.knowledge_sources
-            where organisation_id = '11111111-1111-4111-8111-111111111111'),
-          (select sources + 1 from pg_temp.baseline),
+            where id = (select source_id from public.form_submissions
+                         where id = (select result::uuid from pg_temp.drafts where tag = 'a1_uav'))),
+          1::bigint,
   '36 exactly one source: a submission is a source of knowledge, not an attachment (TOI-ADR-16)');
 select is((select count(*) from public.source_versions
-            where organisation_id = '11111111-1111-4111-8111-111111111111'),
-          (select versions + 1 from pg_temp.baseline),
+            where id = (select source_version_id from public.form_submissions
+                         where id = (select result::uuid from pg_temp.drafts where tag = 'a1_uav'))),
+          1::bigint,
   '37 exactly one source version in the same transaction: no half-captured form (F33)');
-select is((select count(*) from public.outbox_events), (select outbox + 1 from pg_temp.baseline),
+select is((select count(*) from public.outbox_events
+            where aggregate_type = 'source_version'
+              and aggregate_id = (select source_version_id from public.form_submissions
+                                   where id = (select result::uuid from pg_temp.drafts where tag = 'a1_uav'))
+              and event_type = 'knowledge.source_version.received'), 1::bigint,
   '38 exactly one outbox event: the pipeline learns of it once, from the trigger, not twice');
 select is((select o.event_type from public.outbox_events o
-            order by o.id desc limit 1), 'knowledge.source_version.received',
+            where o.aggregate_id = (select source_version_id from public.form_submissions
+                                     where id = (select result::uuid from pg_temp.drafts where tag = 'a1_uav'))),
+          'knowledge.source_version.received',
   '39 the event is the one every other capture path raises, so no new pipeline path is invented');
 select is((select v.state from public.source_versions v
-            order by v.created_at desc, v.id desc limit 1), 'received',
+            where v.id = (select source_version_id from public.form_submissions
+                           where id = (select result::uuid from pg_temp.drafts where tag = 'a1_uav'))),
+          'received',
   '40 capture lands at received, never published: review is a later stage (7.2 step 5)');
 select is((select v.body_text is not null and v.payload is not null from public.source_versions v
-            order by v.created_at desc, v.id desc limit 1), true,
+            where v.id = (select source_version_id from public.form_submissions
+                           where id = (select result::uuid from pg_temp.drafts where tag = 'a1_uav'))),
+          true,
   '41 the version carries rendered text and the structured values together (#51 option 1)');
 select is((select v.body_text from public.source_versions v
-            order by v.created_at desc, v.id desc limit 1),
+            where v.id = (select source_version_id from public.form_submissions
+                           where id = (select result::uuid from pg_temp.drafts where tag = 'a1_uav'))),
           'airframe_check: tether and props checked' || E'\n' || 'battery_pct: 92' || E'\n'
           || 'weather_notes: wind 4 m/s, synthetic',
   '42 the rendered text is deterministic field-by-field, which is what a chunk can be cited against');
 select is((select v.content_hash ~ '^[0-9a-f]{64}$' from public.source_versions v
-            order by v.created_at desc, v.id desc limit 1), true,
+            where v.id = (select source_version_id from public.form_submissions
+                           where id = (select result::uuid from pg_temp.drafts where tag = 'a1_uav'))),
+          true,
   '43 a content hash exists for a form too: content identity is per collection, forms included (B3)');
 select is((select v.data_class from public.source_versions v
-            order by v.created_at desc, v.id desc limit 1),
+            where v.id = (select source_version_id from public.form_submissions
+                           where id = (select result::uuid from pg_temp.drafts where tag = 'a1_uav'))),
           (select c.data_class from public.knowledge_collections c
             where c.id = '51000000-0000-4000-8000-000000000001'),
   '44 the class comes from the collection and never goes down (6.2)');
@@ -279,10 +291,13 @@ select is((select state || '/' || template_version from public.form_submissions
             where id = (select result::uuid from pg_temp.drafts where tag = 'a1_uav')),
           'submitted/v1',
   '45 the submission is immutable and records the version it was validated against');
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+select set_tenant_scope('11111111-1111-4111-8111-111111111111');
 select is(pg_temp.try_submit('11111111-1111-4111-8111-111111111111',
           (select result::uuid from pg_temp.drafts where tag = 'a1_uav')), '22023',
   '46 a replayed submit is refused: one submission, one source version, even on retry');
-
 
 -- ---------------------------------------------------------- 47..54 who may draft and who may submit
 set local role authenticated;
@@ -368,7 +383,7 @@ select is((select supersedes_submission_id = (select result::uuid from pg_temp.d
             from public.form_submissions
             where id = (select result::uuid from pg_temp.drafts where tag = 'a1_fix')), true,
   '59 the new submission names the old one, so the history is walkable');
-select is((select state || '/' || values_json ->> 'airframe_check' from public.form_submissions
+select is((select state || '/' || (values_json ->> 'airframe_check') from public.form_submissions
             where id = (select result::uuid from pg_temp.drafts where tag = 'a1_uav')),
           'submitted/tether and props checked',
   '60 the superseded submission keeps its own values: nothing is rewritten in place');
