@@ -42,7 +42,7 @@ create function pg_temp.try_provision(p_slug text, p_host text, p_display_name t
 returns text language plpgsql security invoker as $fn$
 begin
   begin
-    perform toi_control.provision_tenant_v1(p_slug, p_host, p_display_name, p_locale, p_timezone,
+    perform 1 from toi_control.provision_tenant_v1(p_slug, p_host, p_display_name, p_locale, p_timezone,
                                        'pilot onboarding', 'ops@terraoi.test');
     return 'ok';
   exception when others then
