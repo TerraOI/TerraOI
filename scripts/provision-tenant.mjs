@@ -159,7 +159,7 @@ export function connectFromEnv(env) {
  * Default driver for the CLI path: short-lived `postgres` client (same shape as the intake /
  * session adapters). Tests inject `connect` and never dial a real DSN.
  */
-export function connectPostgres(dsn) {
+export function connectWithPostgres(dsn) {
   const sql = postgres(dsn, { prepare: false, max: 1 });
   return {
     async query(text, params = []) {
@@ -228,7 +228,7 @@ export async function provisionTenant({ request, query }) {
   return { ok: true, readBack };
 }
 
-export async function run({ argv, env, connect = connectPostgres, log = console.log }) {
+export async function run({ argv, env, connect = connectWithPostgres, log = console.log }) {
   if (argv.includes("--help") || argv.length === 0) {
     log(USAGE);
     return 0;
@@ -275,6 +275,6 @@ if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) 
   process.exitCode = await run({
     argv: process.argv.slice(2),
     env: process.env,
-    connect: connectPostgres,
+    connect: connectWithPostgres,
   });
 }
