@@ -435,10 +435,13 @@ create or replace function toi_control.provision_tenant_v1(
   members bigint
 )
 language plpgsql volatile security definer set search_path = toi_control, pg_temp as $$
+#variable_conflict use_column
 declare
   v_org uuid;
   v_host_owner uuid;
 begin
+  -- RETURNS TABLE names an OUT column `host`; without use_column, `on conflict (host)` and
+  -- `d.host` collide with that OUT name (CI: "column reference \"host\" is ambiguous").
   perform toi_control.require_control_plane();
 
   if p_slug is null or p_slug !~ '^[a-z0-9][a-z0-9-]{1,62}$' then
