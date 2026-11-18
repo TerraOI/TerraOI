@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import type { HostRecord } from "@/platform/tenancy/resolve-tenant-context";
+
 import { issueCsrfToken } from "./csrf";
 import { handleEntraSignInRequest, type EntraStartPorts } from "./entra-linking";
 import { handleMagicLinkRequest, type MagicLinkRequestPorts } from "./request-magic-link";
@@ -41,11 +43,12 @@ describe("malformed magic-link posts do not spend the Entra budget (B2)", () => 
     const limiterKeys: Array<{ host: string; material: string }> = [];
     const spent = new Set<string>();
 
+    const activeHost: HostRecord = { organisationId: C1, organisationStatus: "active" };
     const shared = {
       now: () => NOW,
       signingSecret: () => SECRET,
-      findHost: async (host: string) =>
-        host === HOST ? { organisationId: C1, organisationStatus: "active" } : null,
+      findHost: async (host: string): Promise<HostRecord | null> =>
+        host === HOST ? activeHost : null,
       rateLimitKey: async (input: { host: string; material: string }) => {
         limiterKeys.push(input);
         return `${input.host}|${input.material}`;

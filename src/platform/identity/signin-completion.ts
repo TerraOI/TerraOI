@@ -76,8 +76,9 @@ export interface SignInCompletionPorts {
    * session has nothing to revoke and their reset must still complete. PR-2's RPC and its pgTAP
    * assertion have to keep that meaning, because a completion that read "zero rows" as a failure would
    * lock the first-ever reset out. Whether a credential change should also revoke sessions on this
-   * organization's *other* hosts is an open question for PR-2 to settle, not one this signature
-   * pre-empts.
+   * organization's *other* hosts is open in #182: this host-scoped signature is fine while that
+   * issue is open, but PR-2 (#186) must widen `revoke_user_sessions_v1` if #182 rules for all hosts
+   * of the organisation (N7 on #181).
    */
   revokeUserSessions?(input: { userId: string; host: string; now: number }): Promise<boolean>;
 }

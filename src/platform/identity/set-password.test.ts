@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { issueCsrfToken } from "./csrf";
-import { issueSession, SESSION_COOKIE_BASE } from "./session";
+import { issueSession } from "./session";
 import {
   buildSetPasswordView,
   handleSetPassword,
