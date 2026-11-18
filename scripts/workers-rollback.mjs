@@ -13,7 +13,9 @@
 // `exec` is injected (the CLI passes node:child_process), which is what makes the whole module testable
 // without Cloudflare credentials — and what keeps a test from ever deploying anything.
 import { execFileSync } from "node:child_process";
-import { pathToFileURL } from "node:url";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const KNOWN_ENVIRONMENTS = ["staging", "production"];
 
@@ -23,6 +25,8 @@ const DEFAULT_DEPTH = 3;
 
 const VERSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+const DEFAULT_ROLLBACK_MESSAGE = "TerraOI runbook rollback (named version id)";
+
 export class RollbackError extends Error {
   constructor(rule, detail) {
     super(`${rule}: ${detail}`);
@@ -30,6 +34,19 @@ export class RollbackError extends Error {
     this.rule = rule;
     this.detail = detail;
   }
+}
+
+/** Resolve the repo's wrangler binary so PATH is not required (and `pnpm exec` is not assumed). */
+export function resolveWranglerBin(fromDir = process.cwd()) {
+  let dir = fromDir;
+  for (;;) {
+    const candidate = join(dir, "node_modules", ".bin", process.platform === "win32" ? "wrangler.CMD" : "wrangler");
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return "wrangler";
 }
 
 /** Environment names this repository's `wrangler.jsonc` knows. A typo must not answer "no versions". */
@@ -63,69 +80,130 @@ export function assertVersionId(versionId) {
   return versionId;
 }
 
-export function listVersions({ exec }, env) {
-  assertKnownEnvironment(env);
-  const raw = exec("wrangler", "deployments", "list", "--env", env, "--json");
+/**
+ * Parse `wrangler deployments list --json` for wrangler 4.157.x.
+ *
+ * Real shape (wrangler 4.157.0): a top-level array of deployments, each
+ * `{ id, created_on, versions: [{ version_id, percentage }] }`. Timestamps live on the deployment;
+ * versions do not carry `created_on` or git revision in this listing. "Serving" is the newest
+ * deployment's 100%-traffic version (or its highest-percentage version if none is 100).
+ */
+export function parseDeploymentsList(raw, env) {
   let parsed;
   try {
     parsed = JSON.parse(raw);
   } catch (problem) {
     throw new RollbackError("unreadable listing", `wrangler printed something that is not JSON for --env ${env}: ${problem.message}`);
   }
+  if (!Array.isArray(parsed)) {
+    throw new RollbackError(
+      "unreadable listing",
+      `wrangler deployments list --json for --env ${env} must be a top-level array (wrangler 4); got ${parsed === null ? "null" : typeof parsed}`,
+    );
+  }
+  if (parsed.length === 0) {
+    throw new RollbackError(
+      "empty listing",
+      `wrangler listed 0 deployments for known environment ${env}; refusing rather than treating an empty account as success`,
+    );
+  }
+
   const versions = [];
-  for (const deployment of parsed?.deployments ?? []) {
-    for (const version of deployment?.versions ?? []) {
+  for (const deployment of parsed) {
+    if (!deployment || typeof deployment !== "object") continue;
+    const createdOn = deployment.created_on ?? "";
+    const deploymentId = deployment.id ?? "";
+    for (const version of deployment.versions ?? []) {
       if (!version?.version_id) continue;
       versions.push({
         versionId: version.version_id,
-        createdOn: version.created_on ?? "",
-        revision: version?.sources?.git?.revision ?? "",
-        deploymentId: deployment?.deployment_id ?? "",
+        createdOn,
+        percentage: typeof version.percentage === "number" ? version.percentage : 0,
+        revision: "",
+        deploymentId,
       });
     }
   }
-  return versions.sort((a, b) => (a.createdOn < b.createdOn ? 1 : -1));
+  if (versions.length === 0) {
+    throw new RollbackError(
+      "unreadable listing",
+      `wrangler listed deployments for --env ${env} but none carried a version_id`,
+    );
+  }
+
+  // Newest deployment first; within a deployment, higher traffic share first.
+  versions.sort((a, b) => {
+    if (a.createdOn !== b.createdOn) return a.createdOn < b.createdOn ? 1 : -1;
+    return b.percentage - a.percentage;
+  });
+  return versions;
+}
+
+export function listVersions({ exec, wranglerBin = resolveWranglerBin() }, env) {
+  assertKnownEnvironment(env);
+  const raw = exec(wranglerBin, "deployments", "list", "--env", env, "--json");
+  return parseDeploymentsList(raw, env);
 }
 
 export function recentVersions(versions, limit = DEFAULT_DEPTH) {
   if (!Number.isInteger(limit) || limit < 1) throw new RollbackError("bad depth", `retention depth must be a positive integer, got ${limit}`);
-  return versions.slice(0, limit);
+  // One row per version id, keeping the newest deployment appearance.
+  const seen = new Set();
+  const unique = [];
+  for (const v of versions) {
+    if (seen.has(v.versionId)) continue;
+    seen.add(v.versionId);
+    unique.push(v);
+  }
+  return unique.slice(0, limit);
 }
 
-export function rollbackCommand({ env, versionId }) {
+/** The version currently serving: newest deployment's 100% version, else its highest percentage. */
+export function servingVersionId(versions) {
+  if (!versions.length) return undefined;
+  const newestCreated = versions[0].createdOn;
+  const onNewest = versions.filter((v) => v.createdOn === newestCreated);
+  const full = onNewest.find((v) => v.percentage === 100);
+  return (full ?? onNewest[0])?.versionId;
+}
+
+export function rollbackCommand({ env, versionId, message = DEFAULT_ROLLBACK_MESSAGE, wranglerBin = "wrangler" }) {
   assertKnownEnvironment(env);
   assertVersionId(versionId);
-  return ["wrangler", "deployments", "rollback", versionId, "--env", env];
+  // wrangler 4.157: `wrangler rollback <version-id> --env … --message … --yes`
+  // (there is no `wrangler deployments rollback`).
+  return [wranglerBin, "rollback", versionId, "--env", env, "--message", message, "--yes"];
 }
 
 /**
  * The one entry point the CLI and the runbook use. Dry-run by default: the rehearsal value is in seeing
  * the exact command, and an accidental deploy during a rehearsal is worse than no rehearsal.
  */
-export function rollbackVersion({ exec }, { env, versionId, dryRun = true, allowProduction = false, depth = DEFAULT_DEPTH } = {}) {
+export function rollbackVersion({ exec, wranglerBin = resolveWranglerBin() }, { env, versionId, dryRun = true, allowProduction = false, depth = DEFAULT_DEPTH, message = DEFAULT_ROLLBACK_MESSAGE } = {}) {
   assertEnvironmentAllowed(env, { allowProduction });
   assertVersionId(versionId);
 
-  const versions = listVersions({ exec }, env);
+  const versions = listVersions({ exec, wranglerBin }, env);
+  const retained = recentVersions(versions, depth);
   const chosen = versions.find((v) => v.versionId === versionId);
   if (!chosen) {
     throw new RollbackError(
       "not among the listed versions",
-      `${versionId} is not on the ${versions.length} version(s) wrangler listed for ${env}; the retained set is ${recentVersions(versions, depth).map((v) => v.versionId).join(", ") || "empty"}`,
+      `${versionId} is not on the ${versions.length} version(s) wrangler listed for ${env}; the retained set is ${retained.map((v) => v.versionId).join(", ") || "empty"}`,
     );
   }
-  if (versions[0]?.versionId === versionId) {
+  if (servingVersionId(versions) === versionId) {
     throw new RollbackError(
       "already serving",
       `${versionId} is the version ${env} serves now; rolling back to it changes nothing and would be read as a fix`,
     );
   }
 
-  const command = rollbackCommand({ env, versionId });
-  if (dryRun) return { dryRun: true, command, target: chosen, retained: recentVersions(versions, depth) };
+  const command = rollbackCommand({ env, versionId, message, wranglerBin });
+  if (dryRun) return { dryRun: true, command, target: chosen, retained };
 
   const output = exec(...command);
-  return { dryRun: false, command, target: chosen, output, retained: recentVersions(versions, depth) };
+  return { dryRun: false, command, target: chosen, output, retained };
 }
 
 // ── CLI ────────────────────────────────────────────────────────────────────────────────────────
@@ -150,18 +228,19 @@ function main() {
     process.exit(2);
   }
 
-  const exec = (...args) => execFileSync(args[0], args.slice(1), { encoding: "utf8" });
+  const wranglerBin = resolveWranglerBin(dirname(fileURLToPath(import.meta.url)));
+  const exec = (...args) => execFileSync(args[0], args.slice(1), { encoding: "utf8", shell: process.platform === "win32" && /\.CMD$/i.test(args[0]) });
   const depth = Number(flag("depth") ?? DEFAULT_DEPTH);
   try {
     if (!target) {
-      const versions = listVersions({ exec }, env);
+      const versions = listVersions({ exec, wranglerBin }, env);
       for (const v of recentVersions(versions, depth)) {
-        console.log(`${v.versionId}  ${v.createdOn}  ${v.revision}`);
+        console.log(`${v.versionId}  ${v.createdOn}  ${v.percentage}%`);
       }
-      console.log(`(${versions.length} version(s) listed for ${env}; ${DEFAULT_DEPTH} retained by the runbook's proposed depth)`);
+      console.log(`(${versions.length} version row(s) listed for ${env}; ${DEFAULT_DEPTH} retained by the runbook's proposed depth)`);
       return;
     }
-    const result = rollbackVersion({ exec }, {
+    const result = rollbackVersion({ exec, wranglerBin }, {
       env,
       versionId: target,
       dryRun: !argv.includes("--execute"),
@@ -169,7 +248,7 @@ function main() {
       depth,
     });
     console.log(`${result.dryRun ? "dry-run, nothing executed:" : "executed:"} ${result.command.join(" ")}`);
-    console.log(`target ${result.target.versionId} (${result.target.createdOn}${result.target.revision ? ` ${result.target.revision}` : ""})`);
+    console.log(`target ${result.target.versionId} (${result.target.createdOn}${result.target.percentage ? ` ${result.target.percentage}%` : ""})`);
     if (!result.dryRun) console.log(String(result.output ?? "").trim());
   } catch (problem) {
     if (problem instanceof RollbackError) {

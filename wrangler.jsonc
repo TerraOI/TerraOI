@@ -53,16 +53,17 @@
       "ratelimits": [
         { "name": "INQUIRY_RATE_LIMITER", "namespace_id": "<PROD_INQUIRY_RATE_LIMIT_NS>", "simple": { "limit": 3, "period": 60 } }
       ],
-      // Bindings the deployed code reads, created by the owner (T-004): SESSION_DB logs in as a role in
-      // toi_session_worker (T-102h / #75), CONFIG_DB is the read-only gateway-config role the #134
-      // ruling names, JOB_DB and INQUIRY_DB follow T-211 and T-130. What is a secret is set with
+      // Bindings the owner creates before traffic (T-004). Wrangler 4 Hyperdrive entries are
+      // binding + id only (no connection-string fields in this file — AGENTS §4.6). SESSION_DB and
+      // INQUIRY_DB are what code on main reads today; CONFIG_DB (T-116) and JOB_DB (T-211) are the
+      // server-path bindings the packet checklist names for the owner. Secrets use
       // `wrangler secret put` (SESSION_TOKEN_KEY, IDENTITY_SESSION_KEY, TURNSTILE_SECRET,
-      // INQUIRY_IP_HMAC_KEY, the email API key, the model key) — never as a value in this file.
+      // INQUIRY_IP_HMAC_KEY, the email API key, the model key) — never as a value here.
       "hyperdrive": [
-        { "binding": "SESSION_DB", "database_id": "<PROD_SESSION_DB_HYPERDRIVE_ID>", "database": "<PROD_SESSION_DB_URL>" },
-        { "binding": "CONFIG_DB", "database_id": "<PROD_CONFIG_DB_HYPERDRIVE_ID>", "database": "<PROD_CONFIG_DB_URL>" },
-        { "binding": "JOB_DB", "database_id": "<PROD_JOB_DB_HYPERDRIVE_ID>", "database": "<PROD_JOB_DB_URL>" },
-        { "binding": "INQUIRY_DB", "database_id": "<PROD_INQUIRY_DB_HYPERDRIVE_ID>", "database": "<PROD_INQUIRY_DB_URL>" }
+        { "binding": "SESSION_DB", "id": "<PROD_SESSION_DB_HYPERDRIVE_ID>" },
+        { "binding": "CONFIG_DB", "id": "<PROD_CONFIG_DB_HYPERDRIVE_ID>" },
+        { "binding": "JOB_DB", "id": "<PROD_JOB_DB_HYPERDRIVE_ID>" },
+        { "binding": "INQUIRY_DB", "id": "<PROD_INQUIRY_DB_HYPERDRIVE_ID>" }
       ],
       "vars": { "TURNSTILE_SITE_KEY": "" },
       // Deliberately empty, and the emptiness is the guard: plan §4.1 wants exact production hosts, and

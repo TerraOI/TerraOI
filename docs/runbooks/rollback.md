@@ -12,7 +12,7 @@
 node scripts/workers-rollback.mjs --env staging --list
 ```
 
-Prints the retained versions newest-first: version id, timestamp, git revision. The default depth is three, which is the retention T-404 proposes; it becomes a real setting when the `workers/` deployment exists. `--depth N` overrides it for the rehearsal.
+Prints the retained versions newest-first: version id, deployment timestamp, traffic percentage (from `wrangler deployments list --json`, wrangler 4.157). The helper resolves `node_modules/.bin/wrangler` so a bare PATH is not required; `pnpm exec wrangler …` is equivalent for hand runs. The default depth is three, which is the retention T-404 proposes; it becomes a real setting when the `workers/` deployment exists. `--depth N` overrides it for the rehearsal.
 
 The helper refuses, before touching an account:
 

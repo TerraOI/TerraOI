@@ -145,11 +145,12 @@ describe("checkReleaseConfig: bindings and secret material", () => {
       name: "terraoi-web",
       routes: [{ pattern: "company1.example.test/*", zone_name: "example.test" }],
       vars: {},
+      // wrangler 4.157 Hyperdrive: binding + id only (no database_id / database URL fields).
       hyperdrive: [
-        { binding: "SESSION_DB", database_id: "<SESSION_DB_HYPERDRIVE_ID>", database: "<SESSION_DB_URL_SECRET>" },
-        { binding: "CONFIG_DB", database_id: "<CONFIG_DB_HYPERDRIVE_ID>", database: "<CONFIG_DB_URL_SECRET>" },
-        { binding: "JOB_DB", database_id: "<JOB_DB_HYPERDRIVE_ID>", database: "<JOB_DB_URL_SECRET>" },
-        { binding: "INQUIRY_DB", database_id: "<INQUIRY_DB_HYPERDRIVE_ID>", database: "<INQUIRY_DB_URL_SECRET>" },
+        { binding: "SESSION_DB", id: "<SESSION_DB_HYPERDRIVE_ID>" },
+        { binding: "CONFIG_DB", id: "<CONFIG_DB_HYPERDRIVE_ID>" },
+        { binding: "JOB_DB", id: "<JOB_DB_HYPERDRIVE_ID>" },
+        { binding: "INQUIRY_DB", id: "<INQUIRY_DB_HYPERDRIVE_ID>" },
       ],
       services: [{ binding: "WORKER_SELF_REFERENCE", service: "terraoi-web" }],
       ratelimits: [{ name: "INQUIRY_RATE_LIMITER", namespace_id: "<PROD_RATE_LIMIT_NS>", simple: { limit: 3, period: 60 } }],
@@ -194,11 +195,89 @@ describe("checkReleaseConfig: bindings and secret material", () => {
   });
 
   it("names the bindings each environment must declare", () => {
+    // Production checklist includes CONFIG_DB/JOB_DB (owner T-004 / T-116 / T-211) plus the
+    // SESSION_DB/INQUIRY_DB names code on main already reads.
     expect(requiredBindings("production")).toEqual(expect.arrayContaining(["SESSION_DB", "CONFIG_DB", "JOB_DB", "INQUIRY_DB"]));
-    // Staging today has none of the Hyperdrive bindings yet: T-004 human steps add them, and a
-    // preflight that invents a requirement the owner has not met would fail every deploy for the
-    // wrong reason. The list is what the code on `main` reads, not what production will read.
+    // Staging Hyperdrive is still an owner step; requiring it here would fail every staging deploy.
     expect(requiredBindings("staging")).toEqual(expect.arrayContaining(["ASSETS", "WORKER_SELF_REFERENCE"]));
+  });
+
+  it("refuses a Postgres URI hidden in hyperdrive.localConnectionString", () => {
+    const pgScheme = "post" + "gres";
+    const r = checkReleaseConfig(
+      config({
+        staging: {
+          hyperdrive: [{ binding: "SESSION_DB", id: "hd-staging-only", localConnectionString: `${pgScheme}://db.example.test:5432/postgres` }],
+        },
+      }),
+      "staging",
+    );
+    expect(r.ok).toBe(false);
+    expect(rules(r)).toContain("secret-shaped-var");
+  });
+});
+
+describe("checkReleaseConfig: resource ids stay isolated across environments (§17.2 step 2)", () => {
+  it("refuses staging that reuses a production Hyperdrive id", () => {
+    const r = checkReleaseConfig(
+      config({
+        production: {
+          hyperdrive: [{ binding: "SESSION_DB", id: "hd-prod-shared" }],
+          routes: [{ pattern: "company1.example.test/*", zone_name: "example.test" }],
+        },
+        staging: {
+          hyperdrive: [{ binding: "SESSION_DB", id: "hd-prod-shared" }],
+        },
+      }),
+      "staging",
+    );
+    expect(r.ok).toBe(false);
+    expect(rules(r)).toContain("staging-reuses-production-resource-id");
+  });
+
+  it("refuses staging that copies the top-level ratelimit namespace id", () => {
+    const r = checkReleaseConfig(
+      config({
+        staging: {
+          ratelimits: [{ name: "INQUIRY_RATE_LIMITER", namespace_id: "1001", simple: { limit: 3, period: 60 } }],
+        },
+      }),
+      "staging",
+    );
+    expect(r.ok).toBe(false);
+    expect(rules(r)).toContain("staging-reuses-production-resource-id");
+  });
+
+  it("refuses staging that omits ratelimits and would inherit the top-level namespace", () => {
+    const base = config();
+    delete base.env.staging.ratelimits;
+    const r = checkReleaseConfig(base, "staging");
+    expect(r.ok).toBe(false);
+    expect(rules(r)).toContain("staging-inherits-toplevel-resource-id");
+  });
+
+  it("exempts angle-bracket placeholders from the resource-id comparison", () => {
+    const r = checkReleaseConfig(
+      config({
+        production: {
+          hyperdrive: [
+            { binding: "SESSION_DB", id: "<PROD_SESSION_DB_HYPERDRIVE_ID>" },
+            { binding: "CONFIG_DB", id: "<PROD_CONFIG_DB_HYPERDRIVE_ID>" },
+            { binding: "JOB_DB", id: "<PROD_JOB_DB_HYPERDRIVE_ID>" },
+            { binding: "INQUIRY_DB", id: "<PROD_INQUIRY_DB_HYPERDRIVE_ID>" },
+          ],
+          routes: [{ pattern: "company1.example.test/*", zone_name: "example.test" }],
+          services: [{ binding: "WORKER_SELF_REFERENCE", service: "terraoi-web" }],
+          ratelimits: [{ name: "INQUIRY_RATE_LIMITER", namespace_id: "<PROD_RATE_LIMIT_NS>", simple: { limit: 3, period: 60 } }],
+          assets: { directory: ".open-next/assets", binding: "ASSETS" },
+        },
+        staging: {
+          hyperdrive: [{ binding: "SESSION_DB", id: "<PROD_SESSION_DB_HYPERDRIVE_ID>" }],
+        },
+      }),
+      "staging",
+    );
+    expect(rules(r)).not.toContain("staging-reuses-production-resource-id");
   });
 });
 
@@ -229,6 +308,19 @@ describe("a config with no env.production block at all", () => {
   });
 });
 
+describe("parseJsonc", () => {
+  it("strips trailing commas outside strings but keeps commas that belong to string values", () => {
+    const parsed = parseJsonc(`{
+      "keep": "hello, world",
+      "arr": [1, 2,],
+      "obj": { "a": 1, },
+    }`);
+    expect(parsed.keep).toBe("hello, world");
+    expect(parsed.arr).toEqual([1, 2]);
+    expect(parsed.obj).toEqual({ a: 1 });
+  });
+});
+
 describe("the real wrangler.jsonc", () => {
   const path = fileURLToPath(new URL("../wrangler.jsonc", import.meta.url));
   const real = parseJsonc(readFileSync(path, "utf8"));
@@ -236,6 +328,14 @@ describe("the real wrangler.jsonc", () => {
   it("parses as JSONC, comments and all", () => {
     expect(real.env.staging.name).toBe("terraoi-web-staging");
     expect(real.env.staging.routes.length).toBeGreaterThan(0);
+  });
+
+  it("declares production Hyperdrive as binding + id only", () => {
+    for (const entry of real.env.production.hyperdrive) {
+      expect(entry).toEqual(expect.objectContaining({ binding: expect.any(String), id: expect.stringMatching(/^</) }));
+      expect(entry).not.toHaveProperty("database_id");
+      expect(entry).not.toHaveProperty("database");
+    }
   });
 
   it("declares an explicit production environment, so a staging value can no longer be inherited", () => {

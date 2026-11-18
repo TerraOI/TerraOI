@@ -14,9 +14,10 @@ A backup proves bytes exist. This rehearsal proves four things the plan cares ab
 ## Step 1 — capture · `OWNER` (credentials) + `AGENT` (the command)
 
 ```bash
-# <STAGING_SESSION_DB_URL> is a Hyperdrive-managed connection string; it lives in the password
+# <STAGING_DB_OWNER_URL> is the staging project's direct owner connection (not the Hyperdrive
+# SESSION_DB login — toi_session_worker cannot dump the full schema). It lives in the password
 # manager, never in this file, a shell history file committed anywhere, or a log (AGENTS §4.6).
-pg_dump --format=custom --file=<WORK>/staging-$(date -u +%Y%m%dT%H%M%SZ).dump "<STAGING_SESSION_DB_URL>"
+pg_dump --format=custom --file=<WORK>/staging-$(date -u +%Y%m%dT%H%M%SZ).dump "<STAGING_DB_OWNER_URL>"
 ```
 
 Record the dump's sha256, the `wrangler` version id then serving staging, and the pinned `embedding_indexes` generation. Those three are the artifact set the restore is judged against.
@@ -26,13 +27,14 @@ Record the dump's sha256, the `wrangler` version id then serving staging, and th
 Two different replays, because they prove different things (§17.2 step 3: "an empty replay and a realistic upgrade"):
 
 ```bash
-# (a) empty replay: the merged migration sequence must reproduce the live schema exactly
-createdb <REHEARSAL_DB>
+# (a) empty replay: use an isolated Supabase project (or `supabase db reset` against a local
+# stack) so auth schema and extensions exist — a bare createdb is not enough.
+# <REHEARSAL_DB_URL> and <STAGING_DB_OWNER_URL> are owner connections, never Hyperdrive worker roles.
 git ls-files 'supabase/migrations/*.sql' | sort | while read -r f; do
-  psql -v ON_ERROR_STOP=1 -d <REHEARSAL_DB> -f "$f" || break
+  psql -v ON_ERROR_STOP=1 -d "<REHEARSAL_DB_URL>" -f "$f" || break
 done
-pg_dump --schema-only -d <REHEARSAL_DB> > <WORK>/built.sql
-pg_dump --schema-only -d <STAGING_SESSION_DB> > <WORK>/live.sql
+pg_dump --schema-only -d "<REHEARSAL_DB_URL>" > <WORK>/built.sql
+pg_dump --schema-only -d "<STAGING_DB_OWNER_URL>" > <WORK>/live.sql
 diff -u <WORK>/live.sql <WORK>/built.sql     # empty diff, or the drift is written down as a finding
 ```
 
