@@ -12,10 +12,10 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
--- COUNT: 55 assertions below, numbered 1–55 in their messages. `plan` equals that count exactly:
+-- COUNT: 56 assertions below, numbered 1–56 in their messages. `plan` equals that count exactly:
 -- CI's `database` job is the venue for this file (no builder machine has Docker), and a `plan(N)`
 -- that does not match the assertions that run is a red run, not a warning.
-select plan(55);
+select plan(56);
 
 -- Error-as-SQLSTATE helpers. SECURITY INVOKER on purpose: they run as the role under test.
 create function pg_temp.try_scope(p_organisation_id uuid) returns text
@@ -557,6 +557,18 @@ select is((select result from t_out where case_name = 'deactivated_get'), '28000
 select is((select result from t_out where case_name = 'deactivated_put'), '28000',
   '55 and the same membership refusal blocks a write before the permission check is reached (§4.2)');
 rollback to savepoint sp_deactivated;
+
+-- Live EXECUTE denial under authenticated (Round 2 B3): catalog test 9 is necessary but not
+-- sufficient — one call must prove Postgres stops at the missing grant before the body runs.
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+insert into t_out values
+  ('put_authenticated_no_grant', pg_temp.try_put(
+     '11111111-1111-4111-8111-111111111111', '{"mode":"customer"}'::jsonb, '[]'::jsonb));
+reset role;
+select is((select result from t_out where case_name = 'put_authenticated_no_grant'), '42501',
+  '56 authenticated EXECUTE on put is refused by the missing grant (42501) before set_tenant_scope '
+  || 'or brand.admin runs: the behavioural pin for test 9 / ruling 4');
 
 select * from finish();
 rollback;
