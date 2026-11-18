@@ -139,10 +139,12 @@ as $$
      and not exists (
        select 1 from jsonb_each(p_json_schema -> 'properties') as f
         where jsonb_typeof(f.value) <> 'object')
-     -- FormFieldUiHint is a strictObject: unknown keys are rejected at the boundary, and a hint key
-     -- like "css" or "href" is exactly how a template would inject a stylesheet, so enforce it here.
+     -- `required` is either absent or a JSON array. An object/string here only fails later inside
+     -- jsonb_array_elements_text at draft time, so refuse the malformed shape at write.
      and (not (p_json_schema ? 'required')
           or jsonb_typeof(p_json_schema -> 'required') = 'array')
+     -- FormFieldUiHint is a strictObject: unknown keys are rejected at the boundary, and a hint key
+     -- like "css" or "href" is exactly how a template would inject a stylesheet, so enforce it here.
      and not exists (
        select 1 from jsonb_each(p_ui_hints) as f
         where f.key !~ '^[a-z0-9_][a-z0-9_.]{0,127}$'
@@ -152,7 +154,7 @@ as $$
            or not public.form_template_value_is_safe(f.value));
 $$;
 comment on function public.form_template_is_wellformed(jsonb, jsonb) is
-  'Root-type check plus the FormFieldUiHint key whitelist (order, placeholder, helpText, unit). Unknown hint keys are what would let a template inject CSS, so they are refused here as well as at the boundary.';
+  'Root-type check, required-as-array, plus the FormFieldUiHint key whitelist (order, placeholder, helpText, unit). Unknown hint keys are what would let a template inject CSS, so they are refused here as well as at the boundary.';
 
 create function public.form_templates_guard() returns trigger
 language plpgsql security definer set search_path = public, pg_temp
@@ -185,17 +187,6 @@ begin
        where kc.id = new.default_collection_id
          and kc.organisation_id = new.organisation_id) then
     raise exception 'a form template data class cannot exceed its default collection'
-      using errcode = '23514';
-  end if;
-  -- §6.2 / AGENTS.md §4.4: a template cannot declare a higher class than the collection it captures
-  -- into. Capture stamps the collection's class, so a higher template class would be silently dropped.
-  if public.data_class_rank(new.data_class)
-       > public.data_class_rank((
-           select kc.data_class
-             from public.knowledge_collections kc
-            where kc.id = new.default_collection_id
-              and kc.organisation_id = new.organisation_id)) then
-    raise exception 'a form template data_class cannot exceed its default collection'
       using errcode = '23514';
   end if;
   if tg_op = 'UPDATE' then
@@ -537,7 +528,11 @@ begin
      where s.id = p_supersedes_submission_id
        and s.organisation_id = p_organisation_id
        and s.template_id = p_template_id
-       and (s.created_by = auth.uid() or s.state = 'submitted')) then
+       and (
+         s.created_by = auth.uid()
+         or (s.state = 'submitted'
+             and (s.project_id is null or public.is_project_member(s.project_id)))
+       )) then
     raise exception 'that submission is not one you may correct' using errcode = '42501';
   end if;
 

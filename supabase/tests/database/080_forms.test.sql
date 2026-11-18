@@ -19,7 +19,7 @@
 
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(71);
+select plan(72);
 
 -- ---------------------------------------------------------------- probes: SQLSTATE or a value
 create function pg_temp.try_draft(
@@ -335,6 +335,13 @@ set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
 select is((select count(*) from public.form_submissions
             where created_by = '00000000-0000-4000-8000-0000000000a2'), 0::bigint,
   '51 an admin in the same tenant cannot read a colleague''s draft: drafts are private (7.6 step 2)');
+select is(pg_temp.try_draft('11111111-1111-4111-8111-111111111111'::uuid,
+                            '80000000-0000-4000-8000-000000000001'::uuid, 'v1',
+                            ('{"airframe_check": "synthetic", "battery_pct": 70,'
+                            || ' "weather_notes": "synthetic"}')::jsonb,
+                            (select result::uuid from pg_temp.drafts where tag = 'a2_uav')),
+          '42501',
+  '51b a correction cannot link to another member''s private draft (Round-1 N1)');
 select ok(pg_temp.try_draft('11111111-1111-4111-8111-111111111111'::uuid,
                                    '80000000-0000-4000-8000-000000000002'::uuid, 'v1',
                                    '{"location": "synthetic", "observation": "synthetic"}'::jsonb) is not null,
