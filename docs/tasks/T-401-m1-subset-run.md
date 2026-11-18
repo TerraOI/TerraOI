@@ -5,7 +5,7 @@ Plan refs: §20.5 (the M1 subset), §16 (the full matrix), §15.2 (what M1-PILOT
 
 ## Goal
 
-§16 is a list of scenarios, not a list of tests that exist. This packet walks the §20.5 subset **row by row against a deployed staging environment**, records for each row the artifact that proves it (a CI job, a pgTAP assertion count, a loopback test name, a staging capture), and fixes the rows that turn out to have no test at all. Its output is a table a human can sign: **§20.5 has 12 areas; M1-PILOT cannot be signed without a line per area.**
+§16 is a list of scenarios, not a list of tests that exist. This packet walks the §20.5 subset **row by row against a deployed staging environment**, records for each row the artifact that proves it (a CI job, a pgTAP assertion count, a loopback test name, a staging capture), and fixes the rows that turn out to have no test at all. Its output is a table a human can sign: **§20.5's M1 subset has 11 in-scope areas** (Export and connector scenarios are out of M1 per §20.5 itself); **M1-PILOT cannot be signed without a line per in-scope area.**
 
 ## Owns (may edit)
 
@@ -19,16 +19,16 @@ Any acceptance box in another packet (only the claimant or the supervisor edits 
 
 ## Contract
 
-Nothing new. This packet **consumes** [src/contracts/](../../src/contracts/) and [docs/contracts/](../contracts/) as written, and runs against the §20.5 subset only. Two plan rows that look in scope are **not**, per the supervisor's rulings: Export leakage (§20.5, no exports in M1) and connector scenarios (§20.5 → TOI-08).
+Nothing new. This packet **consumes** [src/contracts/](../../src/contracts/) and [docs/contracts/](../contracts/) as written, and runs against the §20.5 subset only. Two plan rows that look in scope are **not**, per §20.5 itself (not a separate ruling): Export leakage (no exports in M1) and connector scenarios (→ TOI-08).
 
 ## The §20.5 subset, and what already proves each area
 
 | §16 area (M1 subset) | On `main` today (2026-11-12) | What this packet still has to produce |
 |---|---|---|
 | Host/session — all scenarios | `tenancy/host.test.ts`, `page-host.test.ts`, `resolve-tenant-context.test.ts`, `src/proxy.loopback.test.ts`; pgTAP `010` (46) | The rows no unit test can reach: **multi-tenant concurrent tabs** and **preview alias bypass** on staging; the **forged internal header** row depends on the runtime half of [ADR-0006](../decisions/0006-page-host-via-proxy-header.md), which is owed |
-| Database — all scenarios | pgTAP 000 (2), 001 (39), 010 (46), 011 (18), 014 (44), 020 (79), 030 (37), 040 (63) — **8 files / 328 assertions**, all in CI's `database` job | "Empty replay and realistic upgrade" has never been run anywhere (no Docker on either builder machine). **`src/contracts/database.types.ts` has never been committed**, so §16's "generated types" scenario has *no* control — CI prints "no generated types committed yet", a notice that has been false since T-003 merged. Closing this is a prerequisite, not a finding |
+| Database — all scenarios | pgTAP on `main` today: **11 files / 417 planned assertions** (read from each file's `select plan(N)`), all in CI's `database` job | "Empty replay and realistic upgrade" has never been run anywhere (no Docker on either builder machine). **`src/contracts/database.types.ts` has never been committed**, so §16's "generated types" scenario has *no* control — CI prints "no generated types committed yet", a notice that has been false since T-003 merged. Closing this is a prerequisite, not a finding (D-1) |
 | Tenant/source ACLs — incl. project restrictions and derived history/citation leakage | read predicates in `knowledge_core.sql:434-502`; RLS + negative tests in `020` | The project-restriction half (`060`, T-214) and the derived-history half (T-104/T-214) do not exist yet. This row is the one M1-PILOT most depends on |
-| White-label — login/chat/errors/favicon/metadata/manifest/email in 3 modes, mobile, contrast | `components/auth/brand-modes.test.tsx` (7) and the brand rules in `platform/branding/` | chat + email + manifest + metadata rows need T-204 and T-105; screenshots (T-131) still owed |
+| White-label — login/chat/errors/favicon/metadata/email in 3 modes, mobile, contrast (§20.5; no separate "manifest" row) | `components/auth/brand-modes.test.tsx` (7) and the brand rules in `platform/branding/` | chat + email + metadata rows need T-204 and T-105; screenshots (T-131) still owed |
 | Ingestion — oversized/misidentified/corrupt/malicious documents, OCR failure, duplicate/out-of-order events, stale job, index switch | capture path: `object-validator`, `pdf-text-extract`, pgTAP `040`; **every upload route answers 503** because `src/platform/knowledge/upload-adapters.ts:19` is a deliberate `null` | Everything that needs a real object: the storage path, the extractor loop, lease expiry, and the **stale-job / index-switch** rows (T-211, T-212, T-113) |
 | Retrieval — exact IDs/provision numbers, semantic, incompatible embeddings, filtered recall, historical intervals, conflicting authorities, insufficient coverage, **legitimate empty versus backend failure** | `retrieval/embeddings.ts` (the clearance/dimension gate); hybrid RPC open as [#160](https://github.com/TerraOI/TerraOI/pull/160)/[#162](https://github.com/TerraOI/TerraOI/pull/162), not merged | All of it, plus the **Recall@10 number** the scorer in #162 can only produce against a real database |
 | Chat — forged history/tool parts, cross-tenant conversation ids, duplicate submit, cancel/disconnect/reload, progress without candidate leakage, audit failure, provider timeout | contracts and `agents/compose.ts` only | T-104/T-203 own the code; this packet runs the rows and must not accept a pass that was never persisted-and-audited first (§9.3) |

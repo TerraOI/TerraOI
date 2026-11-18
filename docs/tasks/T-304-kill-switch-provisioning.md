@@ -1,7 +1,7 @@
 # T-304 Kill-switch settings and the tenant provisioning script (F05)
 
-Lane: 1 · Week: 3 · Protected: yes (`supabase/migrations/`, `src/platform/tenancy/`; `scripts/` is shared) · Depends on: T-003, T-101 (both merged), T-102 (code on `main` through #77/#90; staging evidence owed), T-115 (a–g all on `main`: #31 config/clearance/circuit, #53 chain walking, #76 the rule-(e) fix, #113 verify pass 1 + compose, #133 citation spans, #145 the Claude adapter — for the provider switch), T-311 (same week, for the expert switch) · Status: ready — **not claimable yet**: T-311's `tenant_experts` table does not exist, and T-202's `organisations.status` trigger is not written
-Decided (rulings below): [#45](https://github.com/TerraOI/TerraOI/issues/45) (closed; T-116 owns the provider registry, open as #143), [#62](https://github.com/TerraOI/TerraOI/issues/62) (closed; `tenant_brands` is T-103's, open as #150), [#67](https://github.com/TerraOI/TerraOI/issues/67) (`organisations.locale` rejects `en-GB` — **still unfixed on `main`**)
+Lane: 1 · Week: 3 · Protected: yes (`supabase/migrations/`, `src/platform/tenancy/`; `scripts/` is shared) · Depends on: T-003, T-101 (both merged), T-102 (a–d open as #30/#50/#52/#57; only e's test-only pgTAP #59 is merged), T-115 (a merged as #31; b/c/d open as #53/#56/#58, for the provider switch), T-311 (same week, for the expert switch) · Status: ready
+Decided (rulings below): [#45](https://github.com/TerraOI/TerraOI/issues/45), [#62](https://github.com/TerraOI/TerraOI/issues/62) (no tenant brand configuration exists), [#67](https://github.com/TerraOI/TerraOI/issues/67) (`organisations.locale` rejects `en-GB`)
 Plan refs: §17.1 (kill switches as settings), §15.0 ("Tenant provisioning by script (F05), not an admin UI"; "Kill switches (tenant, expert, provider) as settings"), §15.2 (M1-PILOT: kill switches verified), §16 (Operations row), §13, §4.1–§4.2; F05, F28 (F06 for the expert switch)
 
 ## Supervisor rulings to apply (2026-11-09)
@@ -44,17 +44,12 @@ deleting`), `tenant_domains.status` (`active | reserved | suspended`) and the `s
 [docs/contracts/tenancy-and-context.md](../../docs/contracts/tenancy-and-context.md)), and a tenant in
 `provisioning` resolves but has no members, so nothing is served. The switch table is the missing setting,
 not a new mechanism.
-**Decided — and the old assumption is now wrong:** **#45** is closed and [T-116](./T-116-provider-configuration.md)
-owns `model_providers`, `provider_routes`, `tenant_provider_policy` and `provider_health`; its SQL is open as
-[#143](https://github.com/TerraOI/TerraOI/pull/143) (not on `main` yet). So the provider switch keys on
-`model_providers.key` **once #143 merges**; if this packet lands first, it says so and keeps a bare text key.
-**#62** — provisioning seeds brand defaults, and `tenant_brands` is **owned** by
-[T-103](./T-103-tenant-shell-brand.md), whose migration is open as
-[#150](https://github.com/TerraOI/TerraOI/pull/150); this packet creates nothing brand-shaped and seeds the
-row #150 defines.
-**The expert switch** assumes [T-311](./T-311-expert-definitions.md)'s `tenant_experts`; that table does not
-exist yet and T-311 is not claimable, so this packet lands platform, tenant and provider switches only and
-says so.
+**Owed:** **#45** — with no `model_providers` / `provider_routes` / `provider_health` owner, a provider
+switch has nothing to name, so this packet assumes a switch row keyed by `providerKey` and no registry.
+**The expert switch** assumes [T-311](./T-311-expert-definitions.md)'s `tenant_experts`; if that has not
+merged, this packet lands platform, tenant and provider switches only and says so.
+**#62** — provisioning seeds brand defaults, but no packet owns `tenant_brands` (plan §6.1 names it;
+`git grep -i brand` over `supabase/` on `main` is empty), so this packet creates nothing brand-shaped.
 **#67** — `organisations.locale` checks `^[a-z]{2}(-[A-Z][a-z]{2})?$` (that file, `:25`), which rejects
 `en-GB`; and the adjacent timezone CHECK (`:26`) allows **exactly one slash**, so
 `America/Argentina/Buenos_Aires` and `America/Indiana/Indianapolis` are rejected while malformed shapes like
