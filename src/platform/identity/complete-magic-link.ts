@@ -1,14 +1,15 @@
 import { z } from "zod";
 
-import { parseHost, requestHost, type HostAdapterOptions } from "@/platform/tenancy/host";
+import type { HostAdapterOptions } from "@/platform/tenancy/host";
 import type { HostRecord, MembershipRecord } from "@/platform/tenancy/resolve-tenant-context";
 
 import { isDevelopmentRuntime, isHttpsUrl, type CookieSpec } from "./cookie";
 import { consumeLoginState, verifyLoginState } from "./login-state";
 import { canonicalEmail } from "./email";
-import { statusOnly, redirectSameHost, LOGIN_PATH } from "./http-response";
+import { redirectSameHost, LOGIN_PATH } from "./http-response";
 import { issueSession } from "./session";
 import { isUsableTokenPair, type SessionStore, type TokenCipher } from "./session-store";
+import { resolveActiveTenant } from "./request-magic-link";
 import { hasUsableSecret } from "./signed-token";
 
 /**
@@ -85,11 +86,12 @@ export interface MagicLinkCallbackInput {
 export async function completeMagicLink(input: MagicLinkCallbackInput): Promise<Response> {
   const { ports } = input;
 
-  const host = requestHost({ url: input.request.url }, input.hostOptions);
-  const parsed = parseHost(host);
-  if (!parsed.ok || parsed.class !== "tenant") return statusOnly(404);
-  const organisation = await ports.findHost(parsed.host);
-  if (organisation === null || organisation.organisationStatus !== "active") return statusOnly(404);
+  const resolved = await resolveActiveTenant(input.request, input.hostOptions, (host) => ports.findHost(host), (host) => {
+    console.error("magic-link callback host lookup failed", { host, step: "findHost" });
+    return loginRedirect(host, "unavailable", []);
+  });
+  if (!resolved.ok) return resolved.response;
+  const { host: tenantHost, organisation } = resolved.tenant;
 
   const secureTransport = isHttpsUrl(input.request.url);
   // Clearing the state cookie follows the same environment rule as issuing it (PR #18 N1): outside
@@ -101,7 +103,7 @@ export async function completeMagicLink(input: MagicLinkCallbackInput): Promise<
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
 
-  if (!hasUsableSecret(secret)) return loginRedirect(parsed.host, "unavailable", consumedState);
+  if (!hasUsableSecret(secret)) return loginRedirect(tenantHost, "unavailable", consumedState);
 
   const sessionStore = ports.sessionStore();
   const tokenCipher = ports.tokenCipher();
@@ -110,18 +112,18 @@ export async function completeMagicLink(input: MagicLinkCallbackInput): Promise<
     // deployment neither burns a single-use code nor leaves a browser half-signed-in: the alternative
     // would be the self-contained cookie #37 rejected. Issue #75 decides how the row is reached; until
     // then the adapter returns null here and sign-in says "unavailable".
-    return loginRedirect(parsed.host, "unavailable", consumedState);
+    return loginRedirect(tenantHost, "unavailable", consumedState);
   }
 
   const stateCheck = await verifyLoginState({
     cookieHeader: input.request.headers.get("cookie"),
     presentedState: state,
-    host: parsed.host,
+    host: tenantHost,
     secret,
     now: ports.now(),
   });
   if (!stateCheck.ok || code === null || code.length === 0 || state === null) {
-    return loginRedirect(parsed.host, "unavailable", consumedState);
+    return loginRedirect(tenantHost, "unavailable", consumedState);
   }
 
   let identity: Awaited<ReturnType<MagicLinkCallbackPorts["exchangeLoginCode"]>>;
@@ -129,21 +131,20 @@ export async function completeMagicLink(input: MagicLinkCallbackInput): Promise<
     identity = await ports.exchangeLoginCode({
       code,
       state,
-      host: parsed.host,
+      host: tenantHost,
       codeVerifier: stateCheck.codeVerifier,
     });
   } catch {
-    console.error("magic-link callback failed", { host: parsed.host, step: "exchangeLoginCode" });
-    return loginRedirect(parsed.host, "unavailable", consumedState);
+    return callbackUnavailable(tenantHost, consumedState, "exchangeLoginCode");
   }
-  if (!identity.ok) return loginRedirect(parsed.host, "unavailable", consumedState);
+  if (!identity.ok) return loginRedirect(tenantHost, "unavailable", consumedState);
 
   // An invite binds to a provider-verified address (plan §4.2 "do not auto-link unverified emails"),
   // and only its canonical form goes anywhere: nothing downstream may compare or store a raw address.
-  if (!identity.emailVerified) return loginRedirect(parsed.host, "unavailable", consumedState);
+  if (!identity.emailVerified) return loginRedirect(tenantHost, "unavailable", consumedState);
   const email = canonicalEmail(identity.email);
   if (email === null || !z.uuid().safeParse(identity.userId).success) {
-    return loginRedirect(parsed.host, "unavailable", consumedState);
+    return loginRedirect(tenantHost, "unavailable", consumedState);
   }
 
   // An exchange that returns an identity but no usable pair cannot produce a session: the row would
@@ -155,8 +156,7 @@ export async function completeMagicLink(input: MagicLinkCallbackInput): Promise<
     expiresAt: identity.tokenExpiresAt,
   };
   if (!isUsableTokenPair(tokens, ports.now())) {
-    console.error("magic-link callback failed", { host: parsed.host, step: "token_pair" });
-    return loginRedirect(parsed.host, "unavailable", consumedState);
+    return callbackUnavailable(tenantHost, consumedState, "token_pair");
   }
 
   try {
@@ -177,7 +177,7 @@ export async function completeMagicLink(input: MagicLinkCallbackInput): Promise<
     try {
       session = await issueSession({
         userId: identity.userId,
-        host: parsed.host,
+        host: tenantHost,
         tokens,
         store: sessionStore,
         cipher: tokenCipher,
@@ -188,19 +188,22 @@ export async function completeMagicLink(input: MagicLinkCallbackInput): Promise<
       // The row could not be written, or the pair could not be sealed: no cookie is set, and the
       // visitor gets the same generic outcome as any other backend failure. A half-written session is
       // worse than none, so nothing is emitted on this path.
-      console.error("magic-link callback failed", { host: parsed.host, step: "session_store" });
-      return loginRedirect(parsed.host, "unavailable", consumedState);
+      return callbackUnavailable(tenantHost, consumedState, "session_store");
     }
     const cookies: CookieSpec[] = [session.cookie, ...consumedState];
 
     if (membership !== null && membership.status === "active") {
-      return redirectSameHost(parsed.host, "/", cookies);
+      return redirectSameHost(tenantHost, "/", cookies);
     }
-    return loginRedirect(parsed.host, "not_a_member", cookies);
+    return loginRedirect(tenantHost, "not_a_member", cookies);
   } catch {
-    console.error("magic-link callback failed", { host: parsed.host, step: "membership" });
-    return loginRedirect(parsed.host, "unavailable", consumedState);
+    return callbackUnavailable(tenantHost, consumedState, "membership");
   }
+}
+
+function callbackUnavailable(host: string, cookies: readonly CookieSpec[], step: string): Response {
+  console.error("magic-link callback failed", { host, step });
+  return loginRedirect(host, "unavailable", cookies);
 }
 
 function loginRedirect(host: string, outcome: "unavailable" | "not_a_member", cookies: readonly CookieSpec[]): Response {

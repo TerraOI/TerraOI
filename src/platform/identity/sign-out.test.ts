@@ -196,4 +196,22 @@ describe("handleSignOut (POST /auth/sign-out)", () => {
     expect(response.headers.getSetCookie()).toHaveLength(0);
     expect([...store.rows.values()][0]?.revokedAt).toBeNull();
   });
+
+  it("a host-registry failure fails closed as unavailable and clears nothing", async () => {
+    const store = memoryStore();
+    const { cookieHeader } = await signedIn(store);
+    const response = await handleSignOut({
+      request: await post(HOST, { cookie: cookieHeader }),
+      ports: {
+        ...ports(store),
+        findHost: async () => {
+          throw new Error("SUPABASE_URL and SUPABASE_ANON_KEY bindings are required");
+        },
+      },
+    });
+    expect(response.status).toBe(303);
+    expect(new URL(response.headers.get("location") as string).searchParams.get("outcome")).toBe("unavailable");
+    expect(response.headers.getSetCookie()).toHaveLength(0);
+    expect([...store.rows.values()][0]?.revokedAt).toBeNull();
+  });
 });

@@ -464,6 +464,23 @@ describe("completeMagicLink (GET /auth/callback)", () => {
     expect(h.exchanges).toHaveLength(0);
   });
 
+  it("a host-registry failure fails closed as unavailable with no session and no provider call", async () => {
+    const { response, h } = await callback({
+      configure: (state) => {
+        state.ports = {
+          ...state.ports,
+          findHost: async () => {
+            throw new Error("SUPABASE_URL and SUPABASE_ANON_KEY bindings are required");
+          },
+        };
+      },
+    });
+    expect(sessionCookie(response)).toBe("");
+    expect(locationOf(response).searchParams.get("outcome")).toBe("unavailable");
+    expect(h.store.rows.size).toBe(0);
+    expect(h.exchanges).toHaveLength(0);
+  });
+
   it("with no token cipher wired, no session is minted either: tokens are never stored in the clear", async () => {
     const { response, h } = await callback({ configure: (state) => { state.tokenCipher = () => null; } });
     expect(sessionCookie(response)).toBe("");

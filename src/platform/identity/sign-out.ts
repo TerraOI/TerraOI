@@ -1,11 +1,11 @@
-import { parseHost, requestHost, type HostAdapterOptions } from "@/platform/tenancy/host";
+import type { HostAdapterOptions } from "@/platform/tenancy/host";
 import type { HostRecord } from "@/platform/tenancy/resolve-tenant-context";
 
 import { clearedCookie, isHttpsUrl } from "./cookie";
 import { verifyCsrfToken } from "./csrf";
 import { LOGIN_PATH, redirectSameHost, readCappedBody, statusOnly } from "./http-response";
 import { LOGIN_STATE_COOKIE_BASE } from "./login-state";
-import { MAX_BODY_BYTES } from "./request-magic-link";
+import { MAX_BODY_BYTES, resolveActiveTenant } from "./request-magic-link";
 import { SESSION_COOKIE_BASE, revokeSession } from "./session";
 import type { SessionStore } from "./session-store";
 import { hasUsableSecret } from "./signed-token";
@@ -41,24 +41,23 @@ export async function handleSignOut(input: {
   const { ports } = input;
   if (input.request.method !== "POST") return statusOnly(405);
 
-  const host = requestHost({ url: input.request.url }, input.hostOptions);
-  const parsed = parseHost(host);
-  if (!parsed.ok || parsed.class !== "tenant") return statusOnly(404);
-  const organisation = await ports.findHost(parsed.host);
-  if (organisation === null || organisation.organisationStatus !== "active") return statusOnly(404);
+  const resolved = await resolveActiveTenant(input.request, input.hostOptions, (host) => ports.findHost(host), (host) => {
+    console.error("sign-out host lookup failed", { host, step: "findHost" });
+    return unavailableLoginRedirect(host);
+  });
+  if (!resolved.ok) return resolved.response;
+  const tenantHost = resolved.tenant.host;
 
-  if (input.request.headers.get("origin") !== `https://${parsed.host}`) return statusOnly(403);
+  if (input.request.headers.get("origin") !== `https://${tenantHost}`) return statusOnly(403);
 
   const secret = ports.signingSecret();
-  if (!hasUsableSecret(secret)) {
-    return redirectSameHost(parsed.host, `${LOGIN_PATH}?outcome=unavailable`, []);
-  }
+  if (!hasUsableSecret(secret)) return unavailableLoginRedirect(tenantHost);
 
   const body = await readCappedBody(input.request, MAX_BODY_BYTES);
   if (body === null) return statusOnly(413);
   const csrf = await verifyCsrfToken({
     token: new URLSearchParams(body).get("csrf_token"),
-    host: parsed.host,
+    host: tenantHost,
     secret,
     now: ports.now(),
   });
@@ -72,21 +71,25 @@ export async function handleSignOut(input: {
   // user-visible result is the same either way and the detail is not the caller's to see.
   const sessionStore = ports.sessionStore();
   if (sessionStore === null) {
-    console.error("sign-out could not revoke the session row", { host: parsed.host, step: "session_store", reason: "unwired" });
+    console.error("sign-out could not revoke the session row", { host: tenantHost, step: "session_store", reason: "unwired" });
   } else {
     const revoked = await revokeSession({
       cookieHeader: input.request.headers.get("cookie"),
-      host: parsed.host,
+      host: tenantHost,
       now: ports.now(),
       store: sessionStore,
     });
     if (!revoked.ok && revoked.reason !== "missing" && revoked.reason !== "unknown_session") {
-      console.error("sign-out could not revoke the session row", { host: parsed.host, step: "session_store", reason: revoked.reason });
+      console.error("sign-out could not revoke the session row", { host: tenantHost, step: "session_store", reason: revoked.reason });
     }
   }
 
-  return redirectSameHost(parsed.host, LOGIN_PATH, [
+  return redirectSameHost(tenantHost, LOGIN_PATH, [
     clearedCookie(SESSION_COOKIE_BASE, secureTransport),
     clearedCookie(LOGIN_STATE_COOKIE_BASE, secureTransport),
   ]);
+}
+
+function unavailableLoginRedirect(host: string): Response {
+  return redirectSameHost(host, `${LOGIN_PATH}?outcome=unavailable`, []);
 }

@@ -310,6 +310,38 @@ describe("handleMagicLinkRequest (POST /auth/magic-link)", () => {
     expect(response.headers.getSetCookie()).toHaveLength(0);
   });
 
+  // Partial deploy / missing Worker bindings must not 500: adapters throw when Supabase or the
+  // rate limiter is unbound (adapters.test.ts), and this handler maps those to the same safe
+  // "unavailable" redirect used for a missing signing secret.
+  it("a host-registry failure fails closed as unavailable, not a 500", async () => {
+    const { response, state } = await request(HOST, { email: "owner1@company1.test" }, (h) => {
+      h.ports = {
+        ...h.ports,
+        findHost: async () => {
+          throw new Error("SUPABASE_URL and SUPABASE_ANON_KEY bindings are required");
+        },
+      };
+    });
+    expect(response.status).toBe(303);
+    expect(locationOf(response).searchParams.get("outcome")).toBe("unavailable");
+    expect(state.sent).toHaveLength(0);
+    expect(response.headers.getSetCookie()).toHaveLength(0);
+  });
+
+  it("a missing rate-limiter binding fails closed as unavailable, not a 500 or rate_limited", async () => {
+    const { response, state } = await request(HOST, { email: "owner1@company1.test" }, (h) => {
+      h.ports = {
+        ...h.ports,
+        allowRequest: async () => {
+          throw new Error("IDENTITY_RATE_LIMITER binding missing");
+        },
+      };
+    });
+    expect(response.status).toBe(303);
+    expect(locationOf(response).searchParams.get("outcome")).toBe("unavailable");
+    expect(state.sent).toHaveLength(0);
+  });
+
   // ADR-0006 rule 3: the header the proxy writes for pages is not a host source for a handler. The
   // proxy runs on `/auth/magic-link` too, so the header really can be present here — and a client
   // can also put its own candidates in. Only `request.url` may decide the organization.

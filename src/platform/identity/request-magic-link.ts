@@ -42,19 +42,46 @@ export interface MagicLinkRequestInput {
   ports: MagicLinkRequestPorts;
 }
 
+export type ActiveTenant = { host: string; organisation: HostRecord };
+
+export type ResolveActiveTenantResult = { ok: true; tenant: ActiveTenant } | { ok: false; response: Response };
+
+/** Tenant host from the routed URL, then a live registry row — or an early HTTP response. */
+export async function resolveActiveTenant(
+  request: Request,
+  hostOptions: HostAdapterOptions | undefined,
+  findHost: (host: string) => Promise<HostRecord | null>,
+  onFindHostFailure: (host: string) => Response,
+): Promise<ResolveActiveTenantResult> {
+  const host = requestHost({ url: request.url }, hostOptions);
+  const parsed = parseHost(host);
+  if (!parsed.ok || parsed.class !== "tenant") return { ok: false, response: statusOnly(404) };
+
+  try {
+    const organisation = await findHost(parsed.host);
+    if (organisation === null || organisation.organisationStatus !== "active") {
+      return { ok: false, response: statusOnly(404) };
+    }
+    return { ok: true, tenant: { host: parsed.host, organisation } };
+  } catch {
+    return { ok: false, response: onFindHostFailure(parsed.host) };
+  }
+}
+
 export async function handleMagicLinkRequest(input: MagicLinkRequestInput): Promise<Response> {
   const { ports } = input;
   if (input.request.method !== "POST") return statusOnly(405);
 
-  const host = requestHost({ url: input.request.url }, input.hostOptions);
-  const parsed = parseHost(host);
-  if (!parsed.ok || parsed.class !== "tenant") return statusOnly(404);
-  const organisation = await ports.findHost(parsed.host);
-  if (organisation === null || organisation.organisationStatus !== "active") return statusOnly(404);
+  const resolved = await resolveActiveTenant(input.request, input.hostOptions, (host) => ports.findHost(host), (host) => {
+    console.error("magic-link host lookup failed", { host, step: "findHost" });
+    return loginRedirect(host, "unavailable", []);
+  });
+  if (!resolved.ok) return resolved.response;
+  const tenantHost = resolved.tenant.host;
 
   // Exact Origin: `https://<the host the edge delivered us to>` and nothing else. SameSite would not
   // stop a request from a sibling subdomain, and Origin alone would not stop a forged form.
-  if (input.request.headers.get("origin") !== `https://${parsed.host}`) return statusOnly(403);
+  if (input.request.headers.get("origin") !== `https://${tenantHost}`) return statusOnly(403);
 
   const contentType = (input.request.headers.get("content-type") ?? "").split(";")[0]?.trim().toLowerCase();
   if (contentType !== "application/x-www-form-urlencoded") return statusOnly(415);
@@ -62,31 +89,37 @@ export async function handleMagicLinkRequest(input: MagicLinkRequestInput): Prom
   if (body === null) return statusOnly(413);
 
   const secret = ports.signingSecret();
-  if (!hasUsableSecret(secret)) return loginRedirect(parsed.host, "unavailable", []);
+  if (!hasUsableSecret(secret)) return loginRedirect(tenantHost, "unavailable", []);
 
   const form = new URLSearchParams(body);
-  const csrf = await verifyCsrfToken({ token: form.get("csrf_token"), host: parsed.host, secret, now: ports.now() });
+  const csrf = await verifyCsrfToken({ token: form.get("csrf_token"), host: tenantHost, secret, now: ports.now() });
   if (!csrf.ok) return statusOnly(403);
 
   // Canonical form first: the limiter key and the provider both see the canonical address, so
   // `USER@Example.test` cannot buy a second budget or a second identity.
   const email = canonicalEmail(form.get("email"));
-  const key = await ports.rateLimitKey({ host: parsed.host, email: email ?? "invalid-address" });
-  if (!(await ports.allowRequest(key))) return loginRedirect(parsed.host, "rate_limited", []);
+  const key = await ports.rateLimitKey({ host: tenantHost, email: email ?? "invalid-address" });
+  try {
+    if (!(await ports.allowRequest(key))) return loginRedirect(tenantHost, "rate_limited", []);
+  } catch {
+    // Missing IDENTITY_RATE_LIMITER must not become "rate_limited" (false) or a 500 — refuse closed.
+    console.error("magic-link rate limiter failed", { host: tenantHost, step: "allowRequest" });
+    return loginRedirect(tenantHost, "unavailable", []);
+  }
 
   if (email === null) {
     // Same answer as for a real address, and no provider call: the copy already reads "if this
     // address can sign in, we've sent a link", so this is both the safe and the honest outcome.
-    return loginRedirect(parsed.host, "link_sent", []);
+    return loginRedirect(tenantHost, "link_sent", []);
   }
 
   const loginState = await createLoginState({
-    host: parsed.host,
+    host: tenantHost,
     secret,
     now: ports.now(),
     secureTransport: new URL(input.request.url).protocol === "https:",
   });
-  const callbackUrl = `https://${parsed.host}${CALLBACK_PATH}?state=${encodeURIComponent(loginState.nonce)}`;
+  const callbackUrl = `https://${tenantHost}${CALLBACK_PATH}?state=${encodeURIComponent(loginState.nonce)}`;
   try {
     // The verifier goes to the provider as an S256 challenge, so the code it later hands back can
     // only be exchanged by a server holding this browser's cookie.
@@ -94,10 +127,10 @@ export async function handleMagicLinkRequest(input: MagicLinkRequestInput): Prom
   } catch {
     // The provider's failure detail never travels to the browser: it can name an account, a rate
     // limit or a configuration problem the caller has no business seeing.
-    console.error("magic-link send failed", { host: parsed.host, step: "sendMagicLink" });
-    return loginRedirect(parsed.host, "unavailable", [loginState.cookie]);
+    console.error("magic-link send failed", { host: tenantHost, step: "sendMagicLink" });
+    return loginRedirect(tenantHost, "unavailable", [loginState.cookie]);
   }
-  return loginRedirect(parsed.host, "link_sent", [loginState.cookie]);
+  return loginRedirect(tenantHost, "link_sent", [loginState.cookie]);
 }
 
 function loginRedirect(host: string, outcome: SigninOutcome, cookies: readonly CookieSpec[]): Response {
