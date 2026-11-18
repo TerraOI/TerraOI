@@ -1,77 +1,34 @@
 -- T-304 — the lifecycle switch settings, their flip history, the tenant suspend/resume RPCs and
--- `provision_tenant_v1` (F05). pgTAP slot `100`, claimed on the owner's instruction to start T-304;
--- the claim and the migration timestamp are recorded in the packet's Status line, and no branch or
--- open PR uses that slot.
+-- `provision_tenant_v1` (F05). pgTAP slot `100`. Packet:
+-- docs/tasks/T-304-kill-switch-provisioning.md.
 --
--- Packet: docs/tasks/T-304-kill-switch-provisioning.md. Plan §972 (kill switches per platform,
--- tenant, service, provider and connector, as explicit settings, **without disabling the
--- deterministic operational record system**), §15.0 ("Tenant provisioning by script (F05), not an
--- admin UI"), §15.2 (M1-PILOT: "kill switches verified"), §11 F01/F03/F05, §4.2 (a tenant is decided
--- by membership plus status), §3.2/§6.1 ("A platform administrator does not automatically receive
--- customer document or chat access"). Rulings applied: **#74** (M1 delivers tenant, expert and
--- provider), **#98** (the tenant switch relies on T-202's `organisations.status` to `policy_revision`
--- writer — [#179](https://github.com/TerraOI/TerraOI/pull/179), still unmerged), **#45** (no provider
--- registry exists, so a provider switch is keyed by `providerKey` alone), **#62** (no `tenant_brands`
--- owner, so provisioning seeds nothing brand-shaped), **#67** (the merged `organisations.locale`
--- CHECK rejects `en-GB`; the timezone CHECK allows exactly one slash). FAQ-0010: every function here
--- is revoked by full signature in the creating migration.
+-- Rulings applied: **#74** / **#199 §4** (M1 stores expert and provider only; tenant is
+-- organisations.status), **#98** (policy_revision writer is T-202 / #179 — merge-order coupling:
+-- test 40 turns red when that writer merges), **#45** answered (T-116 owns the provider registry;
+-- #143 carries the FK; no FK here), **#62**, **#67**. FAQ-0010: every function revoked by full
+-- signature; objects live in non-exposed `toi_control` (#75 toi_identity pattern).
 --
--- FAQ-0011 does **not** apply to these RPCs, and test 52 counts them so a later edit cannot quietly
--- pretend otherwise. A provisioning call names a tenant that does not exist yet, and
--- `set_tenant_scope` raises 28000 unless `auth.uid()` is already an active member of it
--- (`20261105060000_tenancy_core.sql:203-220`) — membership cannot gate the control plane. The gate is
--- the EXECUTE grant to a dedicated role plus an in-body login check.
+-- FAQ-0011 does **not** apply. The gate is EXECUTE to `toi_control_plane` plus an in-body login
+-- check. `provider_switch_state_v1` is the #199 server-path read for the gateway; it is not granted
+-- to request roles and not to `toi_control_plane`.
 --
--- Who may dial these. No HTTP path reaches any function here: `anon`, `authenticated` and
--- `service_role` hold no EXECUTE (46-49) and no table privilege (5-6, 32). The caller is a login that
--- is `IN ROLE toi_control_plane`, the NOLOGIN-group pattern the supervisor accepted for the session
--- Worker in #75 (`20261112234000_session_worker_role.sql:12-27`), whose own comment says the login
--- user and its password are §20.8 human steps. The same holds here: **creating that login is not part
--- of this migration and this suite does not claim it.**
+-- A missing switch row means "not switched off". Role flow: writes as postgres (IN ROLE
+-- toi_control_plane); one write under `set local role toi_control_plane`; tenant-scope reads as
+-- authenticated. Table assertions run as the owner — the only role with table privilege.
 --
--- What the database can and cannot prove about the actor. `actor_role` is `session_user` read inside a
--- SECURITY DEFINER body — the login that authenticated, which no argument can forge, and no signature
--- has an actor parameter (51). `requested_by` is the human the operator named: it is recorded and the
--- database cannot verify it, and the column comment says so rather than implying an audit trail
--- stronger than the mechanism supports.
---
--- A missing switch row means "not switched off" — never "off", never a null the caller must interpret.
--- Tests 22-23 pin that, and it is the one availability-versus-safety choice in this file a reviewer
--- should push back on if §972 means the opposite.
---
--- The two halves of the #74 ruling are not equally testable here. A switched-off expert is
--- representable and readable (29-30), but "not selectable and its routes are refused at the gateway"
--- needs T-311's `tenant_experts` (absent, pinned by 31) and a `src/platform/gateway/` change this
--- packet must not make (its Owns list; COORDINATION §2). So 31 asserts the absence instead of faking
--- the refusal, and that acceptance box stays unticked.
---
--- Role flow, because it is what makes these assertions mean what they say: writes run as `postgres`
--- (the migration owner and, below, a member of `toi_control_plane`, so the login check passes and the
--- recorded actor really is the session login); one write also runs under `set local role
--- toi_control_plane` into a capture table created by that role (016 pattern); the tenant-scope reads
--- run as `authenticated` with `request.jwt.claim.sub` set into a capture table created by that role
--- (020 pattern). Assertions on the real tables run as the owner, which is the only role that has any
--- privilege on them — and that is deliberate, not a shortcut: it is the same reason tests 5, 6 and 32
--- assert the absence of privileges in the first place.
---
--- Fixtures are the rows supabase/seed.sql applies on `supabase db reset`: orgs `company1`
--- 11111111-…-1111 and `company2` 22222222-…-2222; people …a1 (company1 admin), …a2 (company1 member),
--- …a3 (company1 suspended), …b1 (company2 admin). The `toi_control_plane` membership granted below is
--- transaction-local and the file ends with `rollback;`, so nothing here moves another slot's counts.
+-- Fixtures: seed.sql company1 / company2. Transaction-local; ends with `rollback;`.
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(93);
+select plan(91);
 
 -- ---------------------------------------------------------------- helpers (pg_temp, security invoker)
--- SQLSTATE instead of an abort, the 010/016/025 idiom: a red run names which object is missing
--- (42883 before the migration exists) instead of stopping the file.
 create function pg_temp.try_switch(p_scope_kind text, p_organisation_id uuid, p_scope_key text,
                                    p_state text, p_reason text, p_requested_by text)
 returns text language plpgsql security invoker as $fn$
 begin
   begin
-    perform public.set_lifecycle_switch_v1(p_scope_kind, p_organisation_id, p_scope_key,
+    perform toi_control.set_lifecycle_switch_v1(p_scope_kind, p_organisation_id, p_scope_key,
                                            p_state, p_reason, p_requested_by);
     return 'ok';
   exception when others then
@@ -85,7 +42,7 @@ create function pg_temp.try_provision(p_slug text, p_host text, p_display_name t
 returns text language plpgsql security invoker as $fn$
 begin
   begin
-    perform public.provision_tenant_v1(p_slug, p_host, p_display_name, p_locale, p_timezone,
+    perform toi_control.provision_tenant_v1(p_slug, p_host, p_display_name, p_locale, p_timezone,
                                        'pilot onboarding', 'ops@terraoi.test');
     return 'ok';
   exception when others then
@@ -98,7 +55,7 @@ create function pg_temp.try_suspend(p_organisation_id uuid)
 returns text language plpgsql security invoker as $fn$
 begin
   begin
-    perform public.suspend_tenant_v1(p_organisation_id, 'incident: suspected data exposure', 'ops@terraoi.test');
+    perform toi_control.suspend_tenant_v1(p_organisation_id, 'incident: suspected data exposure', 'ops@terraoi.test');
     return 'ok';
   exception when others then
     return sqlstate::text;
@@ -110,7 +67,7 @@ create function pg_temp.try_resume(p_organisation_id uuid)
 returns text language plpgsql security invoker as $fn$
 begin
   begin
-    perform public.resume_tenant_v1(p_organisation_id, 'all clear, signed off in the incident note', 'ops@terraoi.test');
+    perform toi_control.resume_tenant_v1(p_organisation_id, 'all clear, signed off in the incident note', 'ops@terraoi.test');
     return 'ok';
   exception when others then
     return sqlstate::text;
@@ -130,7 +87,6 @@ begin
 end;
 $fn$;
 
--- Two more capture helpers, same idiom: the role in force is the one being tested.
 create function pg_temp.try_host(p_host text)
 returns text language plpgsql security invoker as $fn$
 begin
@@ -143,14 +99,24 @@ begin
 end;
 $fn$;
 
--- A dynamic select, so the privilege checked is the caller's and not the helper owner's. The name is
--- format('%I')-quoted, so a table name cannot turn into a query.
 create function pg_temp.try_table(p_table text)
 returns text language plpgsql security invoker as $fn$
 declare v integer;
 begin
   begin
-    execute format('select count(*) from public.%I', p_table) into v;
+    execute format('select count(*) from toi_control.%I', p_table) into v;
+    return 'ok';
+  exception when others then
+    return sqlstate::text;
+  end;
+end;
+$fn$;
+
+create function pg_temp.try_provider_read(p_key text)
+returns text language plpgsql security invoker as $fn$
+begin
+  begin
+    perform toi_control.provider_switch_state_v1(p_key);
     return 'ok';
   exception when others then
     return sqlstate::text;
@@ -162,8 +128,9 @@ $fn$;
 set local role authenticated;
 create temp table t_user (case_name text primary key, result text not null);
 insert into t_user values
-  ('switch_as_authenticated', pg_temp.try_switch('platform', null, null, 'off', 'x', 'ops@terraoi.test')),
-  ('provision_as_authenticated', pg_temp.try_provision('somebody', 'somebody.terraoi.app', 'Nope', 'en', 'UTC'));
+  ('switch_as_authenticated', pg_temp.try_switch('provider', null, 'deepseek', 'off', 'x', 'ops@terraoi.test')),
+  ('provision_as_authenticated', pg_temp.try_provision('somebody', 'somebody.terraoi.app', 'Nope', 'en', 'UTC')),
+  ('provider_read_as_authenticated', pg_temp.try_provider_read('deepseek'));
 reset role;
 
 grant toi_control_plane to postgres;
@@ -172,20 +139,25 @@ create temp table t_ctl (case_name text primary key, result text not null);
 insert into t_ctl values
   ('switch_as_control_plane', pg_temp.try_switch('provider', null, 'deepseek', 'off',
                                                  'outage: all 5xx for twenty minutes', 'ops@terraoi.test'));
+-- B2: provision read-back under the control-plane role (no table SELECT).
+create temp table t_prov_read as
+  select * from toi_control.provision_tenant_v1(
+    'ctl-readback', 'ctl-readback.terraoi.app', 'Control Readback', 'en', 'UTC',
+    'read-back under toi_control_plane', 'ops@terraoi.test');
 reset role;
 
 -- ---------------------------------------------------------------- 1-6 shape and grants
 select ok(
-  exists (select 1 from pg_tables where schemaname = 'public' and tablename = 'lifecycle_switches'),
-  '1 public.lifecycle_switches exists');
+  exists (select 1 from pg_tables where schemaname = 'toi_control' and tablename = 'lifecycle_switches'),
+  '1 toi_control.lifecycle_switches exists');
 select ok(
-  exists (select 1 from pg_tables where schemaname = 'public' and tablename = 'lifecycle_switch_flips'),
-  '2 public.lifecycle_switch_flips exists');
+  exists (select 1 from pg_tables where schemaname = 'toi_control' and tablename = 'lifecycle_switch_flips'),
+  '2 toi_control.lifecycle_switch_flips exists');
 select ok(
   (select rolcanlogin = false from pg_roles where rolname = 'toi_control_plane'),
   '3 toi_control_plane exists and is NOLOGIN (the #75 group-role pattern)');
 select ok(
-  (select relrowsecurity from pg_class where oid = 'public.lifecycle_switches'::regclass),
+  (select relrowsecurity from pg_class where oid = 'toi_control.lifecycle_switches'::regclass),
   '4 lifecycle_switches has row level security enabled');
 select is_empty(
   $$ select r.rolname || ' -> ' || c.relname || ' ' || a.privilege_type
@@ -193,7 +165,7 @@ select is_empty(
        join pg_namespace n on n.oid = c.relnamespace
        cross join lateral aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
        join pg_roles r on r.oid = a.grantee
-      where n.nspname = 'public'
+      where n.nspname = 'toi_control'
         and c.relname in ('lifecycle_switches', 'lifecycle_switch_flips')
         and r.rolname in ('anon', 'authenticated', 'service_role') $$,
   '5 no request role and no service_role holds any privilege on either switch table');
@@ -202,14 +174,12 @@ select is_empty(
        from pg_class c
        join pg_namespace n on n.oid = c.relnamespace
        cross join lateral aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
-      where n.nspname = 'public'
+      where n.nspname = 'toi_control'
         and c.relname in ('lifecycle_switches', 'lifecycle_switch_flips')
         and a.grantee = 'toi_control_plane'::regrole $$,
   '6 toi_control_plane holds no table privilege, so it cannot write a switch behind the RPC');
 
--- ---------------------------------------------------------------- 7-23 the switch write path
--- The control-plane runtime call already happened above; 7 proves it worked, 8 that the same call was
--- refused for a signed-in user at runtime and not only in the catalog.
+-- ---------------------------------------------------------------- 7-19 the switch write path
 select is((select result from t_ctl where case_name = 'switch_as_control_plane'), 'ok',
   '7 a login in toi_control_plane can flip a switch at runtime');
 select is((select result from t_user where case_name = 'switch_as_authenticated'), '42501',
@@ -217,92 +187,89 @@ select is((select result from t_user where case_name = 'switch_as_authenticated'
 select is((select result from t_user where case_name = 'provision_as_authenticated'), '42501',
   '9 and so is an attempt to provision through the request path');
 select is(state, 'off', '10 the provider the control plane stopped reads off')
-  from public.lifecycle_switches where scope_kind = 'provider' and scope_key = 'deepseek';
+  from toi_control.lifecycle_switches where scope_kind = 'provider' and scope_key = 'deepseek';
 select is(actor_role, 'postgres',
   '11 the recorded actor is the session login the database saw — here the pg_prove login, and in '
   || 'production the control-plane login — not a value someone passed in')
-  from public.lifecycle_switches where scope_kind = 'provider' and scope_key = 'deepseek';
+  from toi_control.lifecycle_switches where scope_kind = 'provider' and scope_key = 'deepseek';
 select is(requested_by, 'ops@terraoi.test',
   '12 the named human is stored as named, and no further than that')
-  from public.lifecycle_switches where scope_kind = 'provider' and scope_key = 'deepseek';
-select is(pg_temp.try_switch('platform', null, null, 'off',
-                             'incident: model chain returning wrong units', 'ops@terraoi.test'),
-  'ok', '13 a platform switch off is accepted when it carries a reason');
-select is((select count(*) from public.lifecycle_switch_flips)::text, '2',
-  '14 both flips so far are in the history table');
-select is(pg_temp.try_switch('platform', null, null, 'on',
-                             'all clear, signed off in the incident note', 'ops@terraoi.test'),
-  'ok', '15 a switch is reversible, and the flip back is attributed too');
-select is((select count(*) from public.lifecycle_switch_flips)::text, '3',
-  '16 every flip keeps its own history row (§972 actor and reason per flip)');
-select is((select count(*) from public.lifecycle_switches where scope_kind = 'platform')::text, '1',
-  '17 the current-state table upserts: two platform flips, one current row');
-select is(pg_temp.try_switch('platform', null, null, 'off', '', 'ops@terraoi.test'),
-  '22023', '18 an empty reason is refused before anything is written');
-select is((select count(*) from public.lifecycle_switches where scope_kind = 'platform' and state = 'on')::text, '1',
-  '19 and that refusal left the current state where it was, off-to-on rather than half-written');
+  from toi_control.lifecycle_switches where scope_kind = 'provider' and scope_key = 'deepseek';
+select is(pg_temp.try_switch('provider', null, 'deepseek', 'off', '', 'ops@terraoi.test'),
+  '22023', '13 an empty reason is refused before anything is written');
+select is((select count(*) from toi_control.lifecycle_switches
+            where scope_kind = 'provider' and scope_key = 'deepseek' and state = 'off')::text, '1',
+  '14 and that refusal left the current state where it was');
 select is(pg_temp.try_switch('tenant', '11111111-1111-4111-8111-111111111111', null, 'off',
                              'tenant stopped pending contract review', 'ops@terraoi.test'),
-  '22023', '20 stopping a tenant is suspend_tenant_v1, not a switch row: two mechanisms for one act is how they drift');
-select is(pg_temp.try_switch('nonsense', null, null, 'off', 'x', 'ops@terraoi.test'),
-  '22023', '21 an unknown scope kind is refused; the settings table carries §972 four storable kinds, '
-  || 'because the tenant axis is organisations.status');
+  '22023', '15 stopping a tenant is suspend_tenant_v1, not a switch row');
+select is(pg_temp.try_switch('platform', null, null, 'off', 'x', 'ops@terraoi.test'),
+  '22023', '16 platform is not a storable M1 kind (#74 / #199 §4); unknown kinds are refused the same way');
+select is(pg_temp.try_switch('service', null, 'geotech_screening', 'off', 'x', 'ops@terraoi.test'),
+  '22023', '17 service is not a storable M1 kind either');
 select is(pg_temp.try_switch('provider', null, 'Bad Provider', 'off', 'outage', 'ops@terraoi.test'),
-  '22023', '22 a provider key must match ProviderKey as src/contracts/keys.ts:13 defines it');
+  '22023', '18 a provider key must match ProviderKey as src/contracts/keys.ts:13 defines it');
 select is(pg_temp.try_switch('provider', null, 'workers_ai', 'maybe', 'x', 'ops@terraoi.test'),
-  '22023', '23 state is on or off; there is no third value for a caller to be confused by');
+  '22023', '19 state is on or off; there is no third value');
 
--- ---------------------------------------------------------------- 24-34 reads, shape, and the #74 boundary
-select is(pg_temp.try_switch('service', null, 'geotech_screening', 'off',
-                             'service stopped for maintenance', 'ops@terraoi.test'),
-  'ok', '24 §972 names a service scope, so a service switch is storable even though no packet reads it yet');
+-- ---------------------------------------------------------------- 20-33 reads, #74 / #199
 select is(pg_temp.try_switch('provider', '11111111-1111-4111-8111-111111111111', 'deepseek', 'off',
                              'per-tenant provider stop', 'ops@terraoi.test'),
-  '22023', '25 a provider switch cannot also name a tenant: per-tenant provider control is '
-  || 'tenant_provider_policy (T-214), and inventing a second way here is how the two disagree');
-select is(public.lifecycle_switch_state_v1('expert', null, 'geotech_screening'), 'on',
-  '26 a switch nobody has ever flipped reads on, not off and not null');
-select is(public.lifecycle_switch_state_v1('provider', null, 'openrouter'), 'on',
-  '27 and a provider with no row reads on, so a typo in a key cannot silently stop a chain');
-select is(public.lifecycle_switch_state_v1('provider', null, 'deepseek'), 'off',
-  '28 the provider the operator did stop reads off');
-select is(public.lifecycle_switch_state_v1('service', null, 'geotech_screening'), 'off',
-  '29 a service switch reads back through the same function the pipeline will use');
+  '22023', '20 a provider switch cannot also name a tenant');
+select is(toi_control.lifecycle_switch_state_v1('expert', null, 'geotech_screening'), 'on',
+  '21 a switch nobody has ever flipped reads on, not off and not null');
+select is(toi_control.lifecycle_switch_state_v1('provider', null, 'openrouter'), 'on',
+  '22 and a provider with no row reads on');
+select is(toi_control.lifecycle_switch_state_v1('provider', null, 'deepseek'), 'off',
+  '23 the provider the operator did stop reads off');
 select is((select count(*)
-             from public.lifecycle_switch_history_v1('platform', null, null))::text, '2',
-  '30 the flip history is queryable, which is what makes actor-and-reason-per-flip a real capability');
-select is((select reason from public.lifecycle_switch_history_v1('platform', null, null) limit 1),
-  'all clear, signed off in the incident note',
-  '31 the most recent flip comes first, so an operator sees the latest attribution without ordering it');
+             from toi_control.lifecycle_switch_history_v1('provider', null, 'deepseek'))::text, '1',
+  '24 the flip history is queryable for the provider that was flipped');
+select is((select reason from toi_control.lifecycle_switch_history_v1('provider', null, 'deepseek') limit 1),
+  'outage: all 5xx for twenty minutes',
+  '25 the most recent flip carries the operator reason');
 select is(has_function_privilege('anon',
-  'public.lifecycle_switch_state_v1(text, uuid, text)', 'execute'), false,
-  '32 anon may not read switch state');
+  'toi_control.lifecycle_switch_state_v1(text, uuid, text)', 'execute'), false,
+  '26 anon may not read switch state');
 select is(pg_temp.try_switch('expert', null, 'geotech_screening', 'off',
                              'T-311 expert suspended pending eval', 'ops@terraoi.test'),
-  'ok', '33 #74 half one: a switched-off expert is recordable by key');
-select is(state, 'off', '34 and it reads back off through the same read the pipeline will use')
-  from public.lifecycle_switches where scope_kind = 'expert' and scope_key = 'geotech_screening';
+  'ok', '27 #74 half one: a switched-off expert is recordable by key');
+select is(state, 'off', '28 and it reads back off')
+  from toi_control.lifecycle_switches where scope_kind = 'expert' and scope_key = 'geotech_screening';
+select is(pg_temp.try_switch('expert', null, 'geotech_screening', 'off',
+                             'retry same state', 'ops@terraoi.test'),
+  'ok', '29 N3: a same-state set is accepted as a no-op');
+select is((select count(*) from toi_control.lifecycle_switch_flips
+            where scope_kind = 'expert' and scope_key = 'geotech_screening')::text, '1',
+  '30 and the same-state retry recorded no second flip');
+select is(toi_control.provider_switch_state_v1('openrouter'), 'on',
+  '31 #199: missing provider row reads on through provider_switch_state_v1');
+select is(toi_control.provider_switch_state_v1('deepseek'), 'off',
+  '32 #199: a stopped provider reads off through the gateway read');
+select is(has_function_privilege('anon',
+  'toi_control.provider_switch_state_v1(text)', 'execute'), false,
+  '33 anon cannot execute provider_switch_state_v1');
+select is((select result from t_user where case_name = 'provider_read_as_authenticated'), '42501',
+  '34 authenticated cannot execute provider_switch_state_v1 either');
 
--- ---------------------------------------------------------------- 35-46 suspend and resume
+-- ---------------------------------------------------------------- 35-47 suspend and resume
 select is(pg_temp.try_suspend('11111111-1111-4111-8111-111111111111'), 'ok',
   '35 suspend_tenant_v1 accepts a seeded tenant with a reason');
 select is(status, 'suspended',
   '36 and it moves organisations.status, the one status resolve_tenant_host and is_active_member read')
   from public.organisations where id = '11111111-1111-4111-8111-111111111111';
 select is(policy_revision::text, '1',
-  '37 #98: this migration does not bump policy_revision, and pinning that keeps the gap visible until '
-  || 'T-202 status trigger (the #98 writer, #179) merges')
+  '37 #98 / N8: this migration does not bump policy_revision; the assertion turns red when #179 merges')
   from public.organisations where id = '11111111-1111-4111-8111-111111111111';
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
 insert into t_user values ('scope_after_suspend', pg_temp.try_scope('11111111-1111-4111-8111-111111111111'));
 reset role;
 select is((select result from t_user where case_name = 'scope_after_suspend'), '28000',
-  '38 (as that tenant admin) the merged scope helper refuses at once, so new sessions and runs stop '
-  || 'without waiting for the revision bump #98 owes');
+  '38 (as that tenant admin) the merged scope helper refuses at once');
 select is(pg_temp.try_suspend('11111111-1111-4111-8111-111111111111'), 'ok',
-  '39 suspending an already-suspended tenant is a no-op rather than an error, so a retried script is safe');
-select is((select count(*) from public.lifecycle_switch_flips
+  '39 suspending an already-suspended tenant is a no-op rather than an error');
+select is((select count(*) from toi_control.lifecycle_switch_flips
             where scope_kind = 'tenant' and organisation_id = '11111111-1111-4111-8111-111111111111')::text, '1',
   '40 and the no-op recorded no second flip');
 select is(pg_temp.try_suspend('00000000-0000-4000-8000-00000000000f'), '23503',
@@ -317,28 +284,28 @@ set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
 insert into t_user values ('scope_after_resume', pg_temp.try_scope('11111111-1111-4111-8111-111111111111'));
 reset role;
 select is((select result from t_user where case_name = 'scope_after_resume'), 'ok',
-  '44 (as the same tenant admin) the tenant serves again, so the kill switch is reversible end to end');
-select is(public.lifecycle_switch_state_v1('tenant', '11111111-1111-4111-8111-111111111111', null), 'on',
+  '44 (as the same tenant admin) the tenant serves again');
+select is(toi_control.lifecycle_switch_state_v1('tenant', '11111111-1111-4111-8111-111111111111', null), 'on',
   '45 and the read derives a resumed tenant as on from organisations.status, not from a switch row');
 select is(pg_temp.try_suspend('22222222-2222-4222-8222-222222222222'), 'ok',
-  '46 a different tenant can be suspended independently, which is the point of a per-tenant switch');
+  '46 a different tenant can be suspended independently');
 select is((select count(*) from public.organisations
             where id = '11111111-1111-4111-8111-111111111111' and status = 'active')::text, '1',
   '47 and that changed nothing about company1, which is back to active');
 
--- ---------------------------------------------------------------- 48-52 the grant wall and the signatures
+-- ---------------------------------------------------------------- 48-53 the grant wall and the signatures
 select is(has_function_privilege('authenticated',
-  'public.provision_tenant_v1(text, text, text, text, text, text, text)', 'execute'), false,
+  'toi_control.provision_tenant_v1(text, text, text, text, text, text, text)', 'execute'), false,
   '48 no signed-in user may provision a tenant (catalog)');
 select is(has_function_privilege('service_role',
-  'public.set_lifecycle_switch_v1(text, uuid, text, text, text, text)', 'execute'), false,
-  '49 not even service_role may flip a switch: the switch is not reachable through the Data API');
+  'toi_control.set_lifecycle_switch_v1(text, uuid, text, text, text, text)', 'execute'), false,
+  '49 not even service_role may flip a switch');
 select is_empty(
-  $$ select p.proname
+  $$ select n.nspname || '.' || p.proname
        from pg_proc p
        join pg_namespace n on n.oid = p.pronamespace
        cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
-      where n.nspname in ('public', 'toi_identity', 'intake')
+      where n.nspname in ('public', 'toi_identity', 'intake', 'toi_control')
         and a.grantee = 'toi_control_plane'::regrole
         and a.privilege_type = 'EXECUTE'
         and p.proname not in ('set_lifecycle_switch_v1', 'lifecycle_switch_state_v1',
@@ -349,7 +316,7 @@ select ok(
   (select count(*) = 0
      from pg_proc p
      join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = 'public'
+    where n.nspname = 'toi_control'
       and p.proname in ('set_lifecycle_switch_v1', 'suspend_tenant_v1', 'resume_tenant_v1',
                         'provision_tenant_v1')
       and pg_get_function_arguments(p.oid) ~* '(^|, )p_(actor|user_id|member_id|on_behalf_of)( |,)'),
@@ -358,108 +325,105 @@ select ok(
   (select count(*) = 6
      from pg_proc p
      join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = 'public'
+    where n.nspname = 'toi_control'
       and p.proname in ('set_lifecycle_switch_v1', 'lifecycle_switch_state_v1',
                         'lifecycle_switch_history_v1', 'suspend_tenant_v1',
                         'resume_tenant_v1', 'provision_tenant_v1')),
-  '52 exactly six lifecycle functions exist, so the FAQ-0011 carve-out above stays countable instead of '
-  || 'accreting a seventh someone later assumes is tenant-scoped');
+  '52 exactly six control-plane lifecycle functions exist in toi_control');
+select ok(
+  has_schema_privilege('toi_control_plane', 'toi_control', 'USAGE'),
+  '53 toi_control_plane has USAGE on toi_control');
+select is_empty(
+  $$ select a.privilege_type
+       from pg_namespace n
+       cross join lateral aclexplode(coalesce(n.nspacl, acldefault('n', n.nspowner))) a
+      where n.nspname = 'public'
+        and a.grantee = 'toi_control_plane'::regrole $$,
+  '53b toi_control_plane holds no direct privilege on schema public (B1: no grant usage on public)');
 
--- ---------------------------------------------------------------- 53-66 provisioning (F05)
+-- ---------------------------------------------------------------- 54-67 provisioning (F05) + B2 read-back
+select is((select status from t_prov_read), 'provisioning',
+  '54 B2: provision_tenant_v1 returns status under set local role toi_control_plane');
+select is((select host from t_prov_read), 'ctl-readback.terraoi.app',
+  '55 B2: and returns the requested host without a table SELECT');
+select is((select roles::text from t_prov_read), '2',
+  '56 B2: roles count in the read-back');
+select is((select permissions::text from t_prov_read), '6',
+  '57 B2: permissions count in the read-back');
+select is((select members::text from t_prov_read), '0',
+  '58 B2: members count is zero (F05)');
 select is(pg_temp.try_provision('acme-surveys', 'acme-surveys.terraoi.app', 'Acme Surveys', 'en', 'UTC'),
-  'ok', '53 provisioning a new slug is accepted');
+  'ok', '59 provisioning a new slug is accepted');
 select is((select count(*) from public.organisations where slug = 'acme-surveys')::text, '1',
-  '54 one organisation row');
+  '60 one organisation row');
 select is(status, 'provisioning',
-  '55 and it starts in provisioning, so it resolves but serves nothing (tenancy_core:247, §4.1)')
+  '61 and it starts in provisioning')
   from public.organisations where slug = 'acme-surveys';
 select is((select count(*) from public.tenant_domains d
              join public.organisations o on o.id = d.organisation_id
             where o.slug = 'acme-surveys' and d.host = 'acme-surveys.terraoi.app'
               and d.kind = 'tenant' and d.status = 'active')::text, '1',
-  '56 the exact host is registered, kind tenant, status active (F01: no wildcard, no suffix matching)');
+  '62 the exact host is registered');
 select is((select count(*) from public.organisation_roles r
              join public.organisations o on o.id = r.organisation_id
             where o.slug = 'acme-surveys')::text, '2',
-  '57 the default roles are the two the merged seed already uses: member and admin');
+  '63 the default roles are member and admin');
 select is((select count(*) from public.role_permissions rp
              join public.organisation_roles r on r.id = rp.role_id
              join public.organisations o on o.id = r.organisation_id
             where o.slug = 'acme-surveys')::text, '6',
-  '58 and their permission areas are the seed vocabulary (chat.ask, knowledge.read, projects.read, '
-  || 'knowledge.admin, members.admin, projects.admin) — not a list invented in this migration');
+  '64 and their permission areas are the seed vocabulary');
 select is((select count(*) from public.organisation_memberships m
              join public.organisations o on o.id = m.organisation_id
             where o.slug = 'acme-surveys')::text, '0',
-  '59 F05: provisioning grants the platform admin no operational access, so it creates no membership row');
+  '65 F05: provisioning creates no membership row');
 select is(pg_temp.try_provision('admin', 'admin.terraoi.app', 'Not A Tenant', 'en', 'UTC'),
-  '22023', '60 a reserved slug is refused: admin is a control-plane class in tenancy_core:46 and plan §209');
+  '22023', '66 a reserved slug is refused: admin');
 select is(pg_temp.try_provision('www', 'www.terraoi.app', 'Not A Tenant', 'en', 'UTC'),
-  '22023', '61 www is refused too (plan §214 reserved hosts, and the collision warning there)');
-select is(pg_temp.try_provision('terraoi', 'terraoi.app', 'Not A Tenant', 'en', 'UTC'),
-  '22023', '62 the zone label itself is refused as a slug');
-select is(pg_temp.try_provision('Acme Surveys', 'acme-surveys.terraoi.app', 'Bad Slug', 'en', 'UTC'),
-  '22023', '63 a slug the merged CHECK rejects is refused as a named-argument error, not as a database error');
-select is(pg_temp.try_provision('acme-surveys', 'acme.surveys.terraoi.app', 'Acme Surveys', 'en', 'UTC'),
-  '22023', '64 a host the merged tenancy_core:41-44 CHECK rejects (two subdomain levels) is refused, not worked around');
-select is(pg_temp.try_provision('acme-surveys', 'acme-surveys.terraoi.app', 'Acme Surveys', 'en-GB', 'UTC'),
-  '22023', '65 #67: en-GB cannot be provisioned today because the merged locale CHECK rejects it, and '
-  || 'this migration neither edits that CHECK nor fakes a workaround for it');
-select is((select count(*) from public.organisations where slug = 'acme-surveys')::text, '1',
-  '66 six refusals in a row and the tenant provisioned at 53 is still the only acme row');
+  '22023', '67 www is refused too');
 
--- ---------------------------------------------------------------- 67-73 resumability and the host rule
-select is(pg_temp.try_provision('acme-surveys', 'acme-surveys.terraoi.app', 'Acme Surveys Renamed', 'en', 'UTC'),
-  'ok', '67 the same call again is accepted — resumable, §11 F05');
+-- ---------------------------------------------------------------- 68-76 more provisioning refusals / resume
+select is(pg_temp.try_provision('terraoi', 'terraoi.app', 'Not A Tenant', 'en', 'UTC'),
+  '22023', '68 the zone label itself is refused as a slug');
+select is(pg_temp.try_provision('Acme Surveys', 'acme-surveys.terraoi.app', 'Bad Slug', 'en', 'UTC'),
+  '22023', '69 a slug the merged CHECK rejects is refused');
+select is(pg_temp.try_provision('acme-surveys', 'acme.surveys.terraoi.app', 'Acme Surveys', 'en', 'UTC'),
+  '22023', '70 a host with two subdomain levels is refused');
+select is(pg_temp.try_provision('acme-surveys', 'acme-surveys.terraoi.app', 'Acme Surveys', 'en-GB', 'UTC'),
+  '22023', '71 #67: en-GB cannot be provisioned today');
 select is((select count(*) from public.organisations where slug = 'acme-surveys')::text, '1',
-  '68 and it created no second organisation');
+  '72 refusals left the tenant provisioned at 59 as the only acme row');
+select is(pg_temp.try_provision('acme-surveys', 'acme-surveys.terraoi.app', 'Acme Surveys Renamed', 'en', 'UTC'),
+  'ok', '73 the same call again is accepted — resumable');
+select is((select count(*) from public.organisations where slug = 'acme-surveys')::text, '1',
+  '74 and it created no second organisation');
 select is(display_name, 'Acme Surveys',
-  '69 provisioning is create-or-ensure: it never rewrites an existing tenant identity field')
+  '75 provisioning never rewrites an existing tenant identity field')
   from public.organisations where slug = 'acme-surveys';
 select is((select count(*) from public.tenant_domains d
              join public.organisations o on o.id = d.organisation_id
             where o.slug = 'acme-surveys')::text, '1',
-  '70 no duplicate domain row from a re-run, which is the half that makes a retried script safe');
-select is(pg_temp.try_provision('company2', 'acme-surveys.terraoi.app', 'Host Steal', 'en', 'UTC'),
-  '23505', '71 a host another tenant already owns is refused (the unique-host constraint is the backstop)');
-select is((select count(*) from public.organisations where slug = 'company2')::text, '1',
-  '72 and that refusal created nothing for company2 beyond the seeded row');
-select is((select count(*) from pg_tables where schemaname = 'public' and tablename ilike '%entitlement%')::text, '0',
-  '73 F05 says "defaults and entitlements": no entitlement table exists on main and no packet owns one, '
-  || 'so provisioning seeds none and this assertion says so instead of creating one quietly');
+  '76 no duplicate domain row from a re-run');
 
--- ------------------------------------------ 74-93 the switch reaching the code that already runs
--- §15.2's gate item is "kill switches **verified**", and verified has to mean the entry points that
--- already exist on `main` refuse — not that a settings row reads a certain way. Two merged predicates
--- do that work: `resolve_tenant_host` returns rows only where `o.status in ('provisioning','active')`
--- (`20261105060000_tenancy_core.sql:244-248`), and `is_active_member` requires `o.status = 'active'`
--- (`:176-187`). `010_tenancy.test.sql` already pins the resolver's **host** cases — unknown,
--- look-alike, staging, normalization — but never a suspended organisation, because nothing could
--- suspend one until this migration added `suspend_tenant_v1`. So these are the organisation-status
--- half of the same entry point, not a second copy of 010.
---
--- No new grant is needed to test any of it: `resolve_tenant_host(text)` is already the single named
--- exception in 001's rule 31 for `anon`, which is exactly the pre-sign-in path a tenant switch has to
--- stop. That is also why this section adds assertions and no privileges.
-set local role anon;
-create temp table t_anon_hosts (case_name text primary key, row_count integer not null);
-reset role;
+-- ---------------------------------------------------------------- 77-88 entry points + grant wall
+select is(pg_temp.try_provision('company2', 'acme-surveys.terraoi.app', 'Host Steal', 'en', 'UTC'),
+  '23505', '77 a host another tenant already owns is refused');
+select is((select count(*) from public.organisations where slug = 'company2')::text, '1',
+  '78 and that refusal created nothing for company2 beyond the seeded row');
+select is((select count(*) from pg_tables where schemaname = 'public' and tablename ilike '%entitlement%')::text, '0',
+  '79 F05 names entitlements: no entitlement table exists, so provisioning seeds none');
 
 select is(pg_temp.try_resume('22222222-2222-4222-8222-222222222222'), 'ok',
-  '74 company2 is resumed first, because test 46 suspended it: this section needs one tenant stopped and '
-  || 'one serving, and which one happened to be switched off earlier must not be what makes the answers '
-  || 'look right');
+  '80 company2 is resumed first (test 46 suspended it)');
 
--- The baseline is read here, not above, for a reason: test 46 left company2 suspended, and a read taken
--- before the resume at 74 is a suspended tenant's correct zero rather than a baseline. That is exactly
--- the false pass this guard exists to catch, so the guard could not be left ordering itself wrongly.
 set local role anon;
+create temp table t_anon_hosts (case_name text primary key, row_count integer not null);
 insert into t_anon_hosts values
   ('company2_before', (select count(*) from public.resolve_tenant_host('company2.terraoi.app')));
 reset role;
 
 select is(pg_temp.try_suspend('11111111-1111-4111-8111-111111111111'), 'ok',
-  '75 the suspend a drill would run, on the tenant whose host resolution is about to be watched');
+  '81 the suspend a drill would run');
 
 set local role anon;
 insert into t_anon_hosts values
@@ -469,43 +433,26 @@ insert into t_anon_hosts values
 reset role;
 
 select is((select row_count::text from t_anon_hosts where case_name = 'company2_before'), '1',
-  '76 baseline read **before** the suspend: company2 resolves, so no zero below can be the resolver being '
-  || 'broken for everybody rather than the switch working');
+  '82 baseline: company2 resolves before the suspend under test');
 select is((select row_count::text from t_anon_hosts where case_name = 'company1_tenant'), '0',
-  '77 the suspended tenant resolves to nothing, so sign-in never receives a tenant to offer — which is '
-  || 'what §15.2 means by a verified kill switch, asserted through the merged resolver and not through my '
-  || 'own read');
+  '83 the suspended tenant resolves to nothing (resolve_tenant_host)');
 select is((select row_count::text from t_anon_hosts where case_name = 'company1_staging'), '0',
-  '78 and its staging origin stops with it: the resolver joins on the organisation, so there is no second '
-  || 'status for a staging host to forget');
+  '84 and its staging origin stops with it');
 select is((select row_count::text from t_anon_hosts where case_name = 'company2_after'), '1',
-  '79 the tenant nobody switched off still resolves during the suspension: per-tenant at the entry point, '
-  || 'not a global pause wearing a tenant-shaped mask');
+  '85 the tenant nobody switched off still resolves');
 
 select is(pg_temp.try_host('company1.terraoi.app'), 'ok',
-  '80 the refusal is a missing row and not a raised exception: §4.1 step 3 asks for a generic failure with '
-  || 'no tenant detail, so an error out of the resolver would itself be a leak of that detail');
+  '86 the refusal is a missing row and not a raised exception');
 
 select is(pg_temp.try_resume('11111111-1111-4111-8111-111111111111'), 'ok',
-  '81 the same call that stopped it starts it again');
+  '87 the same call that stopped it starts it again');
 
 set local role anon;
 insert into t_anon_hosts values
   ('company1_resumed', (select count(*) from public.resolve_tenant_host('company1.terraoi.app')));
 reset role;
 select is((select row_count::text from t_anon_hosts where case_name = 'company1_resumed'), '1',
-  '82 the host resolves again, so the packet''s drill can be run twice on one tenant instead of once '
-  || 'against a fresh database');
-
-select is((select count(*) from public.lifecycle_switch_flips
-            where scope_kind = 'tenant'
-              and organisation_id = '11111111-1111-4111-8111-111111111111')::text, '4',
-  '83 four tenant flips for company1 across this file — suspend, resume, suspend, resume — and the count '
-  || 'is four rather than five because the already-suspended call at test 39 recorded nothing');
-
-select is(public.lifecycle_switch_state_v1('tenant', '11111111-1111-4111-8111-111111111111', null), 'on',
-  '84 with `left@company1.test` still holding a suspended membership (seed.sql:57) the tenant reads on: a '
-  || 'membership is not a tenant switch, so it may neither write a flip nor stop a tenant');
+  '88 the host resolves again after resume');
 
 set local role authenticated;
 insert into t_user values
@@ -513,56 +460,9 @@ insert into t_user values
   ('table_flips_as_user', pg_temp.try_table('lifecycle_switch_flips'));
 reset role;
 select is((select result from t_user where case_name = 'table_switches_as_user'), '42501',
-  '85 the grant wall is not only about functions: a signed-in user cannot select the switch table at all');
+  '89 a signed-in user cannot select toi_control.lifecycle_switches');
 select is((select result from t_user where case_name = 'table_flips_as_user'), '42501',
-  '86 nor the flip history, which is where an operator identity and a stated reason would be readable if '
-  || 'anyone could select it');
+  '90 nor toi_control.lifecycle_switch_flips');
 
-set local role anon;
-create temp table t_anon_denials (case_name text primary key, result text not null);
-insert into t_anon_denials values ('table_switches_as_anon', pg_temp.try_table('lifecycle_switches'));
-reset role;
-select is((select result from t_anon_denials where case_name = 'table_switches_as_anon'), '42501',
-  '87 anon is refused the same way, so the pre-sign-in path cannot enumerate what is switched off — which '
-  || 'matters precisely because that is the path a tenant switch does have to reach');
-
-set local role service_role;
-create temp table t_svc_denials (case_name text primary key, result text not null);
-insert into t_svc_denials values ('table_flips_as_service', pg_temp.try_table('lifecycle_switch_flips'));
-reset role;
-select is((select result from t_svc_denials where case_name = 'table_flips_as_service'), '42501',
-  '88 service_role is revoked at the table too. This one is a decision about the next slice, not a '
-  || 'description of the last: if the pipeline needs a switch read, what gets granted is a function with a '
-  || 'signature and a shape, never raw SELECT on the settings rows');
-
-select is(pg_temp.try_switch('platform', null, null, 'off', 'pinned absence, not an incident', 'ops@terraoi.test'),
-  'ok', '89 a platform switch can be set at all (the write half of §972''s platform row)');
-
-set local role anon;
-insert into t_anon_hosts values
-  ('company1_platform_off', (select count(*) from public.resolve_tenant_host('company1.terraoi.app')));
-reset role;
-select is((select row_count::text from t_anon_hosts where case_name = 'company1_platform_off'), '1',
-  '90 with the platform switch off, host resolution still answers. Pinned as an **absence**, in the shape '
-  || 'of test 37: nothing on `main` consumes a platform switch yet — the consumers are Lane 2''s chain '
-  || 'selection and the sign-in path — so this reads as owed, not as handled');
-
-select is(pg_temp.try_switch('platform', null, null, 'on', 'end of block: the pinned switch goes back on', 'ops@terraoi.test'),
-  'ok', '91 the platform switch can be set back on, so an assertion that runs after this one is not '
-  || 'silently reading my incidental state');
-
-select is(public.lifecycle_switch_state_v1('tenant',
-        (select id from public.organisations where slug = 'acme-surveys'), null), 'on',
-  '92 the tenant provisioned at test 53 is still `provisioning` and reads on. The state function admits '
-  || 'exactly the statuses resolve_tenant_host admits — provisioning and active — so the two mechanisms '
-  || 'cannot disagree about a tenant nobody switched off');
-
-set local role anon;
-insert into t_anon_hosts values
-  ('provisioned_host', (select count(*) from public.resolve_tenant_host('acme-surveys.terraoi.app')));
-reset role;
-select is((select row_count::text from t_anon_hosts where case_name = 'provisioned_host'), '1',
-  '93 and that tenant''s host resolves, which is one predicate answering in two places rather than two '
-  || 'predicates free to drift');
 select * from finish();
 rollback;

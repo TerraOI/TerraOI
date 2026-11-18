@@ -20,6 +20,7 @@ import {
   RESERVED_SLUGS,
   RULES,
   connectFromEnv,
+  connectWithPostgres,
   parseArgs,
   provisionTenant,
   run,
@@ -244,30 +245,36 @@ describe("connectFromEnv", () => {
   });
 });
 
+const provisionRow = (overrides = {}) => [{
+  organisation_id: "9b8d0000-0000-4000-8000-000000000001",
+  status: "provisioning",
+  host: VALID.host,
+  roles: 2,
+  permissions: 6,
+  members: 0,
+  ...overrides,
+}];
+
 describe("provisionTenant", () => {
-  it("23 calls the RPC with exactly the seven parameters the signature has, in order", async () => {
-    const query = vi.fn(async (sqlText) =>
-      /provision_tenant_v1/.test(sqlText)
-        ? [{ organisation_id: "11111111-1111-4111-8111-111111111111" }]
-        : [{ status: "provisioning", host: VALID.host, roles: 2, permissions: 6, members: 0 }]
-    );
+  it("23 calls toi_control.provision_tenant_v1 with exactly the seven parameters, in order", async () => {
+    const query = vi.fn(async () => provisionRow({ organisation_id: "11111111-1111-4111-8111-111111111111" }));
     const r = await provisionTenant({ request: VALID, query });
     expect(r.ok).toBe(true);
-    expect(query).toHaveBeenCalledTimes(2); // the RPC, then the read-back
+    // One call: the RPC returns the read-back (B2); no follow-up SELECT on public tables.
+    expect(query).toHaveBeenCalledTimes(1);
     const [sqlText, params] = query.mock.calls[0];
-    expect(sqlText).toMatch(/select public\.provision_tenant_v1\(/);
-    // Seven placeholders, and no eighth for an actor: the database derives the actor from the login.
+    expect(sqlText).toMatch(/toi_control\.provision_tenant_v1\(/);
+    expect(sqlText).not.toMatch(/from public\./i);
     expect((sqlText.match(/\$/g) || []).length).toBe(7);
     expect(params).toEqual([VALID.slug, VALID.host, VALID.displayName, VALID.locale,
       VALID.timezone, VALID.reason, VALID.requestedBy]);
   });
 
-  it("24 reads the created tenant back from the database instead of trusting its own call", async () => {
-    const query = vi.fn(async (sqlText) =>
-      /provision_tenant_v1/.test(sqlText)
-        ? [{ organisation_id: "9b8d0000-0000-4000-8000-000000000001" }]
-        : [{ status: "provisioning", host: "acme-surveys.terraoi.app", roles: 2, permissions: 6, members: 0 }]
-    );
+  it("24 uses the RPC's returned columns as the read-back instead of trusting a second SELECT", async () => {
+    const query = vi.fn(async () => provisionRow({
+      organisation_id: "9b8d0000-0000-4000-8000-000000000001",
+      host: "acme-surveys.terraoi.app",
+    }));
     const r = await provisionTenant({ request: VALID, query });
     expect(r.ok).toBe(true);
     expect(r.readBack).toEqual({
@@ -281,38 +288,30 @@ describe("provisionTenant", () => {
   });
 
   it("25 a member row appearing after provisioning is reported, not celebrated", async () => {
-    // F05's load-bearing absence: no operational access for the platform admin. If the database ever
-    // says otherwise, the script must say so rather than exit 0 with a cheerful summary.
-    const query = vi.fn(async (sqlText) =>
-      /provision_tenant_v1/.test(sqlText)
-        ? [{ organisation_id: "9b8d0000-0000-4000-8000-000000000002" }]
-        : [{ status: "provisioning", host: "acme-surveys.terraoi.app", roles: 2, permissions: 6, members: 1 }]
-    );
+    const query = vi.fn(async () => provisionRow({
+      organisation_id: "9b8d0000-0000-4000-8000-000000000002",
+      members: 1,
+    }));
     const r = await provisionTenant({ request: VALID, query });
     expect(r.ok).toBe(false);
     expect(r.problem).toMatch(/membership|operational access/i);
   });
 
   it("26 a status other than provisioning is refused as a problem, since a half-state is the failure mode", async () => {
-    const query = vi.fn(async (sqlText) =>
-      /provision_tenant_v1/.test(sqlText)
-        ? [{ organisation_id: "9b8d0000-0000-4000-8000-000000000003" }]
-        : [{ status: "active", host: "acme-surveys.terraoi.app", roles: 2, permissions: 6, members: 0 }]
-    );
+    const query = vi.fn(async () => provisionRow({
+      organisation_id: "9b8d0000-0000-4000-8000-000000000003",
+      status: "active",
+    }));
     const r = await provisionTenant({ request: VALID, query });
     expect(r.ok).toBe(false);
     expect(r.problem).toMatch(/active|status/i);
   });
 
-  it("27 a missing read-back row is an error, never an empty success", async () => {
-    const query = vi.fn(async (sqlText) =>
-      /provision_tenant_v1/.test(sqlText)
-        ? [{ organisation_id: "9b8d0000-0000-4000-8000-000000000004" }]
-        : []
-    );
+  it("27 a missing organisation id on the return row is an error, never an empty success", async () => {
+    const query = vi.fn(async () => []);
     const r = await provisionTenant({ request: VALID, query });
     expect(r.ok).toBe(false);
-    expect(r.problem).toMatch(/read.back|could not read/i);
+    expect(r.problem).toMatch(/organisation id|nothing to report/i);
   });
 
   it("28 a database refusal keeps its SQLSTATE and loses its text", async () => {
@@ -323,7 +322,6 @@ describe("provisionTenant", () => {
     const r = await provisionTenant({ request: VALID, query });
     expect(r.ok).toBe(false);
     expect(r.sqlState).toBe("22023");
-    // The code is the useful part; the driver's text can carry a host, a schema or a line number.
     expect(r.problem).not.toMatch(/tenancy_core|provision_tenant_v1/);
   });
 
@@ -340,16 +338,13 @@ describe("provisionTenant", () => {
     const calls = [];
     const query = vi.fn(async (sqlText, params) => {
       calls.push({ sqlText, params });
-      return /provision_tenant_v1/.test(sqlText)
-        ? [{ organisation_id: "9b8d0000-0000-4000-8000-000000000005" }]
-        : [{ status: "provisioning", host: VALID.host, roles: 2, permissions: 6, members: 0 }];
+      return provisionRow({ organisation_id: "9b8d0000-0000-4000-8000-000000000005" });
     });
     await provisionTenant({ request: VALID, query });
     const joined = calls.map((c) => c.sqlText + " " + JSON.stringify(c.params)).join("\n");
     for (const secret of ["CONTROL_PLANE_DB", "password", "token", "key"]) {
       expect(joined.toLowerCase()).not.toContain(secret.toLowerCase());
     }
-    // And no actor parameter anywhere, matching the suite's own signature pin.
     expect(joined).not.toMatch(/p_actor|actor_role/i);
   });
 });
@@ -388,11 +383,10 @@ describe("run", () => {
   });
 
   it("33 never prints the credential, in the success path or anywhere", async () => {
-    const query = vi.fn(async (sqlText) =>
-      /provision_tenant_v1/.test(sqlText)
-        ? [{ organisation_id: "9b8d0000-0000-4000-8000-000000000006" }]
-        : [{ status: "provisioning", host: "acme.terraoi.app", roles: 2, permissions: 6, members: 0 }]
-    );
+    const query = vi.fn(async () => provisionRow({
+      organisation_id: "9b8d0000-0000-4000-8000-000000000006",
+      host: "acme.terraoi.app",
+    }));
     const out = [];
     const code = await run({
       argv: ["--slug", "acme", "--host", "acme.terraoi.app", "--name", "Acme",
@@ -442,6 +436,31 @@ describe("run", () => {
       }),
       log: () => {},
     });
+    expect(end).toHaveBeenCalledTimes(1);
+  });
+
+  it("36 connectWithPostgres is exported so the CLI main path can pass connect when CONTROL_PLANE_DB is set", async () => {
+    // Round 1 B2: previously `run()` was invoked with no `connect`, so `:296` threw once the DSN
+    // was present. The program entry now passes `connectWithPostgres`; this pins the export and that
+    // `run` actually uses the connect it is given (without opening a real socket).
+    expect(typeof connectWithPostgres).toBe("function");
+    const query = vi.fn(async () => provisionRow({
+      organisation_id: "9b8d0000-0000-4000-8000-000000000007",
+      host: "acme.terraoi.app",
+    }));
+    const end = vi.fn();
+    const connect = vi.fn(() => ({ query, end }));
+    const code = await run({
+      argv: ["--slug", "acme", "--host", "acme.terraoi.app", "--name", "Acme",
+        "--reason", "pilot", "--requested-by", "ops@terraoi.test"],
+      env,
+      connect,
+      log: () => {},
+    });
+    expect(code).toBe(0);
+    expect(connect).toHaveBeenCalledTimes(1);
+    expect(connect).toHaveBeenCalledWith(env.CONTROL_PLANE_DB);
+    expect(query).toHaveBeenCalledTimes(1);
     expect(end).toHaveBeenCalledTimes(1);
   });
 

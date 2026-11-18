@@ -175,17 +175,17 @@ select is_empty($$
      )
 $$, '32 no function in public is executable by authenticated beyond the named allow-list (§4.3, #60)');
 
--- 33 the other schemas stay shut to both request roles: `toi_identity` (session functions, #75
--- pending) and `intake` (pilot inquiries, granted only to `inquiry_writer`).
+-- 33 the other schemas stay shut to both request roles: `toi_identity` (session functions, #75),
+-- `intake` (pilot inquiries), and `toi_control` (T-304 / #193; includes provider_switch_state_v1 per #199).
 select is_empty($$
   select n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' as function
     from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
-   where n.nspname in ('toi_identity', 'intake')
+   where n.nspname in ('toi_identity', 'intake', 'toi_control')
      and p.prokind = 'f'
      and (has_function_privilege('anon', p.oid, 'EXECUTE')
           or has_function_privilege('authenticated', p.oid, 'EXECUTE'))
-$$, '33 neither anon nor authenticated can execute anything in toi_identity or intake (§4.3)');
+$$, '33 neither anon nor authenticated can execute anything in toi_identity, intake or toi_control (§4.3)');
 
 -- ---------------------------------------------------------------- 34-38 Addition 1: measured, not assumed
 -- The ruling asked for a source-level closure: `alter default privileges … revoke execute on

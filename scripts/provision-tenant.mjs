@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // T-304 — F05 tenant provisioning, by script and not by an admin UI (plan §15.0: "Tenant provisioning
 // by script (F05), not an admin UI"). It is the operator's entry point to exactly one database
-// function, `public.provision_tenant_v1`, added by
+// function, `toi_control.provision_tenant_v1`, added by
 // supabase/migrations/*_lifecycle_switches.sql, and it is a *thin* one: it validates what it was
-// given, dials one call, and then **asks the database what is true** rather than repeating its own
-// optimism.
+// given, dials one call, and then **uses the read-back the function returns** rather than selecting
+// public tenancy tables (the control-plane login holds no table privilege — Round 1 B2).
 //
 // Three properties this file exists to keep, each pinned in provision-tenant.test.mjs:
 //
@@ -16,17 +16,15 @@
 // 2. **No credential passes through a string this file writes.** The DSN arrives in
 //    `CONTROL_PLANE_DB` and is handed to the driver and nowhere else: not to a log line, not into an
 //    error message, not into the SQL (tests 22, 30, 33). AGENTS §4.6.
-// 3. **A provisioning run reports what the database ended up with.** After the call the script reads
-//    the row back — status, host, role count, permission count, membership count — and treats a
-//    membership row appearing, a status that is not `provisioning`, or no row at all as a failure
-//    (tests 24-27). F05's load-bearing absence is the membership row: holding the credential that ran
-//    this must grant no operational access, and a script that celebrated anyway would be hiding the
-//    exact bug that clause exists to prevent.
+// 3. **A provisioning run reports what the database ended up with.** The RPC returns status, host,
+//    role count, permission count and membership count; a membership row appearing, a status that is
+//    not `provisioning`, or no row at all is a failure (tests 24-27). F05's load-bearing absence is
+//    the membership row: holding the credential that ran this must grant no operational access.
 //
 // What the script does **not** do, deliberately:
 //   * It never sends an actor. The database derives the actor from the login
 //     (`session_user` inside the SECURITY DEFINER body), and there is no `p_actor` argument to forge —
-//     suite test 51 pins that on the SQL side and test 30 on this one.
+//     suite test 58 pins that on the SQL side and test 30 on this one.
 //   * It does not create the login, its password, or the Hyperdrive/DSN that carries them. Those are
 //     §20.8 human steps, the same split the supervisor accepted for the session Worker in #75. A run
 //     with no binding says so and dials nothing.
@@ -34,6 +32,7 @@
 //     separate reasons, and one CLI that can do all of them is how an operator stops a production
 //     tenant while meaning to create a staging one.
 import { pathToFileURL } from "node:url";
+import postgres from "postgres";
 
 // ---------------------------------------------------------------- the rules, mirrored from the SQL
 // Keep these in step with the migration; tests 8 and 9 are what enforce it.
@@ -47,7 +46,7 @@ export const RULES = {
 export const RESERVED_SLUGS = ["admin", "platform", "staging", "www", "terraoi"];
 
 // The dot ceiling is a second half of the host rule the regex cannot express, and it is pinned against
-// the SQL's own `> 2` by test 15, because a limit that only lives in a comment is a limit that drifts.
+// the SQL's own `> 2` by test 14b, because a limit that only lives in a comment is a limit that drifts.
 export const HOST_MAX_DOTS = 2;
 
 const LIMITS = { displayName: 200, reason: 500, requestedBy: 200 };
@@ -186,60 +185,56 @@ export function connectFromEnv(env) {
   return { ok: true, dsn };
 }
 
-// ---------------------------------------------------------------- the one call, then the read-back
-// The read-back addresses only the tenant that was just named, and counts what F05 says must and must
-// not exist. No credential, no actor, no dynamic SQL text: seven parameters and one uuid.
-const READ_BACK =
-  "select o.status as status, d.host as host, " +
-  "  (select count(*) from public.organisation_roles r where r.organisation_id = o.id) as roles, " +
-  "  (select count(*) from public.role_permissions p where p.organisation_id = o.id) as permissions, " +
-  "  (select count(*) from public.organisation_memberships m where m.organisation_id = o.id) as members " +
-  "from public.organisations o " +
-  "left join public.tenant_domains d on d.organisation_id = o.id " +
-  "where o.id = $1";
+/**
+ * Wire the existing `postgres` driver for the CLI main path (Round 1 B2). Tests inject their own
+ * `connect`; this is what `run()` receives when the module is executed as a program.
+ */
+export function connectWithPostgres(dsn) {
+  const sql = postgres(dsn, { prepare: false, max: 1 });
+  return {
+    async query(text, params = []) {
+      return await sql.unsafe(text, params);
+    },
+    async end() {
+      await sql.end({ timeout: 5 });
+    },
+  };
+}
 
 const isSqlState = (code) => typeof code === "string" && /^[0-9A-Z]{5}$/.test(code);
 
+/**
+ * One RPC: `toi_control.provision_tenant_v1` returns the read-back columns, so the control-plane
+ * login never SELECTs public tenancy tables.
+ */
 export async function provisionTenant({ request, query }) {
-  let organisationId;
+  let row;
   try {
     const rows = await query(
-      "select public.provision_tenant_v1($1, $2, $3, $4, $5, $6, $7) as organisation_id",
+      "select organisation_id, status, host, roles, permissions, members " +
+        "from toi_control.provision_tenant_v1($1, $2, $3, $4, $5, $6, $7)",
       [request.slug, request.host, request.displayName, request.locale, request.timezone,
         request.reason, request.requestedBy],
     );
-    organisationId = rows?.[0]?.organisation_id;
+    row = rows?.[0];
   } catch (error) {
     if (isSqlState(error?.code)) {
-      // The code classifies; the driver's text can name a table, a schema, a constraint or a line.
       return { ok: false, sqlState: error.code, problem: `the database refused the provisioning call (${error.code})` };
     }
     return { ok: false, reason: "unavailable", problem: "the control-plane database could not be reached" };
   }
 
-  if (!organisationId) {
-    return { ok: false, problem: "provisioning returned no organisation id, so there is nothing to read back" };
-  }
-
-  let readRow;
-  try {
-    const rows = await query(READ_BACK, [organisationId]);
-    readRow = rows?.[0];
-  } catch {
-    return { ok: false, problem: `could not read the tenant back after creating it (${organisationId})` };
-  }
-
-  if (!readRow) {
-    return { ok: false, problem: `read-back found no organisation for ${organisationId}` };
+  if (!row?.organisation_id) {
+    return { ok: false, problem: "provisioning returned no organisation id, so there is nothing to report" };
   }
 
   const readBack = {
-    organisationId,
-    status: readRow.status,
-    host: readRow.host ?? null,
-    roles: Number(readRow.roles ?? 0),
-    permissions: Number(readRow.permissions ?? 0),
-    members: Number(readRow.members ?? 0),
+    organisationId: row.organisation_id,
+    status: row.status,
+    host: row.host ?? null,
+    roles: Number(row.roles ?? 0),
+    permissions: Number(row.permissions ?? 0),
+    members: Number(row.members ?? 0),
   };
 
   if (readBack.members > 0) {
@@ -297,8 +292,7 @@ export async function run({ argv, env, connect, log = console.log }) {
   try {
     const result = await provisionTenant({ request: parsed.request, query: client.query });
     if (!result.ok) {
-      if (result.sqlState) log(`error: ${result.problem}`);
-      else log(`error: ${result.problem}`);
+      log(`error: ${result.problem}`);
       if (result.readBack) log(`state read back: ${JSON.stringify(result.readBack)}`);
       return 1;
     }
@@ -315,5 +309,9 @@ export async function run({ argv, env, connect, log = console.log }) {
 // Run as a program, not as an import: the same guard the other CLIs in this folder use, so the test
 // file can call run() without a real environment being dialled behind its back.
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
-  process.exitCode = await run({ argv: process.argv.slice(2), env: process.env });
+  process.exitCode = await run({
+    argv: process.argv.slice(2),
+    env: process.env,
+    connect: connectWithPostgres,
+  });
 }
