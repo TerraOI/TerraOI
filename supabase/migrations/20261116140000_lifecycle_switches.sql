@@ -440,8 +440,9 @@ declare
   v_org uuid;
   v_host_owner uuid;
 begin
-  -- RETURNS TABLE names an OUT column `host`; without use_column, `on conflict (host)` and
-  -- `d.host` collide with that OUT name (CI: "column reference \"host\" is ambiguous").
+  -- RETURNS TABLE OUT `host` collides with the column of the same name. use_column covers
+  -- ordinary SQL; ON CONFLICT inference still sees the OUT name, so the insert below targets
+  -- tenant_domains_host_key by constraint (tenancy_core: host text not null unique).
   perform toi_control.require_control_plane();
 
   if p_slug is null or p_slug !~ '^[a-z0-9][a-z0-9-]{1,62}$' then
@@ -490,7 +491,7 @@ begin
 
   insert into public.tenant_domains (organisation_id, host, kind, status)
   values (v_org, p_host, 'tenant', 'active')
-  on conflict (host) do nothing;
+  on conflict on constraint tenant_domains_host_key do nothing;
 
   insert into public.organisation_roles (organisation_id, key, name)
   values (v_org, 'member', 'Member'), (v_org, 'admin', 'Tenant admin')
