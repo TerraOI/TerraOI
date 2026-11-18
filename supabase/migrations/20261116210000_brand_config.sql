@@ -382,6 +382,15 @@ begin
     config_version = b.config_version + 1
   returning b.config_version into v_version;
 
+  -- A retry of put_tenant_brand_v1 always bumps config_version (N1); it is not idempotent. Duplicate
+  -- names inside one p_assets array are refused rather than silently dropped on conflict.
+  if (
+    select count(*) <> count(distinct nullif(elem ->> 'name', ''))
+      from jsonb_array_elements(p_assets) as t(elem)
+  ) then
+    raise exception 'duplicate asset names in one write are refused' using errcode = '22023';
+  end if;
+
   for v_asset in select jsonb_array_elements(p_assets) loop
     v_name := v_asset ->> 'name';
     v_kind := v_asset ->> 'contentType';
@@ -394,15 +403,19 @@ begin
       raise exception 'brand assets are limited to 65536 bytes (#117)' using errcode = '22023';
     end if;
 
-    -- Reject, not sanitize (plan §5.1 line 269): a script element, an event handler, or an external
-    -- reference in an SVG is refused outright. No sanitizer ships in this slice.
+    -- Reject, not sanitize (plan §5.1 line 269): scripts, handlers, foreignObject, DTD/entity
+    -- expansion, and CSS url()/@import are refused outright. No sanitizer ships in this slice; the
+    -- CSP sandbox on the asset response is defence in depth, not a substitute for this check.
     if v_kind = 'image/svg+xml' then
       begin
         v_svg := convert_from(v_bytes, 'UTF8');
       exception when others then
         raise exception 'an SVG brand asset must be valid UTF-8 text' using errcode = '22023';
       end;
-      if v_svg ~* '<[[:space:]]*(script|iframe|object|embed)'
+      if v_svg ~* '<[[:space:]]*(script|iframe|object|embed|foreignObject)'
+         or v_svg ~* '<![[:space:]]*(DOCTYPE|ENTITY)'
+         or v_svg ~* 'url[[:space:]]*\('
+         or v_svg ~* '@import'
          or v_svg ~* '[[:space:]]on[a-z]+[[:space:]]*='
          or v_svg ~* '(xlink:)?href[[:space:]]*=' then
         raise exception 'an SVG brand asset may not carry scripts, handlers or external references'
@@ -411,8 +424,7 @@ begin
     end if;
 
     insert into public.tenant_brand_assets (organisation_id, config_version, name, content_type, byte_size, content)
-      values (v_org, v_version, v_name, v_kind, octet_length(v_bytes), v_bytes)
-      on conflict (organisation_id, config_version, name) do nothing;
+      values (v_org, v_version, v_name, v_kind, octet_length(v_bytes), v_bytes);
   end loop;
 
   -- Point the row at this version's assets. Unknown names are a caller error, not a silent drop:

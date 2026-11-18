@@ -12,10 +12,10 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
--- COUNT: 53 assertions below, numbered 1–53 in their messages. `plan` equals that count exactly:
+-- COUNT: 55 assertions below, numbered 1–55 in their messages. `plan` equals that count exactly:
 -- CI's `database` job is the venue for this file (no builder machine has Docker), and a `plan(N)`
 -- that does not match the assertions that run is a red run, not a warning.
-select plan(53);
+select plan(55);
 
 -- Error-as-SQLSTATE helpers. SECURITY INVOKER on purpose: they run as the role under test.
 create function pg_temp.try_scope(p_organisation_id uuid) returns text
@@ -393,13 +393,18 @@ select is((select legal_name from t_full where case_name = 'a1_c1'), 'Company1 G
   '41 and the columns the public projection refuses — legal_name and config_version — are here, for '
   || 'the surface that is allowed them (ADR-0004 §4)');
 
+-- get is granted to authenticated; put is granted to no request role (test 9), so the put half
+-- runs as the migration owner with only the JWT GUC set — SECURITY DEFINER still reads auth.uid().
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000b1';
 insert into t_out values
-  ('b1_get_c1', pg_temp.try_get('11111111-1111-4111-8111-111111111111')),
+  ('b1_get_c1', pg_temp.try_get('11111111-1111-4111-8111-111111111111'));
+reset role;
+
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000b1';
+insert into t_out values
   ('b1_put_c1', pg_temp.try_put('11111111-1111-4111-8111-111111111111',
      '{"mode":"customer"}'::jsonb, '[]'::jsonb));
-reset role;
 
 select ok((select count(*)::int from t_out
              where case_name in ('b1_get_c1', 'b1_put_c1') and result = '28000') = 2::int,
@@ -410,13 +415,14 @@ select is((select result from t_out where case_name = 'scope_c2_forged'), '28000
   '43 a company1 member cannot scope to company2 directly either: membership decides before scope is '
   || 'set (§4.2, N8)');
 
--- ---------------------------------------------------------------- 44-49 the write path
+-- ---------------------------------------------------------------- 44-51 the write path
 -- Run as the migration owner with the request GUCs set, because nothing grants this function to a
--- request role today (test 9). The gates are its own, so they are testable either way.
+-- request role today (test 9). Do NOT `set local role authenticated` around these puts: EXECUTE
+-- denial (42501) fires before the function body, and the expected gates never run.
+select set_config('request.jwt.claim.sub', '', true);
 insert into t_out values ('put_no_user', pg_temp.try_put(
   '11111111-1111-4111-8111-111111111111', '{"mode":"customer"}'::jsonb, '[]'::jsonb));
 
-set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a2';
 insert into t_out values
   ('put_member_no_permission', pg_temp.try_put(
@@ -427,13 +433,11 @@ insert into t_out values
      '{"mode":"customer","displayName":"Company1 Geotechnics","documentPrefix":"CO1",
        "primary":"#007F78","onPrimary":"#FFFFFF","accent":"#A48748","logoName":"logo.svg"}'::jsonb,
      '[]'::jsonb));
-reset role;
 
 insert into public.role_permissions (organisation_id, role_id, area, level) values
   ('11111111-1111-4111-8111-111111111111', '31000000-0000-4000-8000-000000000002', 'brand.admin', 'admin')
   on conflict (role_id, area) do nothing;
 
-set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
 insert into t_out values
   ('put_svg_with_script', pg_temp.try_put(
@@ -444,6 +448,24 @@ insert into t_out values
      jsonb_build_array(jsonb_build_object('name', 'evil.svg', 'contentType', 'image/svg+xml',
        'contentBase64', encode(convert_to('<svg xmlns="http://www.w3.org/2000/svg">'
          || '<script>alert(1)</script></svg>', 'UTF8'), 'base64'))))),
+  ('put_svg_foreign_object', pg_temp.try_put(
+     '11111111-1111-4111-8111-111111111111',
+     jsonb_build_object('mode', 'customer', 'displayName', 'Company1 Geotechnics',
+                        'documentPrefix', 'CO1', 'primary', '#007F78', 'onPrimary', '#FFFFFF',
+                        'accent', '#A48748', 'logoName', 'fo.svg'),
+     jsonb_build_array(jsonb_build_object('name', 'fo.svg', 'contentType', 'image/svg+xml',
+       'contentBase64', encode(convert_to('<svg xmlns="http://www.w3.org/2000/svg">'
+         || '<foreignObject width="1" height="1"></foreignObject></svg>', 'UTF8'), 'base64'))))),
+  ('put_dup_names', pg_temp.try_put(
+     '11111111-1111-4111-8111-111111111111',
+     jsonb_build_object('mode', 'customer', 'displayName', 'Company1 Geotechnics',
+                        'documentPrefix', 'CO1', 'primary', '#007F78', 'onPrimary', '#FFFFFF',
+                        'accent', '#A48748', 'logoName', 'logo.svg'),
+     jsonb_build_array(
+       jsonb_build_object('name', 'logo.svg', 'contentType', 'image/svg+xml',
+         'contentBase64', encode(convert_to('<svg xmlns="http://www.w3.org/2000/svg"/>', 'UTF8'), 'base64')),
+       jsonb_build_object('name', 'logo.svg', 'contentType', 'image/svg+xml',
+         'contentBase64', encode(convert_to('<svg xmlns="http://www.w3.org/2000/svg"/>', 'UTF8'), 'base64'))))),
   ('put_oversize', pg_temp.try_put(
      '11111111-1111-4111-8111-111111111111',
      jsonb_build_object('mode', 'customer', 'displayName', 'Company1 Geotechnics',
@@ -472,7 +494,6 @@ insert into t_out values
                         'accent', '#A48748', 'logoName', 'logo-v3.svg'),
      jsonb_build_array(jsonb_build_object('name', 'logo-v3.svg', 'contentType', 'image/svg+xml',
        'contentBase64', encode(convert_to('<svg xmlns="http://www.w3.org/2000/svg"/>', 'UTF8'), 'base64')))));
-reset role;
 
 insert into t_brand (case_name, mode, display_name, logo_path, logo_bytes, show_powered_by)
   select 'after_write', b.mode, b.display_name, b.logo_path, b.logo_bytes, b.show_powered_by
@@ -489,23 +510,28 @@ select is((select result from t_out where case_name = 'put_member_no_permission'
 select is((select result from t_out where case_name = 'put_svg_with_script'), '22023',
   '46 an SVG carrying a script element is rejected, not sanitized: plan §5.1 line 269 offers both and '
   || 'this slice ships no sanitizer (§4.8 documents the choice)');
+select is((select result from t_out where case_name = 'put_svg_foreign_object'), '22023',
+  '47 an SVG carrying foreignObject is rejected (N3 defence in depth alongside CSP sandbox)');
+select is((select result from t_out where case_name = 'put_dup_names'), '22023',
+  '48 duplicate asset names in one write are refused rather than silently dropped on conflict (N2)');
 select is((select result from t_out where case_name = 'put_oversize'), '22023',
-  '47 the write path enforces the 64 KiB ceiling before the table''s own CHECK has to (#117)');
+  '49 the write path enforces the 64 KiB ceiling before the table''s own CHECK has to (#117)');
 select is((select result from t_out where case_name = 'put_missing_logo'), '22023',
-  '48 a logo named but not supplied fails the write: a half-brand that silently drops the logo is the '
+  '50 a logo named but not supplied fails the write: a half-brand that silently drops the logo is the '
   || 'failure the packet''s failure box forbids');
 select is((select result from t_out where case_name = 'put_first'), '2',
-  '49 the write bumps config_version (1 fixture -> 2): this migration is the first reader of a version '
+  '51 the write bumps config_version (1 fixture -> 2): this migration is the first reader of a version '
   || 'column, so per ADR-0004 §4 it also owns the bump path and asserts the number moves');
 
 select is((select logo_path from t_brand where case_name = 'after_write'), '3/logo-v3.svg',
-  '50 the served path moves with the version: after two writes the brand points at v3, which is what '
+  '52 the served path moves with the version: after two writes the brand points at v3, which is what '
   || 'makes the cache key and the immutable URL mean the same thing (§4.4, FAQ-0008)');
 select is((select rows from t_asset where case_name = 'v1_after'), 1::int,
-  '51 and v1''s bytes are still readable at v1: the version is in the path, so a URL a browser is '
+  '53 and v1''s bytes are still readable at v1: the version is in the path, so a URL a browser is '
   || 'already holding is never re-pointed at another tenant''s bytes by a write');
 
--- ---------------------------------------------------------------- 52-53 deactivated membership (§4.2)
+-- ---------------------------------------------------------------- 54-55 deactivated membership (§4.2)
+-- get may run as authenticated; put must stay on the migration owner (no EXECUTE for authenticated).
 savepoint sp_deactivated;
 update public.organisation_memberships
    set status = 'suspended'
@@ -514,19 +540,22 @@ update public.organisation_memberships
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
 insert into t_out values
-  ('deactivated_get', pg_temp.try_get('11111111-1111-4111-8111-111111111111')),
+  ('deactivated_get', pg_temp.try_get('11111111-1111-4111-8111-111111111111'));
+reset role;
+
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+insert into t_out values
   ('deactivated_put', pg_temp.try_put('11111111-1111-4111-8111-111111111111',
      jsonb_build_object('mode', 'customer', 'displayName', 'Company1 Geotechnics',
                         'documentPrefix', 'CO1', 'primary', '#007F78', 'onPrimary', '#FFFFFF',
                         'accent', '#A48748'),
      '[]'::jsonb));
-reset role;
 
 select is((select result from t_out where case_name = 'deactivated_get'), '28000',
-  '52 a suspended membership cannot read the brand through the RPC, even with brand.admin on the role: '
+  '54 a suspended membership cannot read the brand through the RPC, even with brand.admin on the role: '
   || 'set_tenant_scope refuses before any row is returned (§4.2, precedent 010 test 25)');
 select is((select result from t_out where case_name = 'deactivated_put'), '28000',
-  '53 and the same membership refusal blocks a write before the permission check is reached (§4.2)');
+  '55 and the same membership refusal blocks a write before the permission check is reached (§4.2)');
 rollback to savepoint sp_deactivated;
 
 select * from finish();

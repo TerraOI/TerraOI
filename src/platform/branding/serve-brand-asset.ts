@@ -30,8 +30,8 @@ export const BRAND_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable";
  */
 export const BRAND_ASSET_SVG_CSP = "default-src 'none'; style-src 'unsafe-inline'; sandbox";
 
-/** One flat version segment: digits, bounded so it cannot overflow the bigint the SQL expects. */
-const VERSION_SEGMENT = /^\d{1,18}$/;
+/** One flat version segment: digits, capped at 15 so `Number()` stays inside the safe integer range. */
+const VERSION_SEGMENT = /^\d{1,15}$/;
 
 /** One flat lowercase filename, the same form `tenant_brand_assets.name` stores. */
 const NAME_SEGMENT = /^[a-z0-9][a-z0-9._-]{0,99}$/;

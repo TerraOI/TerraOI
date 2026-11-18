@@ -4,7 +4,7 @@ import { loadTenantBrand } from "./load-tenant-brand";
 import { brandAssetUrl, brandSourceReader, BrandSourceFailure, readBrandAsset } from "./brand-source";
 
 // The port `load-tenant-brand.ts` injected, fed with the real projection
-// (`load_public_brand(text)` from 20261109213000_brand_config.sql). The row below is that
+// (`load_public_brand(text)` from 20261116210000_brand_config.sql). The row below is that
 // projection's out-parameters, written by hand so a change to either side fails here rather than in
 // a staging render.
 

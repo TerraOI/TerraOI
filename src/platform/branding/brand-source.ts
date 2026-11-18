@@ -17,7 +17,7 @@ import { BRAND_ASSET_EXTENSIONS, MAX_BRAND_ASSET_BYTES } from "./brand-rules";
  *   ("tenant configuration, never an arbitrary public selector") made unbreakable. The caller hands
  *   in a host it already resolved through F01, and this file trusts that.
  * - It asks for nothing beyond the public projection. `load_public_brand(text)` in
- *   `20261109213000_brand_config.sql` returns the presentation columns only — no `config_version`
+ *   `20261116210000_brand_config.sql` returns the presentation columns only — no `config_version`
  *   column, no `legal_name`, no reply-to, no organisation id — so a reader bug cannot leak a
  *   never-pre-sign-in field, and the cache in §4.4 can only ever hold what this row can carry.
  * - It does not accept a row it cannot fully check. A row with an unexpected key, an unmeasured
@@ -68,7 +68,7 @@ const PublicBrandRowSchema = z.strictObject({
  * is refused rather than normalized, because the version segment is what makes the served URL
  * immutable (FAQ-0008).
  */
-const VERSIONED_ASSET_PATH = /^\d{1,18}\/[a-z0-9][a-z0-9._-]{0,99}$/;
+const VERSIONED_ASSET_PATH = /^\d{1,15}\/[a-z0-9][a-z0-9._-]{0,99}$/;
 
 export class BrandSourceFailure extends Error {
   constructor(message: string) {
