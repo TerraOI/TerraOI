@@ -153,7 +153,8 @@ export function mergeEnvironment(config, envName) {
   const envs = config?.env ?? {};
   const topLevelIsTarget = envName === "production" && !Object.hasOwn(envs, "production");
   if (topLevelIsTarget) {
-    const { env: _env, ...top } = config;
+    const top = { ...config };
+    delete top.env;
     return top;
   }
   const block = envs[envName] ?? {};
@@ -203,7 +204,8 @@ export function collectResourceIds(source) {
 }
 
 function topLevelResourceSource(config) {
-  const { env: _env, ...top } = config ?? {};
+  const top = { ...(config ?? {}) };
+  delete top.env;
   return top;
 }
 
