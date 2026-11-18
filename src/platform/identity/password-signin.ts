@@ -50,7 +50,7 @@ export interface PasswordSignInInput {
 export async function handlePasswordSignIn(input: PasswordSignInInput): Promise<Response> {
   const { ports } = input;
 
-  const guarded = await readGuardedFormRequest(input);
+  const guarded = await readGuardedFormRequest({ ...input, limitMethod: "password" });
   if (!guarded.ok) return guarded.response;
   const { host, organisation, form, secureTransport } = guarded;
 

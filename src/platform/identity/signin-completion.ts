@@ -6,6 +6,7 @@ import { canonicalEmail } from "./email";
 import { loginRedirect, redirectSameHost } from "./http-response";
 import type { CookieSpec } from "./cookie";
 import { issueSession } from "./session";
+import { SET_PASSWORD_PATH } from "./set-password";
 import { isUsableTokenPair, type SessionStore, type TokenCipher } from "./session-store";
 
 /**
@@ -26,7 +27,9 @@ import { isUsableTokenPair, type SessionStore, type TokenCipher } from "./sessio
  *   4. the caller's own membership, read as `current_membership_v1` with their token (no user argument
  *      to get wrong, ADR-0003 §3b); an `invited` row may be claimed, and the claim is not taken on
  *      trust — access follows the row as it is now;
- *   5. one host-only session, then the choice between the workspace and the no-access surface.
+ *   5. one host-only session, then — for a recovery — the set-password surface (plan §4.2: a reset
+ *      that never sets a new password is only a second magic link); otherwise the workspace or the
+ *      no-access surface.
  *
  * A verified identity with no active membership still gets its session: it proves a sign-in happened,
  * which is what a session means here, and the no-access page is what the membership answer produces.
@@ -181,6 +184,13 @@ export async function completeSignIn(input: {
       return loginRedirect(host, "unavailable", input.attach);
     }
     const cookies: CookieSpec[] = [session.cookie, ...input.attach];
+
+    // A recovery that stops at "/" never changes the password: the forgotten credential still works
+    // and "reset" was only a second magic link. The set-password surface runs GoTrue's user update
+    // with this session's access token (`set-password.ts`); membership decides access *after* that.
+    if (input.recovery) {
+      return redirectSameHost(host, SET_PASSWORD_PATH, cookies);
+    }
 
     if (membership !== null && membership.status === "active") {
       return redirectSameHost(host, "/", cookies);

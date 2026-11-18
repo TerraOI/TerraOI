@@ -175,9 +175,9 @@ describe("buildIdentityPorts — Supabase magic link (PKCE, anon key only)", () 
 describe("buildIdentityPorts — limiter, secrets and the #37 seam", () => {
   it("signs the limiter identity with the deployment key and keeps the address out of the key", async () => {
     const ports = buildIdentityPorts(env);
-    const a = await ports.rateLimitKey({ host: "company1.terraoi.app", email: "user@example.test" });
-    const same = await ports.rateLimitKey({ host: "company1.terraoi.app", email: "user@example.test" });
-    const otherHost = await ports.rateLimitKey({ host: "company2.terraoi.app", email: "user@example.test" });
+    const a = await ports.rateLimitKey({ host: "company1.terraoi.app", material: "magic-link|user@example.test" });
+    const same = await ports.rateLimitKey({ host: "company1.terraoi.app", material: "magic-link|user@example.test" });
+    const otherHost = await ports.rateLimitKey({ host: "company2.terraoi.app", material: "magic-link|user@example.test" });
     expect(a).toBe(same);
     expect(a).not.toBe(otherHost);
     expect(a).toMatch(/^[A-Za-z0-9_-]+$/);

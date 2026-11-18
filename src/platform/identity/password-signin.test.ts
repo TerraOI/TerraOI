@@ -139,7 +139,7 @@ function harness(overrides: Partial<Harness> = {}): Harness {
         : host === HOST_B
           ? { organisationId: C2, organisationStatus: "active" }
           : null,
-    rateLimitKey: async ({ host, email }) => `${host}|${email}`,
+    rateLimitKey: async ({ host, material }) => `${host}|${material}`,
     allowRequest: async () => state.allowRequest,
     exchangePasswordCredentials: async (input) => {
       if (state.boom) throw new Error("auth provider unavailable");

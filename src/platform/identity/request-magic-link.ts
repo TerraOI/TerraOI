@@ -34,7 +34,7 @@ export interface MagicLinkRequestInput {
 export async function handleMagicLinkRequest(input: MagicLinkRequestInput): Promise<Response> {
   const { ports } = input;
 
-  const guarded = await readGuardedFormRequest(input);
+  const guarded = await readGuardedFormRequest({ ...input, limitMethod: "magic-link" });
   if (!guarded.ok) return guarded.response;
   const { host, secret, secureTransport } = guarded;
 

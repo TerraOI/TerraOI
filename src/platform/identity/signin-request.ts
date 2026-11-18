@@ -32,10 +32,21 @@ export interface HostLookupPorts {
   findHost(host: string): Promise<HostRecord | null>;
 }
 
+/**
+ * Which state-changing sign-in endpoint is asking for a rate-limit key. Each method gets its own
+ * material dimension so a flood on one cannot lock the others out for the whole tenant (B2 / N4 on
+ * #181): Entra starts are keyed on the client IP, and address-bearing forms are keyed on
+ * `method|<canonical-email-or-invalid-address>`. Used for limiting only — never for tenancy.
+ */
+export type SignInLimitMethod = "magic-link" | "password" | "password-reset" | "entra-start";
+
 export interface SignInRequestPorts extends HostLookupPorts {
   signingSecret(): string | null;
-  /** The limiter identity: an adapter hashes this, it never stores the address itself. */
-  rateLimitKey(input: { host: string; email: string }): Promise<string>;
+  /**
+   * The limiter identity: an adapter hashes `host|material`, and never stores the raw address or IP.
+   * `material` is already method-scoped by `readGuardedFormRequest` (see `SignInLimitMethod`).
+   */
+  rateLimitKey(input: { host: string; material: string }): Promise<string>;
   allowRequest(key: string): Promise<boolean>;
 }
 
@@ -61,6 +72,13 @@ export async function readGuardedFormRequest(input: {
   request: Request;
   hostOptions?: HostAdapterOptions;
   ports: SignInRequestPorts;
+  /**
+   * Method-scoped limiter dimension. Address-bearing methods compose `method|<email-or-invalid>`;
+   * `entra-start` composes `entra-start|<CF-Connecting-IP>` so it never shares the
+   * `invalid-address` bucket with malformed magic-link / password / reset posts. Limiting only —
+   * the organization still comes only from the routed host (AGENTS.md §4.1).
+   */
+  limitMethod: SignInLimitMethod;
 }): Promise<GuardedFormRequest> {
   const { ports } = input;
   if (input.request.method !== "POST") return { ok: false, response: statusOnly(405) };
@@ -87,10 +105,12 @@ export async function readGuardedFormRequest(input: {
   const csrf = await verifyCsrfToken({ token: form.get("csrf_token"), host: parsed.host, secret, now: ports.now() });
   if (!csrf.ok) return { ok: false, response: statusOnly(403) };
 
-  // Canonical form first: the limiter key and the provider both see the canonical address, so
-  // `USER@Example.test` cannot buy a second budget or a second identity.
+  // Canonical form first: the provider sees the canonical address, so `USER@Example.test` cannot buy
+  // a second identity. The limiter dimension is method-scoped (see `limitMaterial`) so address-less
+  // and per-method budgets do not collapse onto HMAC(host|"invalid-address").
   const email = canonicalEmail(form.get("email"));
-  const key = await ports.rateLimitKey({ host: parsed.host, email: email ?? "invalid-address" });
+  const material = limitMaterial(input.limitMethod, email, input.request);
+  const key = await ports.rateLimitKey({ host: parsed.host, material });
   if (!(await ports.allowRequest(key))) return { ok: false, response: loginRedirect(parsed.host, "rate_limited", []) };
 
   return {
@@ -102,4 +122,22 @@ export async function readGuardedFormRequest(input: {
     secureTransport: isHttpsUrl(input.request.url),
     secret,
   };
+}
+
+/** Limiting material only — never fed into tenancy, membership or provider calls. */
+export function limitMaterial(method: SignInLimitMethod, email: string | null, request: Request): string {
+  if (method === "entra-start") {
+    return `entra-start|${connectingIp(request)}`;
+  }
+  return `${method}|${email ?? "invalid-address"}`;
+}
+
+/**
+ * Cloudflare stamps `CF-Connecting-IP` on every proxied request (see `host.ts`). Absent only off
+ * the edge (local tests, direct Worker preview); the sentinel keeps those requests in their own
+ * bucket without collapsing onto the address-bearing `invalid-address` key.
+ */
+function connectingIp(request: Request): string {
+  const ip = request.headers.get("cf-connecting-ip")?.trim();
+  return ip !== undefined && ip.length > 0 ? ip : "missing-ip";
 }

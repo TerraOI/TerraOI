@@ -8,6 +8,7 @@ import type { LoginViewPorts } from "./login-view";
 import type { PasswordResetPorts } from "./password-reset";
 import type { PasswordSignInPorts } from "./password-signin";
 import type { MagicLinkRequestPorts } from "./request-magic-link";
+import type { SetPasswordPorts } from "./set-password";
 import type { SignOutPorts } from "./sign-out";
 import { createSessionStore } from "./session-db";
 import type { SessionStore } from "./session-store";
@@ -58,6 +59,7 @@ export interface IdentityPorts
     MagicLinkCallbackPorts,
     PasswordSignInPorts,
     PasswordResetPorts,
+    SetPasswordPorts,
     EntraStartPorts,
     LoginViewPorts,
     SignOutPorts {}
@@ -83,6 +85,8 @@ const SUPABASE_TOKEN_PATH = "/auth/v1/token?grant_type=pkce";
  */
 const SUPABASE_PASSWORD_PATH = "/auth/v1/token?grant_type=password";
 const SUPABASE_RECOVER_PATH = "/auth/v1/recover";
+/** GoTrue user update — the set-password half of recovery (plan §4.2). Bearer is the session access token. */
+const SUPABASE_USER_PATH = "/auth/v1/user";
 
 /**
  * Kept for tests that assert the refuse-closed seam. Production wiring uses `createTenancyDataApi`.
@@ -183,12 +187,32 @@ function readStringField(container: unknown, key: string): string | undefined {
  * The issuing Entra tenant id. Supabase keeps the IdP's claims in `identity_data` on the linked
  * identity and copies a few onto `app_metadata`, and which of the two carries `tid` for the `azure`
  * provider is a provider detail not yet seen on staging — so both places are read, in a fixed order,
- * and an unreadable issuer is a refusal. The staging run that confirms this is owed (T-004 §20.8).
+ * and an unreadable issuer is a refusal. When several linked identities carry a `tid`, the most
+ * recently signed-in `azure` one wins (`last_sign_in_at`); anything else is a last-resort scan so a
+ * payload that only labels the provider elsewhere still surfaces a value. Confirm `tid` and
+ * `email_confirmed_at` / `xms_edov` on the T-004 staging run (N3 on #181).
  */
 function issuerTenantIdOf(user: { app_metadata?: unknown; identities?: unknown }): string | null {
   const direct = readStringField(user.app_metadata, "tid");
   if (direct !== undefined) return direct;
   const identities = Array.isArray(user.identities) ? user.identities : [];
+
+  type IdentityRow = { provider?: unknown; identity_data?: unknown; last_sign_in_at?: unknown };
+  const azureWithTid: Array<{ tid: string; lastSignIn: number }> = [];
+  for (const raw of identities) {
+    if (typeof raw !== "object" || raw === null) continue;
+    const identity = raw as IdentityRow;
+    if (identity.provider !== "azure" && identity.provider !== "microsoft") continue;
+    const tid = readStringField(identity.identity_data, "tid");
+    if (tid === undefined) continue;
+    const stamp = typeof identity.last_sign_in_at === "string" ? Date.parse(identity.last_sign_in_at) : Number.NaN;
+    azureWithTid.push({ tid, lastSignIn: Number.isFinite(stamp) ? stamp : 0 });
+  }
+  if (azureWithTid.length > 0) {
+    azureWithTid.sort((a, b) => b.lastSignIn - a.lastSignIn);
+    return azureWithTid[0]?.tid ?? null;
+  }
+
   for (const identity of identities) {
     const fromIdentity = readStringField((identity as { identity_data?: unknown } | null)?.identity_data, "tid");
     if (fromIdentity !== undefined) return fromIdentity;
@@ -252,7 +276,7 @@ export function buildIdentityPorts(env: Partial<IdentityEnv>, options: { fetchIm
     now: () => Math.floor(Date.now() / 1000),
     signingSecret: () => env.IDENTITY_SESSION_KEY ?? null,
 
-    rateLimitKey: async ({ host, email }) => bytesToBase64Url(await hmacBytes(env.IDENTITY_SESSION_KEY ?? "", `${host}|${email}`)),
+    rateLimitKey: async ({ host, material }) => bytesToBase64Url(await hmacBytes(env.IDENTITY_SESSION_KEY ?? "", `${host}|${material}`)),
 
     allowRequest: async (key) => {
       const limiter = env.IDENTITY_RATE_LIMITER;
@@ -335,6 +359,26 @@ export function buildIdentityPorts(env: Partial<IdentityEnv>, options: { fetchIm
         }),
       });
       if (!response.ok) throw new Error(`auth recover refused with status ${response.status}`);
+    },
+
+    async updatePassword({ accessToken, password }) {
+      if (baseUrl.length === 0 || anonKey.length === 0) {
+        throw new Error("SUPABASE_URL and SUPABASE_ANON_KEY bindings are required");
+      }
+      // The user's own access token authorizes the change; the anon key is only the project binding.
+      // The password itself never appears in a log line this module writes.
+      const response = await fetchImpl(`${baseUrl}${SUPABASE_USER_PATH}`, {
+        method: "PUT",
+        headers: {
+          apikey: anonKey,
+          authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ password }),
+      });
+      if (response.status === 400 || response.status === 422) return "rejected";
+      if (!response.ok) throw new Error(`auth user update refused with status ${response.status}`);
+      return "updated";
     },
 
     supabaseBaseUrl: () => (baseUrl.length > 0 ? baseUrl : null),

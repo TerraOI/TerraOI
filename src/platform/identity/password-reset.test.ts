@@ -13,7 +13,7 @@ import { createTokenCipher, type SessionStore, type StoredSession } from "./sess
  * neither stores nor verifies a password, so a reset request is a guarded call to the provider plus
  * one thing of our own — the login state we hand the recovery link is marked as a **recovery**, so
  * the callback that completes it knows to revoke the user's other sessions on this host before it
- * issues the new one.
+ * issues the new one and redirects to `/account/set-password` (where GoTrue's user update runs).
  *
  * Revocation of other sessions is a `toi_identity` write, and the SQL for it is PR-2's migration; the
  * port therefore refuses today, and the completion fails closed rather than signing the user back in
@@ -99,7 +99,7 @@ function requestHarness(overrides: Partial<RequestHarness> = {}): RequestHarness
     signingSecret: () => SECRET,
     findHost: async (host) =>
       host === HOST_A ? { organisationId: C1, organisationStatus: "active" } : host === HOST_B ? { organisationId: "22222222-2222-4222-8222-222222222222", organisationStatus: "active" } : null,
-    rateLimitKey: async ({ host, email }) => `${host}|${email}`,
+    rateLimitKey: async ({ host, material }) => `${host}|${material}`,
     allowRequest: async () => state.allowRequest,
     sendPasswordRecovery: async (input) => {
       if (state.boom) throw new Error("provider unavailable");
@@ -338,7 +338,9 @@ describe("completing a password reset through the callback", () => {
     expect(surviving[0]?.revokedAt).toBeNull();
     expect(h.store.rows.size).toBe(1);
     expect(outcomeOf(response)).toBeNull();
-    expect(locationOf(response).pathname).toBe("/");
+    // Recovery must land on set-password, not "/": otherwise the forgotten credential still works
+    // and "reset" was only a second magic link (#181 B1).
+    expect(locationOf(response).pathname).toBe("/account/set-password");
     expect(sessionCookieOf(response)).toContain("__Host-toi_session=");
   });
 

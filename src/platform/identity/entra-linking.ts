@@ -119,7 +119,7 @@ export interface EntraSignInStartInput {
 export async function handleEntraSignInRequest(input: EntraSignInStartInput): Promise<Response> {
   const { ports } = input;
 
-  const guarded = await readGuardedFormRequest(input);
+  const guarded = await readGuardedFormRequest({ ...input, limitMethod: "entra-start" });
   if (!guarded.ok) return guarded.response;
   const { host, secret, secureTransport } = guarded;
 

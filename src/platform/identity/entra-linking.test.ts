@@ -471,7 +471,7 @@ describe("handleEntraSignInRequest (POST /auth/entra)", () => {
       signingSecret: () => SECRET,
       findHost: async (host) =>
         host === HOST_A ? { organisationId: C1, organisationStatus: "active" } : host === HOST_B ? { organisationId: C2, organisationStatus: "active" } : null,
-      rateLimitKey: async ({ host }) => `${host}|entra`,
+      rateLimitKey: async ({ host, material }) => `${host}|${material}`,
       allowRequest: async () => true,
       supabaseBaseUrl: () => BASE,
       // Present here so the *guard* and *redirect-building* tests exercise a wired deployment; the
