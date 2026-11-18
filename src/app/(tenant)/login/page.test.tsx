@@ -106,6 +106,17 @@ describe("/login surface selection", () => {
     expect(screen.getByRole("status").textContent).toMatch(/temporarily unavailable/i);
   });
 
+  it("hides the magic-link form when the gate reports unavailable even with a CSRF token", async () => {
+    buildLoginView.mockResolvedValue({
+      kind: "sign_in",
+      csrfToken: "csrf-test-token",
+      outcome: "unavailable",
+    });
+    await renderPage({ [ROUTED_HOST_HEADER]: "company1.terraoi.app" }, "unavailable");
+    expect(screen.queryByLabelText("Work email")).toBeNull();
+    expect(screen.getByRole("status").textContent).toMatch(/temporarily unavailable/i);
+  });
+
   it("shows check-email after a link_sent outcome", async () => {
     buildLoginView.mockResolvedValue({
       kind: "sign_in",
@@ -122,6 +133,18 @@ describe("/login surface selection", () => {
     await renderPage({ [ROUTED_HOST_HEADER]: "company1.terraoi.app" });
     expect(screen.getByRole("heading", { name: "No access" })).toBeTruthy();
     expect(screen.queryByLabelText("Work email")).toBeNull();
+  });
+
+  it("does not promote a forged ?outcome=not_a_member without a session to NoAccess", async () => {
+    buildLoginView.mockResolvedValue({
+      kind: "sign_in",
+      csrfToken: "csrf-test-token",
+      outcome: "not_a_member",
+    });
+    await renderPage({ [ROUTED_HOST_HEADER]: "company1.terraoi.app" }, "not_a_member");
+    expect(screen.queryByRole("heading", { name: "No access" })).toBeNull();
+    expect(screen.getByRole("heading", { name: /^Sign in to / })).toBeTruthy();
+    expect(screen.getByLabelText("Work email")).toBeTruthy();
   });
 
   it("redirects signed-in members away from /login", async () => {
@@ -141,5 +164,28 @@ describe("/login surface selection", () => {
       expect.objectContaining({ outcome: "rate_limited" }),
     );
     expect(screen.getByRole("status").textContent).toMatch(/Too many requests/i);
+  });
+});
+
+describe("loginPageRequest → real buildLoginView composition", () => {
+  it("a missing proxy stamp fails closed as unknown_address through the real gate", async () => {
+    const { buildLoginView: realBuildLoginView } = await vi.importActual<
+      typeof import("@/platform/identity/login-view")
+    >("@/platform/identity/login-view");
+
+    const view = await realBuildLoginView({
+      request: loginPageRequest(new Headers()),
+      ports: {
+        now: () => 1_800_000_000,
+        signingSecret: () => "synthetic-test-secret-not-a-real-key-0000000000",
+        sessionStore: () => null,
+        tokenCipher: () => null,
+        findHost: async () => null,
+        findMembership: async () => null,
+        policyRevision: async () => 1,
+      },
+    });
+
+    expect(view).toEqual({ kind: "unknown_address" });
   });
 });

@@ -6,9 +6,12 @@
  * ever rendered, and no free text about why something failed travels with it: the detailed reason
  * stays in the server-side log (plan §8.2, AGENTS.md §4 "safe errors").
  *
- * `not_a_member` renders T-131's `NoAccessPage`; the others map onto T-131's `SignInStatus`. A
- * link-invalid outcome needs a copy value that does not exist in `components/auth/copy.ts` yet, so
- * the flow reports `unavailable` until #44 settles who adds it.
+ * `not_a_member` is set on the callback redirect when a session was issued but membership is not
+ * active; the login gate then returns `kind: "no_access"` from the session+membership check, which
+ * is what renders T-131's `NoAccessPage`. A forged `?outcome=not_a_member` without a session must
+ * not promote to that surface. The other outcomes map onto T-131's `SignInStatus`. A link-invalid
+ * outcome needs a copy value that does not exist in `components/auth/copy.ts` yet, so the flow
+ * reports `unavailable` until #44 settles who adds it.
  */
 export const SIGNIN_OUTCOMES = [
   "link_sent",

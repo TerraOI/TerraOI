@@ -88,10 +88,14 @@ export async function renderLoginSurface(input: {
       return redirect("/");
     case "sign_in": {
       const brand = await brandForHost(host);
-      if (view.outcome === "not_a_member") return <NoAccessPage brand={brand} />;
+      // Real non-member callbacks set a session cookie and land on `kind: "no_access"` above.
+      // A bare `?outcome=not_a_member` with no session is untrusted query input — do not promote
+      // it to the NoAccess surface (packet acceptance ties that surface to a verified identity).
       if (view.outcome === "link_sent") return <CheckEmailPage brand={brand} />;
       const status = statusFromOutcome(view.outcome, view.csrfToken);
-      const canPost = view.csrfToken !== null;
+      // Hide the form when the gate already says unavailable (backend_failure / prior redirect):
+      // posting again against a broken host lookup returns a bare 500 from the route handler.
+      const canPost = view.csrfToken !== null && view.outcome !== "unavailable";
       return (
         <SignInPage
           brand={brand}
