@@ -3,39 +3,22 @@
 // by script (F05), not an admin UI"). It is the operator's entry point to exactly one database
 // function, `toi_control.provision_tenant_v1`, added by
 // supabase/migrations/*_lifecycle_switches.sql, and it is a *thin* one: it validates what it was
-// given, dials one call, and then **uses the read-back the function returns** rather than selecting
-// public tenancy tables (the control-plane login holds no table privilege — Round 1 B2).
+// given, dials one call, and trusts the function's returned read-back (Round 1 B2) rather than
+// SELECTing tenancy tables the control-plane login cannot see.
 //
 // Three properties this file exists to keep, each pinned in provision-tenant.test.mjs:
 //
 // 1. **The rules here are the rules in the migration, not a paraphrase of them.** `RULES` and
-//    `RESERVED_SLUGS` are compared character-for-character against the SQL off disk (tests 8-9), so
-//    the client-side copy cannot wander. The database still decides — this only means an operator
-//    gets a named argument error in the first second instead of a 22023 from the server, and that a
-//    reviewer who changes one list watches the other go red.
+//    `RESERVED_SLUGS` are compared character-for-character against the SQL off disk (tests 8-9).
 // 2. **No credential passes through a string this file writes.** The DSN arrives in
-//    `CONTROL_PLANE_DB` and is handed to the driver and nowhere else: not to a log line, not into an
-//    error message, not into the SQL (tests 22, 30, 33). AGENTS §4.6.
+//    `CONTROL_PLANE_DB` and is handed to the driver and nowhere else (tests 22, 30, 33). AGENTS §4.6.
 // 3. **A provisioning run reports what the database ended up with.** The RPC returns status, host,
-//    role count, permission count and membership count; a membership row appearing, a status that is
-//    not `provisioning`, or no row at all is a failure (tests 24-27). F05's load-bearing absence is
-//    the membership row: holding the credential that ran this must grant no operational access.
-//
-// What the script does **not** do, deliberately:
-//   * It never sends an actor. The database derives the actor from the login
-//     (`session_user` inside the SECURITY DEFINER body), and there is no `p_actor` argument to forge —
-//     suite test 58 pins that on the SQL side and test 30 on this one.
-//   * It does not create the login, its password, or the Hyperdrive/DSN that carries them. Those are
-//     §20.8 human steps, the same split the supervisor accepted for the session Worker in #75. A run
-//     with no binding says so and dials nothing.
-//   * It does not suspend, resume or flip a switch. Those are separate control-plane calls with
-//     separate reasons, and one CLI that can do all of them is how an operator stops a production
-//     tenant while meaning to create a staging one.
+//    role count, permission count and membership count; a membership row, a non-provisioning status,
+//    or no row at all is a failure (tests 24-27).
 import { pathToFileURL } from "node:url";
 import postgres from "postgres";
 
 // ---------------------------------------------------------------- the rules, mirrored from the SQL
-// Keep these in step with the migration; tests 8 and 9 are what enforce it.
 export const RULES = {
   slug: /^[a-z0-9][a-z0-9-]{1,62}$/,
   host: /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9]))+$/,
@@ -45,8 +28,6 @@ export const RULES = {
 
 export const RESERVED_SLUGS = ["admin", "platform", "staging", "www", "terraoi"];
 
-// The dot ceiling is a second half of the host rule the regex cannot express, and it is pinned against
-// the SQL's own `> 2` by test 14b, because a limit that only lives in a comment is a limit that drifts.
 export const HOST_MAX_DOTS = 2;
 
 const LIMITS = { displayName: 200, reason: 500, requestedBy: 200 };
@@ -65,7 +46,6 @@ const USAGE = [
   "it provisions only. Stopping a tenant is suspend_tenant_v1, and it is not this script.",
 ].join("\n");
 
-// ---------------------------------------------------------------- argv
 const FLAGS = {
   "--slug": "slug",
   "--host": "host",
@@ -115,11 +95,6 @@ export function parseArgs(argv) {
   return { ok: true, request };
 }
 
-// ---------------------------------------------------------------- semantics
-/**
- * Why each refusal names the rule and the ref: the operator is about to hand this to a human
- * onboarding a real customer, and "invalid" is not something they can act on.
- */
 export function validateRequest(request) {
   const errors = [];
 
@@ -164,13 +139,8 @@ export function validateRequest(request) {
   return errors;
 }
 
-// ---------------------------------------------------------------- the connection
 export const BINDING = "CONTROL_PLANE_DB";
 
-/**
- * The DSN is read at call time and returned only so the caller can hand it to the driver. The failure
- * object never carries it, and no log line in this file does.
- */
 export function connectFromEnv(env) {
   const dsn = typeof env?.[BINDING] === "string" ? env[BINDING].trim() : "";
   if (dsn === "") {
@@ -186,10 +156,10 @@ export function connectFromEnv(env) {
 }
 
 /**
- * Wire the existing `postgres` driver for the CLI main path (Round 1 B2). Tests inject their own
- * `connect`; this is what `run()` receives when the module is executed as a program.
+ * Default driver for the CLI path: short-lived `postgres` client (same shape as the intake /
+ * session adapters). Tests inject `connect` and never dial a real DSN.
  */
-export function connectWithPostgres(dsn) {
+export function connectPostgres(dsn) {
   const sql = postgres(dsn, { prepare: false, max: 1 });
   return {
     async query(text, params = []) {
@@ -203,10 +173,6 @@ export function connectWithPostgres(dsn) {
 
 const isSqlState = (code) => typeof code === "string" && /^[0-9A-Z]{5}$/.test(code);
 
-/**
- * One RPC: `toi_control.provision_tenant_v1` returns the read-back columns, so the control-plane
- * login never SELECTs public tenancy tables.
- */
 export async function provisionTenant({ request, query }) {
   let row;
   try {
@@ -225,7 +191,7 @@ export async function provisionTenant({ request, query }) {
   }
 
   if (!row?.organisation_id) {
-    return { ok: false, problem: "provisioning returned no organisation id, so there is nothing to report" };
+    return { ok: false, problem: "provisioning returned no organisation id, so there is nothing to read back" };
   }
 
   const readBack = {
@@ -262,8 +228,7 @@ export async function provisionTenant({ request, query }) {
   return { ok: true, readBack };
 }
 
-// ---------------------------------------------------------------- CLI
-export async function run({ argv, env, connect, log = console.log }) {
+export async function run({ argv, env, connect = connectPostgres, log = console.log }) {
   if (argv.includes("--help") || argv.length === 0) {
     log(USAGE);
     return 0;
@@ -306,12 +271,10 @@ export async function run({ argv, env, connect, log = console.log }) {
   }
 }
 
-// Run as a program, not as an import: the same guard the other CLIs in this folder use, so the test
-// file can call run() without a real environment being dialled behind its back.
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
   process.exitCode = await run({
     argv: process.argv.slice(2),
     env: process.env,
-    connect: connectWithPostgres,
+    connect: connectPostgres,
   });
 }
