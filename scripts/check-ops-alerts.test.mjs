@@ -110,17 +110,71 @@ describe("evaluate mode: real input, three different absences kept apart", () =>
     expect(out.code).toBe(0);
   });
 
-  it("fires a real alert when the table is present and the threshold is set", () => {
+  it("fires a real alert only when every metric input is present and the threshold is set", () => {
     const out = evaluateMode({
       mode: "evaluate",
       facts: {
-        tables: ["public.ingestion_jobs", "public.outbox_events", "public.knowledge_collections"],
-        values: { outbox_oldest_lag: 90000, collection_freshness_age: 10 },
+        tables: ["public.outbox_events", "public.scheduled_reminders"],
+        values: { outbox_oldest_lag: 90000, operational_reminder_lag: 90000 },
+        columnsByTable: {
+          "public.outbox_events": ["organisation_id", "processed_at", "created_at"],
+          "public.scheduled_reminders": ["organisation_id", "reminder_type", "due_at"],
+        },
       },
-      thresholds: { reminder_overdue_max_seconds: 1800, critical_collection_max_age_seconds: 1_000_000 },
+      thresholds: { reminder_overdue_max_seconds: 1800 },
     });
     expect(out.lines.find((l) => l.startsWith("stopped_operational_reminders"))).toContain("fired");
-    expect(out.lines.find((l) => l.startsWith("stale_critical_collections"))).toContain("ok");
+    expect(out.code).toBe(0);
+  });
+
+  it("reports not_available for stopped_operational_reminders when a metric input is missing", () => {
+    const out = evaluateMode({
+      mode: "evaluate",
+      facts: {
+        tables: ["public.outbox_events"],
+        values: { outbox_oldest_lag: 90000 },
+        columnsByTable: {
+          "public.outbox_events": ["organisation_id", "processed_at", "created_at"],
+        },
+      },
+      thresholds: { reminder_overdue_max_seconds: 1800 },
+    });
+    const line = out.lines.find((l) => l.startsWith("stopped_operational_reminders"));
+    expect(line).toContain("not_available");
+    expect(line).toMatch(/operational_reminder_lag/);
+    expect(out.code).toBe(0);
+  });
+
+  it("reports not_available for verification_pass_rate_below_baseline when a metric input is missing", () => {
+    const out = evaluateMode({
+      mode: "evaluate",
+      facts: {
+        tables: ["public.audit_runs"],
+        values: { verification_pass_rate: 0.5 },
+        columnsByTable: {
+          "public.audit_runs": ["organisation_id", "tier", "verifier_outcome"],
+        },
+      },
+      thresholds: { verification_pass_floor: 0.8 },
+    });
+    const line = out.lines.find((l) => l.startsWith("verification_pass_rate_below_baseline"));
+    expect(line).toContain("not_available");
+    expect(line).toMatch(/eval_score_by_tier/);
+    expect(out.code).toBe(0);
+  });
+
+  it("does not evaluate stale_critical_collections as ok while criticality is owed", () => {
+    const out = evaluateMode({
+      mode: "evaluate",
+      facts: {
+        tables: ["public.knowledge_collections"],
+        values: { collection_freshness_age: 10 },
+      },
+      thresholds: { critical_collection_max_age_seconds: 1_000_000 },
+    });
+    const line = out.lines.find((l) => l.startsWith("stale_critical_collections"));
+    expect(line).toContain("not_available");
+    expect(line).toMatch(/T-213|criticality/);
     expect(out.code).toBe(0);
   });
 

@@ -2,7 +2,7 @@
 
 **Status: the metric set, the alert vocabulary and the rule evaluator exist and run (Observed, below). The SQL behind them does not.** No view, no read RPC, no dashboard and no alert destination exists yet, and none is invented here: the views are a migration, and a migration needs a pgTAP slot claimed in the daily sync ([COORDINATION §6b](../COORDINATION.md)) — slot `111` is proposed in [T-405](../tasks/T-405-dashboards-and-alerts.md), not claimed. Nothing in this file has been configured in any provider console, because that is an `OWNER` action (§20.8).
 
-Run on this machine, 2026-11-15, in `I:\_TerraOI-wt\t-405-ops-metrics`:
+Observed on commits `f6b08f0` / `4c29471` / `d28df18` (branch `t-405-ops-metrics`), and re-checked after Round-1 fixes:
 
 ```
 $ node scripts/check-ops-alerts.mjs --dry-run      → exit 0, 8 lines, each rule fired on its synthetic condition
@@ -19,11 +19,11 @@ $ node scripts/check-ops-alerts.mjs                → exit 2 (usage), nothing e
 | Class | Metric (`scripts/ops-metrics.mjs`) | The one query | Measurable on `main` at `10868ad`? |
 |---|---|---|---|
 | interactive | `interactive_latency_p95`, `provider_latency_p95` | percentile of request→answer, and of provider call | **No** — `agent_runs` and the attempt records are T-104/T-313 |
-| ingestion queue | `ingestion_queue_depth`, `ingestion_queue_oldest_age`, `ingestion_lease_expired_count`, `ingestion_failed_not_replayed`, `ingestion_attempt_pressure` | over `public.ingestion_jobs` by `stage` and `executor` | **Yes** — the table is merged (`20261105070000_knowledge_core.sql:353`); the job API (#149/#158) is what writes it today, so until then the honest reading is "empty because nothing runs yet" |
-| extraction / index | `extract_stage_age_local_box`, `extract_stage_age_cloud_worker`, `index_generation_publish_lag`, `published_generation_pinned` | oldest waiting `extract` per executor; generation build→publish | **Yes** for the job and index tables; the box *uptime* half needs T-314 |
+| ingestion queue | `ingestion_queue_depth`, `ingestion_queue_oldest_age`, `ingestion_lease_expired_count`, `ingestion_failed_not_replayed`, `ingestion_failed_other`, `ingestion_attempt_pressure` | over `public.ingestion_jobs` by `stage` and `executor`; dead letter = `status='failed' AND last_error='retries_exhausted'` ([#99](https://github.com/TerraOI/TerraOI/issues/99) / ADR-0005 §10b) | **Yes** for the table columns (`status`, `last_error`); writers that set `retries_exhausted` land with T-211 |
+| extraction / index | `extract_stage_age_local_box`, `extract_stage_age_cloud_worker`, `index_generation_publish_lag`, `published_generation_pinned` | oldest **in-flight** `extract` (`status in ('queued','leased','running')`, wait on `updated_at`); building→active lag; `status='active'` pin | **Yes** for job and index tables (`embedding_indexes.status` is `building\|active\|retired` — no `published_at`); box *uptime* is separate (`local_box_uptime`, owedBy T-314) |
 | manual review | `review_backlog_age` | oldest item awaiting a human | **No** — review state is T-213, not started |
 
-Everything else the packet lists — `authz_anomaly_count`, `audit_write_failure_count`, `budget_reservation_failure`, `provider_availability`, `fallback_rate`, `verification_pass_rate`, `eval_score_by_tier`, `cost_per_answered_question`, `free_allowance_burn`, `paid_tier_share`, `switch_state_age`, `operational_reminder_lag` — reports `not_available` naming its owning packet. **Never `0`.** A zero on a dashboard whose table does not exist is the failure this packet exists to prevent (§8.2: empty and failed are different answers).
+Corpus freshness for **critical** collections (`collection_freshness_age`) is **not** measurable as ok on main: `knowledge_collections` has no `criticality` (owedBy T-213). Quarantined sources (`quarantined_sources_count` over `source_versions.state`) are measurable. Everything else the packet lists that still lacks a table — including `local_box_uptime`, `stale_saved_answers`, `per_tenant_fairness`, `expert_usefulness`, authz/budget/eval/provider metrics, `switch_state_age` (T-304 [#193](https://github.com/TerraOI/TerraOI/pull/193)) — reports `not_available` naming its owning packet. **Never `0`.** A multi-metric rule with any missing input is `not_available` listing those inputs, never `ok`.
 
 ## The eight rules
 
@@ -34,11 +34,11 @@ Five §17.1 classes plus the three named model-chain alarms. `thresholdKind: def
 | `authorization_anomalies` | authorization | `authz_anomaly_count_max` ⟨owner-set⟩ | 5 scope-mismatch denials vs ceiling 3 |
 | `audit_loss` | audit | definitional: any failed audit write | one failed write |
 | `budget_failure` | budget | `budget_refusal_count_max` ⟨owner-set⟩ | 12 refusals vs ceiling 5 |
-| `stale_critical_collections` | freshness | `critical_collection_max_age_seconds` ⟨owner-set⟩ | a critical collection 40 days stale vs 21 days |
-| `stopped_operational_reminders` | scheduler | `reminder_overdue_max_seconds` ⟨owner-set⟩ | outbox's oldest event 3 h vs 30 min |
+| `stale_critical_collections` | freshness | `critical_collection_max_age_seconds` ⟨owner-set⟩ | a critical collection 40 days stale vs 21 days (dry run only; live eval is `not_available` until T-213 adds criticality) |
+| `stopped_operational_reminders` | scheduler | `reminder_overdue_max_seconds` ⟨owner-set⟩ | both reminder lag and outbox lag supplied; a partial reading is `not_available` |
 | `paid_tier_share_drift` | model chain | `paid_tier_share_max` ⟨owner-set⟩ | 45% paid vs 25% |
-| `box_offline_too_long` | model chain | `box_offline_max_seconds` ⟨owner-set⟩ | a tenant's extract queue 6 h deep vs 2 h (ADR-0005: one stuck job blocks that box until a human intervenes) |
-| `verification_pass_rate_below_baseline` | model chain | `verification_pass_floor` ⟨owner-set⟩ | pass rate 0.62 vs floor 0.80 |
+| `box_offline_too_long` | model chain | `box_offline_max_seconds` ⟨owner-set⟩ | `local_box_uptime` and in-flight extract queue age both over the window (ADR-0005: one stuck job blocks that box) |
+| `verification_pass_rate_below_baseline` | model chain | `verification_pass_floor` ⟨owner-set⟩ | pass rate and eval baseline both present; a partial reading is `not_available` |
 
 A rule with no threshold reports `threshold_unset` and **stays enabled for the next run** — it does not count as passing. A rule whose evaluation throws reports `evaluation_error`, the other rules are still evaluated, and the CLI exits 1 so nobody reads it as a clean run.
 
@@ -47,10 +47,10 @@ A rule with no threshold reports `threshold_unset` and **stays enabled for the n
 | # | Panel | Source | Who |
 |---|---|---|---|
 | 1 | Queue age by stage and executor | `ingestion_queue_oldest_age`, `ingestion_queue_depth` | `AGENT` defines; `OWNER` picks the product |
-| 2 | Stuck and unreplayed jobs | `ingestion_failed_not_replayed`, `ingestion_lease_expired_count` | `AGENT` defines; the dead-letter state is **nobody's yet** (U-3) |
-| 3 | Tenant box health | `extract_stage_age_local_box` + T-314's uptime probe | `AGENT` defines; `OWNER` runs the probe |
-| 4 | Corpus freshness and pinned generation | `collection_freshness_age`, `published_generation_pinned`, `index_generation_publish_lag` | `AGENT` defines |
-| 5 | Model chain per provider × task class | availability, latency, fallback rate (F40's closed reasons), verification pass rate, eval score by tier, cost per answered question, free-allowance burn | `AGENT` defines; **all `not_available` until T-313/T-116/T-312 land** |
+| 2 | Stuck, dead-letter and other failures | `ingestion_failed_not_replayed` (dead letter per #99 / ADR-0005 §10b), `ingestion_failed_other`, `ingestion_lease_expired_count`, `ingestion_attempt_pressure` | `AGENT` defines; **replay** under a new parser generation is T-405 deferred past M1 |
+| 3 | Tenant box health | `local_box_uptime` (T-314) + `extract_stage_age_local_box` (in-flight only) | `AGENT` defines; `OWNER` runs the probe |
+| 4 | Corpus freshness and pinned generation | `collection_freshness_age` (owedBy T-213 criticality), `quarantined_sources_count`, `published_generation_pinned` (`status='active'`), `index_generation_publish_lag` (`status='building'`) | `AGENT` defines |
+| 5 | Model chain per provider × task class | availability, latency, fallback rate (F40's closed reasons), verification pass rate, eval score by tier, cost per answered question, free-allowance burn, fairness, expert usefulness, stale saved answers | `AGENT` defines; **all `not_available` until their owning packets land** |
 | 6 | Review backlog | `review_backlog_age` | waits on T-213 |
 
 `OWNER` in the provider console, whichever product is chosen (Workers Observability + alert rules, an external APM, or a Lane 1 page over the ops RPC — an owner choice with a cost, and the metric definitions are written to survive any of the three):
@@ -64,7 +64,7 @@ A rule with no threshold reports `threshold_unset` and **stays enabled for the n
 
 ## Log and metric hygiene, as a check
 
-The machine half is `FORBIDDEN_OUTPUT_FIELDS` in `scripts/ops-metrics.mjs`: a metric's declared output columns are refused if they carry a prompt body, a personal prompt, document text, chunk text, a query string, a signed URL, an object key, a provider **name** (grouping is by `provider_id`), eval case text, or a contact field. The test asserts the list is non-vacuous, and every metric row here is an aggregate with `scoping.mode = organisation`.
+The machine half is `FORBIDDEN_OUTPUT_FIELDS` in `scripts/ops-metrics.mjs`: a metric's declared output columns are refused if they carry a prompt body, a personal prompt, document text, chunk text, a query string, a signed URL, an object key, a provider **name** (grouping is by `provider_id`), eval case text, or a contact field. The test asserts the list is non-vacuous, and every metric row here is an aggregate with `scoping.mode = organisation`. Each metric also declares `sourceColumns`; the unit test checks them against merged migration DDL (or requires `owedBy` when a column is absent).
 
 The human half, restated from AGENTS §4.6/§4.7 and §17.1: no raw document in a log line, no credential in a message or a panel title, no alert body that quotes a user's prompt, and the content-rich audit views stay separate from ordinary operational counts — an operations metric must never become a way to read someone's corpus.
 
@@ -72,8 +72,9 @@ The human half, restated from AGENTS §4.6/§4.7 and §17.1: no raw document in 
 
 | Step | Blocked on | Who |
 |---|---|---|
-| Claim pgTAP slot `111` and write the migration with the read-only views + one scoped read RPC (server-only unless the supervisor rules otherwise, FAQ-0010) | the daily sync; and on the four merged tables it can start with today | lane + supervisor |
+| Claim pgTAP slot `111` and write the migration with the read-only views + one scoped read RPC (server-only unless the supervisor rules otherwise, FAQ-0010) | the daily sync; and on the merged tables it can start with today | lane + supervisor |
 | Alert dry-runs **on staging**, one verdict per rule in the register | [#177](https://github.com/TerraOI/TerraOI/issues/177) (open `policy-violation` → `deploy-staging.yml` refuses) | owner clears, then `AGENT` runs |
 | The seven thresholds | D-5 (§18.3) | `OWNER` |
 | The destination and the on-call line | D-7, T-004's plan-level checkbox | `OWNER` |
-| The dead-letter state, so "failed, nobody replayed it" has an end state rather than a metric | U-3 — no packet owns it | supervisor decides who |
+| Dead-letter **replay** under a new parser generation | T-405 deferred past M1 ([#99](https://github.com/TerraOI/TerraOI/issues/99) / ADR-0005 §10b); observe via `ingestion_failed_not_replayed` now | lane (later T-405 PR) |
+| `criticality` so stale-critical alerts can evaluate | T-213 | lane 2 |

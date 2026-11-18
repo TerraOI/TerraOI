@@ -12,11 +12,12 @@
  *    reports `threshold_unset` instead of passing quietly — the same defect class as issue #180,
  *    where a lint step that could not fail was reported as a passing gate.
  *
- * Nothing here connects to a database. Availability is an *input* (`facts.tables`), because a
- * hard-coded "these tables exist as of today" rots the moment a migration merges. The
- * definitions, the units, the tenant scoping and the alert rules are the deliverable; the SQL
- * that fills them in is a read-only view over the owning packet's tables, which is a migration
- * and therefore waits on a pgTAP slot claimed in the daily sync (COORDINATION §6b).
+ * Nothing here connects to a database. Availability is an *input* (`facts.tables`, and when a
+ * metric declares `sourceColumns`, `facts.columnsByTable`), because a hard-coded "these tables
+ * exist as of today" rots the moment a migration merges. The definitions, the units, the tenant
+ * scoping and the alert rules are the deliverable; the SQL that fills them in is a read-only
+ * view over the owning packet's tables, which is a migration and therefore waits on a pgTAP
+ * slot claimed in the daily sync (COORDINATION §6b).
  */
 
 export const LATENCY_CLASSES = [
@@ -47,7 +48,7 @@ export const FORBIDDEN_OUTPUT_FIELDS = [
 
 const SCOPE = { mode: "organisation", note: "aggregates group by organisation_id; no cross-tenant row is ever emitted" };
 
-const m = (spec) => ({ scoping: SCOPE, owedBy: null, latencyClass: null, columns: ["organisation_id"], ...spec });
+const m = (spec) => ({ scoping: SCOPE, owedBy: null, latencyClass: null, columns: ["organisation_id"], sourceColumns: [], ...spec });
 
 export const METRICS = [
   // ---- model chain, interactive -------------------------------------------------------
@@ -58,6 +59,7 @@ export const METRICS = [
     kind: "latency",
     latencyClass: "interactive",
     source: { table: "public.agent_runs", query: "percentile_cont(0.95) of (answered_at - requested_at) per organisation" },
+    sourceColumns: ["organisation_id", "answered_at", "requested_at"],
     columns: ["organisation_id", "tier", "p95_seconds"],
     owningPacket: "T-104 (chat persistence) + T-313 (run/attempt audit)",
     owedBy: "T-104 (#139) — no agent_runs table on main",
@@ -70,6 +72,7 @@ export const METRICS = [
     kind: "count",
     latencyClass: "ingestion_queue",
     source: { table: "public.ingestion_jobs", query: "count(*) where status in ('queued','leased','running') group by stage, executor" },
+    sourceColumns: ["organisation_id", "stage", "executor", "status"],
     columns: ["organisation_id", "stage", "executor", "waiting_count"],
     owningPacket: "T-211 (job API) over T-111's table",
   }),
@@ -79,7 +82,8 @@ export const METRICS = [
     unit: "seconds",
     kind: "age",
     latencyClass: "ingestion_queue",
-    source: { table: "public.ingestion_jobs", query: "max(extract(epoch from now() - created_at)) where status = 'queued'" },
+    source: { table: "public.ingestion_jobs", query: "max(extract(epoch from now() - updated_at)) where status = 'queued'" },
+    sourceColumns: ["organisation_id", "stage", "status", "updated_at"],
     columns: ["organisation_id", "stage", "oldest_wait_seconds"],
     owningPacket: "T-211 (job API)",
   }),
@@ -90,20 +94,38 @@ export const METRICS = [
     kind: "count",
     latencyClass: "ingestion_queue",
     source: { table: "public.ingestion_jobs", query: "count(*) where status in ('leased','running') and lease_expires_at < now()" },
+    sourceColumns: ["organisation_id", "stage", "status", "lease_expires_at"],
     columns: ["organisation_id", "stage", "expired_lease_count"],
     owningPacket: "T-211 (job API)",
   }),
   m({
     id: "ingestion_failed_not_replayed",
-    label: "Failed jobs nobody requeued — the case ADR-0005 says blocks a tenant's box",
+    label: "Dead-lettered jobs — status=failed and last_error=retries_exhausted (ADR-0005 §10b / #99)",
     unit: "count",
     kind: "count",
     latencyClass: "ingestion_queue",
-    source: { table: "public.ingestion_jobs", query: "count(*) where status = 'failed' and updated_at < now() - the owner-set replay window" },
-    columns: ["organisation_id", "stage", "unreplayed_count", "oldest_failed_seconds"],
-    owningPacket: "T-211 (job API); the replay itself is U-3, which no packet owns",
-    gap: "no_dead_letter_state",
-    gapNote: "ingestion_jobs.status allows queued|leased|running|succeeded|failed|cancelled and has no dead-lettered value (see U-3). This metric makes the case visible; adding the state is a decision for the job API's owner, not something this packet invents in a migration.",
+    source: {
+      table: "public.ingestion_jobs",
+      query: "count(*) where status = 'failed' and last_error = 'retries_exhausted'",
+    },
+    sourceColumns: ["organisation_id", "stage", "status", "last_error", "updated_at"],
+    columns: ["organisation_id", "stage", "dead_letter_count", "oldest_dead_letter_seconds"],
+    owningPacket:
+      "T-211 (writes retries_exhausted per ADR-0005 §10b / #99); replay under a new parser generation is T-405 (deferred past M1)",
+  }),
+  m({
+    id: "ingestion_failed_other",
+    label: "Failed jobs that are not dead letters (last_error is not retries_exhausted)",
+    unit: "count",
+    kind: "count",
+    latencyClass: "ingestion_queue",
+    source: {
+      table: "public.ingestion_jobs",
+      query: "count(*) where status = 'failed' and (last_error is distinct from 'retries_exhausted')",
+    },
+    sourceColumns: ["organisation_id", "stage", "status", "last_error"],
+    columns: ["organisation_id", "stage", "other_failed_count"],
+    owningPacket: "T-211 (job API); abort reasons stay a closed vocabulary per ADR-0005 §10b",
   }),
   m({
     id: "ingestion_attempt_pressure",
@@ -112,6 +134,7 @@ export const METRICS = [
     kind: "count",
     latencyClass: "ingestion_queue",
     source: { table: "public.ingestion_jobs", query: "count(*) where attempt >= the owner-set ceiling minus one" },
+    sourceColumns: ["organisation_id", "stage", "attempt", "status"],
     columns: ["organisation_id", "stage", "high_attempt_count", "max_attempt"],
     owningPacket: "T-211 (job API)",
   }),
@@ -122,7 +145,12 @@ export const METRICS = [
     unit: "seconds",
     kind: "age",
     latencyClass: "extraction_index",
-    source: { table: "public.ingestion_jobs", query: "max(extract(epoch from now() - created_at)) where stage = 'extract' and executor = 'local_box'" },
+    source: {
+      table: "public.ingestion_jobs",
+      query:
+        "max(extract(epoch from now() - updated_at)) where stage = 'extract' and executor = 'local_box' and status in ('queued','leased','running')",
+    },
+    sourceColumns: ["organisation_id", "stage", "executor", "status", "updated_at", "created_at"],
     columns: ["organisation_id", "oldest_extract_seconds", "waiting_count"],
     owningPacket: "T-211 (job API) + T-314 (the box's health record)",
   }),
@@ -132,27 +160,40 @@ export const METRICS = [
     unit: "seconds",
     kind: "age",
     latencyClass: "extraction_index",
-    source: { table: "public.ingestion_jobs", query: "max(extract(epoch from now() - created_at)) where stage = 'extract' and executor = 'cloud_worker'" },
+    source: {
+      table: "public.ingestion_jobs",
+      query:
+        "max(extract(epoch from now() - updated_at)) where stage = 'extract' and executor = 'cloud_worker' and status in ('queued','leased','running')",
+    },
+    sourceColumns: ["organisation_id", "stage", "executor", "status", "updated_at", "created_at"],
     columns: ["organisation_id", "oldest_extract_seconds", "waiting_count"],
     owningPacket: "T-211 (job API)",
   }),
   m({
     id: "index_generation_publish_lag",
-    label: "Time from an index generation being built to it being publishable",
+    label: "How long an index generation has been building without becoming active",
     unit: "seconds",
     kind: "age",
     latencyClass: "extraction_index",
-    source: { table: "public.embedding_indexes", query: "max(extract(epoch from coalesce(published_at, now()) - created_at)) per generation" },
-    columns: ["organisation_id", "generation", "publish_lag_seconds"],
+    source: {
+      table: "public.embedding_indexes",
+      query: "max(extract(epoch from now() - created_at)) where status = 'building'",
+    },
+    sourceColumns: ["organisation_id", "generation", "status", "created_at"],
+    columns: ["organisation_id", "generation", "build_age_seconds"],
     owningPacket: "T-113 (chunk embed and publish)",
   }),
   m({
     id: "published_generation_pinned",
-    label: "Which index generation retrieval is answering from, and how many are published",
+    label: "Which index generation retrieval is answering from (status=active), and how many are active",
     unit: "count",
     kind: "count",
-    source: { table: "public.embedding_indexes", query: "count(*) filter (where status = 'published') and the pinned generation, per organisation" },
-    columns: ["organisation_id", "pinned_generation", "published_generation_count"],
+    source: {
+      table: "public.embedding_indexes",
+      query: "count(*) filter (where status = 'active') and the active generation per organisation_id, index_key",
+    },
+    sourceColumns: ["organisation_id", "index_key", "generation", "status"],
+    columns: ["organisation_id", "index_key", "pinned_generation", "active_generation_count"],
     owningPacket: "T-113; the pointer switch is its SQL half (slot 036)",
   }),
   // ---- corpus freshness and review ---------------------------------------------------
@@ -161,9 +202,25 @@ export const METRICS = [
     label: "How stale each critical collection is",
     unit: "seconds",
     kind: "age",
-    source: { table: "public.knowledge_collections", query: "max(extract(epoch from now() - sv.published_at)) per collection, over its newest published source version" },
-    columns: ["organisation_id", "collection_id", "criticality", "stale_seconds"],
+    source: {
+      table: "public.knowledge_collections",
+      query:
+        "max(extract(epoch from now() - sv.published_at)) per collection over its newest published source version, filtered to critical collections",
+    },
+    sourceColumns: ["organisation_id", "id", "criticality"],
+    columns: ["organisation_id", "collection_id", "stale_seconds"],
     owningPacket: "T-111 (merged) + T-213 (criticality and review state)",
+    owedBy: "T-213 — knowledge_collections has no criticality column on main",
+  }),
+  m({
+    id: "quarantined_sources_count",
+    label: "Source versions in quarantined state",
+    unit: "count",
+    kind: "count",
+    source: { table: "public.source_versions", query: "count(*) where state = 'quarantined'" },
+    sourceColumns: ["organisation_id", "state", "collection_id"],
+    columns: ["organisation_id", "quarantined_count"],
+    owningPacket: "T-111 (merged) + T-213 (quarantine and revoke workflow)",
   }),
   m({
     id: "review_backlog_age",
@@ -172,9 +229,10 @@ export const METRICS = [
     kind: "age",
     latencyClass: "manual_review",
     source: { table: "public.review_queue", query: "max(extract(epoch from now() - queued_at)) over items awaiting review" },
+    sourceColumns: ["organisation_id", "review_type", "queued_at"],
     columns: ["organisation_id", "review_type", "oldest_pending_seconds"],
     owningPacket: "T-213 (quarantine, revoke and review state)",
-    owedBy: "T-213 — not started; no review queue table on main",
+    owedBy: "T-213 — not started; no review_queue table on main",
   }),
   // ---- outbox and reminders ----------------------------------------------------------
   m({
@@ -183,6 +241,7 @@ export const METRICS = [
     unit: "count",
     kind: "count",
     source: { table: "public.outbox_events", query: "count(*) where processed_at is null group by aggregate_type" },
+    sourceColumns: ["organisation_id", "aggregate_type", "processed_at"],
     columns: ["organisation_id", "aggregate_type", "unprocessed_count"],
     owningPacket: "T-111 (merged) + T-211 (the dispatcher)",
   }),
@@ -192,6 +251,7 @@ export const METRICS = [
     unit: "seconds",
     kind: "age",
     source: { table: "public.outbox_events", query: "max(extract(epoch from now() - created_at)) where processed_at is null" },
+    sourceColumns: ["organisation_id", "processed_at", "created_at"],
     columns: ["organisation_id", "oldest_event_seconds"],
     owningPacket: "T-111 (merged) + T-211 (the dispatcher)",
   }),
@@ -201,6 +261,7 @@ export const METRICS = [
     unit: "seconds",
     kind: "age",
     source: { table: "public.scheduled_reminders", query: "max(extract(epoch from now() - due_at)) over reminders that are due and unsent" },
+    sourceColumns: ["organisation_id", "reminder_type", "due_at"],
     columns: ["organisation_id", "reminder_type", "oldest_overdue_seconds"],
     owningPacket: "T-211 (one active scheduler per logical job) over T-130's pilot inquiries",
     owedBy: "T-211 (#149/#158) — no reminder schedule table on main",
@@ -212,6 +273,7 @@ export const METRICS = [
     unit: "count",
     kind: "count",
     source: { table: "public.audit_events", query: "count(*) where outcome in ('denied','scope_mismatch') over the owner-set window" },
+    sourceColumns: ["organisation_id", "outcome"],
     columns: ["organisation_id", "anomaly_class", "anomaly_count"],
     owningPacket: "T-313 (run/attempt audit)",
     owedBy: "T-313 — not claimable until agent_runs exists (T-104)",
@@ -222,6 +284,7 @@ export const METRICS = [
     unit: "count",
     kind: "count",
     source: { table: "public.audit_write_failures", query: "count(*) over the owner-set window; any is reportable" },
+    sourceColumns: ["organisation_id"],
     columns: ["organisation_id", "failed_write_count"],
     owningPacket: "T-313 (the audit writer)",
     owedBy: "T-313 — not claimable while agent_runs does not exist",
@@ -232,6 +295,7 @@ export const METRICS = [
     unit: "count",
     kind: "count",
     source: { table: "public.budget_accounts", query: "count(*) from reservations where status = 'refused' plus accounting failures" },
+    sourceColumns: ["organisation_id", "status"],
     columns: ["organisation_id", "refused_count", "accounting_failure_count"],
     owningPacket: "T-313 (budget authority, §12.3)",
     owedBy: "T-313 — no budget account table on main",
@@ -243,9 +307,24 @@ export const METRICS = [
     unit: "ratio",
     kind: "ratio",
     source: { table: "public.provider_health", query: "1 - (failed_attempts / attempts) per provider_id x task_class over the owner-set window" },
+    sourceColumns: ["organisation_id", "provider_id", "task_class"],
     columns: ["organisation_id", "provider_id", "task_class", "availability_ratio", "attempt_count"],
     owningPacket: "T-116 (#143) + T-314 (the health snapshot)",
     owedBy: "T-314 — not claimable: T-215/T-311 unwritten",
+  }),
+  m({
+    id: "local_box_uptime",
+    label: "Local-box offline age (consecutive seconds unreachable); §17.1 local-box uptime",
+    unit: "seconds",
+    kind: "age",
+    source: {
+      table: "public.provider_health",
+      query: "max(extract(epoch from now() - last_ok_at)) where provider role is local_box and last check failed",
+    },
+    sourceColumns: ["organisation_id", "provider_id", "last_ok_at"],
+    columns: ["organisation_id", "offline_seconds"],
+    owningPacket: "T-314 (box health / F37 probe)",
+    owedBy: "T-314 — not claimable: T-215/T-311 unwritten; no box health snapshot on main",
   }),
   m({
     id: "provider_latency_p95",
@@ -254,6 +333,7 @@ export const METRICS = [
     kind: "latency",
     latencyClass: "interactive",
     source: { table: "public.audit_attempts", query: "percentile_cont(0.95) of call duration per provider_id x task_class" },
+    sourceColumns: ["organisation_id", "provider_id", "task_class"],
     columns: ["organisation_id", "provider_id", "task_class", "p95_seconds"],
     owningPacket: "T-313 (attempt records)",
     owedBy: "T-313 — no attempt table on main",
@@ -264,6 +344,7 @@ export const METRICS = [
     unit: "ratio",
     kind: "ratio",
     source: { table: "public.audit_attempts", query: "count(*) filter (where fallback_reason is not null) / count(*), grouped by fallback_reason" },
+    sourceColumns: ["organisation_id", "task_class", "fallback_reason"],
     columns: ["organisation_id", "task_class", "fallback_reason", "fallback_ratio"],
     owningPacket: "T-313; the reason vocabulary is F40's and already closed",
     owedBy: "T-313 — no attempt table on main",
@@ -274,6 +355,7 @@ export const METRICS = [
     unit: "ratio",
     kind: "ratio",
     source: { table: "public.audit_runs", query: "count(*) filter (where verifier_outcome = 'pass') / count(*) per tier" },
+    sourceColumns: ["organisation_id", "tier", "verifier_outcome"],
     columns: ["organisation_id", "tier", "pass_ratio", "run_count"],
     owningPacket: "T-313 (the verifier outcome is traced per run)",
     owedBy: "T-313 — no run table on main",
@@ -284,6 +366,7 @@ export const METRICS = [
     unit: "score",
     kind: "score",
     source: { table: "public.eval_results", query: "avg(score) per tier per eval run" },
+    sourceColumns: ["organisation_id", "tier", "score"],
     columns: ["organisation_id", "tier", "eval_run_id", "mean_score", "case_count"],
     owningPacket: "T-312 (eval harness)",
     owedBy: "T-312 — not claimable; no eval_runs/eval_results on main",
@@ -294,6 +377,7 @@ export const METRICS = [
     unit: "currency",
     kind: "cost",
     source: { table: "public.budget_usage", query: "sum(usage_cost) filter (where output_status = 'answered') / count of answered runs, per tier" },
+    sourceColumns: ["organisation_id", "tier", "usage_cost", "output_status"],
     columns: ["organisation_id", "tier", "cost_per_answer", "answered_count"],
     owningPacket: "T-313 (the ledger)",
     owedBy: "T-313 — no usage table on main",
@@ -304,6 +388,7 @@ export const METRICS = [
     unit: "ratio",
     kind: "ratio",
     source: { table: "public.budget_usage", query: "sum(usage_cost) / the owner-set allowance, per provider per period" },
+    sourceColumns: ["organisation_id", "provider_id", "usage_cost"],
     columns: ["organisation_id", "provider_id", "period", "burn_ratio", "allowance_basis"],
     owningPacket: "T-313 + T-116 (#143, which holds the provider records)",
     owedBy: "T-313 — no usage table on main",
@@ -314,9 +399,43 @@ export const METRICS = [
     unit: "ratio",
     kind: "ratio",
     source: { table: "public.audit_runs", query: "count(*) filter (where tier = 'paid') / count(*) over the owner-set window" },
+    sourceColumns: ["organisation_id", "tier"],
     columns: ["organisation_id", "paid_share_ratio", "run_count"],
     owningPacket: "T-313 (tier per run is traced)",
     owedBy: "T-313 — no run table on main",
+  }),
+  m({
+    id: "stale_saved_answers",
+    label: "Saved answers marked requiring revalidation after corpus change",
+    unit: "count",
+    kind: "count",
+    source: { table: "public.saved_answers", query: "count(*) where revalidation_required = true" },
+    sourceColumns: ["organisation_id", "revalidation_required"],
+    columns: ["organisation_id", "stale_answer_count"],
+    owningPacket: "T-104 (chat / saved answers) + T-114 (revoke invalidation)",
+    owedBy: "T-104 (#139) — no saved_answers table on main",
+  }),
+  m({
+    id: "per_tenant_fairness",
+    label: "Per-tenant concurrent-run and burst use against §12.3 caps",
+    unit: "ratio",
+    kind: "ratio",
+    source: { table: "public.budget_accounts", query: "current concurrent runs / cap and burst tokens used / burst limit, per organisation" },
+    sourceColumns: ["organisation_id"],
+    columns: ["organisation_id", "concurrent_ratio", "burst_ratio"],
+    owningPacket: "T-313 (budget authority, §12.3)",
+    owedBy: "T-313 — no budget account table on main",
+  }),
+  m({
+    id: "expert_usefulness",
+    label: "Expert usefulness / correctness from eval outcomes",
+    unit: "score",
+    kind: "score",
+    source: { table: "public.eval_results", query: "avg(score) per expert_id over the owner-set window" },
+    sourceColumns: ["organisation_id", "expert_id", "score"],
+    columns: ["organisation_id", "expert_id", "mean_score", "case_count"],
+    owningPacket: "T-312 (eval harness)",
+    owedBy: "T-312 — not claimable; no eval_runs/eval_results on main",
   }),
   m({
     id: "switch_state_age",
@@ -324,9 +443,10 @@ export const METRICS = [
     unit: "seconds",
     kind: "age",
     source: { table: "public.lifecycle_switches", query: "max(extract(epoch from now() - updated_at)) per switch scope" },
+    sourceColumns: ["organisation_id", "switch_scope", "updated_at"],
     columns: ["organisation_id", "switch_scope", "state_age_seconds"],
     owningPacket: "T-304 (switch provisioning)",
-    owedBy: "T-304 — not claimable; no lifecycle_switches table on main",
+    owedBy: "T-304 (#193) — lifecycle_switches not on main yet",
   }),
 ];
 
@@ -411,7 +531,7 @@ export const ALERT_RULES = [
       values.outbox_oldest_lag > thresholds.reminder_overdue_max_seconds,
     dryRun: {
       condition: "the outbox's oldest unprocessed event is 3 hours old against a 30-minute window",
-      values: { operational_reminder_lag: null, outbox_oldest_lag: 10800 },
+      values: { operational_reminder_lag: 10800, outbox_oldest_lag: 10800 },
       thresholds: { reminder_overdue_max_seconds: 1800 },
     },
   },
@@ -433,16 +553,19 @@ export const ALERT_RULES = [
   {
     id: "box_offline_too_long",
     className: "model_chain",
-    metricIds: ["extract_stage_age_local_box", "switch_state_age"],
+    metricIds: ["local_box_uptime", "extract_stage_age_local_box"],
     thresholdKind: "owner_set",
     thresholdKey: "box_offline_max_seconds",
     destination: "<owner-set>",
-    definition: "the local box offline, or its queue unattended, longer than the owner-set window (§17.1's second named alarm)",
+    definition:
+      "the local box offline, or its OCR queue unattended, longer than the owner-set window (§17.1's second named alarm)",
     predicate: ({ values, thresholds }) =>
+      values.local_box_uptime > thresholds.box_offline_max_seconds ||
       values.extract_stage_age_local_box > thresholds.box_offline_max_seconds,
     dryRun: {
-      condition: "a tenant's extract queue 6 hours deep against a 2-hour window (ADR-0005: one stuck job blocks that box)",
-      values: { extract_stage_age_local_box: 21600, switch_state_age: 60 },
+      condition:
+        "a tenant's box offline 6 hours and extract queue 6 hours deep against a 2-hour window (ADR-0005: one stuck job blocks that box)",
+      values: { local_box_uptime: 21600, extract_stage_age_local_box: 21600 },
       thresholds: { box_offline_max_seconds: 7200 },
     },
   },
@@ -467,13 +590,28 @@ export const ruleIds = () => ALERT_RULES.map((r) => r.id);
 
 const metricById = (id) => METRICS.find((x) => x.id === id);
 
+function missingSourceColumns(metric, columnsByTable) {
+  const declared = metric.sourceColumns ?? [];
+  if (declared.length === 0) return [];
+  if (!columnsByTable || typeof columnsByTable !== "object") {
+    // No schema listing: an owedBy metric (table or column gap) is not measurable.
+    return metric.owedBy ? declared : [];
+  }
+  const have = columnsByTable[metric.source.table];
+  if (!Array.isArray(have)) {
+    return metric.owedBy ? declared : [];
+  }
+  return declared.filter((c) => !have.includes(c));
+}
+
 /**
  * One metric's answer, with the three different kinds of "no answer" kept apart: the source
  * could not be reached, the table does not exist yet, or the query ran and nothing was read.
- * None of them is a zero.
+ * None of them is a zero. A metric that names owedBy for a missing column also stays
+ * not_available until facts.columnsByTable shows every sourceColumn.
  */
 export function metricValue(metric, facts = {}) {
-  const { tables, values = {}, error } = facts;
+  const { tables, values = {}, error, columnsByTable } = facts;
   if (error) {
     return { metricId: metric.id, status: "not_available", value: null, reason: `source unreachable: ${error}` };
   }
@@ -486,6 +624,16 @@ export function metricValue(metric, facts = {}) {
       status: "not_available",
       value: null,
       reason: `no table ${metric.source.table} merged yet`,
+      owedBy: metric.owedBy ?? metric.owningPacket,
+    };
+  }
+  const absentCols = missingSourceColumns(metric, columnsByTable);
+  if (absentCols.length > 0) {
+    return {
+      metricId: metric.id,
+      status: "not_available",
+      value: null,
+      reason: `source columns not measurable yet: ${absentCols.join(", ")}`,
       owedBy: metric.owedBy ?? metric.owningPacket,
     };
   }
@@ -518,14 +666,13 @@ function evaluateRule(rule, { facts, thresholds }) {
     }
     const v = metricValue(metric, facts);
     if (v.status !== "ok") {
-      // The reason must name who owes the table, so a not_available verdict is actionable and
-      // not just a shrug.
       missing.push(`${id}: ${v.reason}${v.owedBy ? ` (owed by ${v.owedBy})` : ""}`);
       continue;
     }
     values[id] = v.value;
   }
-  if (missing.length === rule.metricIds.length) {
+  // Any non-ok input → not_available (never ok / never fire on a partial reading).
+  if (missing.length > 0) {
     return { ruleId: rule.id, verdict: "not_available", detail: missing.join("; ") };
   }
   try {
@@ -554,7 +701,11 @@ export function evaluateAlerts({ rules = ALERT_RULES, facts = {}, thresholds = {
 export function runDryRuns({ rules = ALERT_RULES } = {}) {
   return rules.map((rule) => {
     const tables = new Set(tablesForRule(rule));
-    const facts = { tables: [...tables], values: rule.dryRun.values };
+    const facts = {
+      tables: [...tables],
+      values: rule.dryRun.values,
+      columnsByTable: columnsForRule(rule),
+    };
     const [verdict] = evaluateAlerts({
       rules: [rule],
       facts,
@@ -576,4 +727,19 @@ export function runDryRuns({ rules = ALERT_RULES } = {}) {
  */
 function tablesForRule(rule) {
   return rule.metricIds.map((id) => metricById(id)).filter(Boolean).map((mt) => mt.source.table);
+}
+
+/** Dry runs pretend every declared sourceColumn exists so the predicate can be exercised. */
+function columnsForRule(rule) {
+  const columnsByTable = {};
+  for (const id of rule.metricIds) {
+    const mt = metricById(id);
+    if (!mt) continue;
+    const list = columnsByTable[mt.source.table] ?? [];
+    for (const col of mt.sourceColumns ?? []) {
+      if (!list.includes(col)) list.push(col);
+    }
+    columnsByTable[mt.source.table] = list;
+  }
+  return columnsByTable;
 }
