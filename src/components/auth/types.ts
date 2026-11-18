@@ -15,11 +15,20 @@ export type SignInMethod = "microsoft" | "magic_link" | "password";
 
 export type SignInStatus = "idle" | "link_sent" | "invalid_credentials" | "rate_limited" | "unavailable";
 
+export type SignInFormAction = (form: FormData) => void | Promise<void>;
+
 export type SignInPageProps = {
   brand: SignInBrand;
   enabledMethods: readonly SignInMethod[]; // rendered in this order
   status: SignInStatus;
-  magicLinkAction?: (form: FormData) => void | Promise<void>; // React 19 form action from T-102
-  passwordAction?: (form: FormData) => void | Promise<void>; // from T-201
+  /**
+   * Magic-link submit target. A string posts to a route handler (preferred for T-102: the handler
+   * alone has the edge-delivered `request.url`). A function is a React 19 server action (dev
+   * preview / T-201 experiments).
+   */
+  magicLinkAction?: SignInFormAction | string;
+  /** CSRF token closed over by the page; rendered as a hidden field when the action is a URL. */
+  csrfToken?: string;
+  passwordAction?: SignInFormAction; // from T-201
   microsoftHref?: string; // from T-201
 };

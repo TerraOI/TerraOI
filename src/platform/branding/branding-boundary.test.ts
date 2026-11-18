@@ -95,6 +95,6 @@ describe("a surface that renders a brand cannot read a session", () => {
 describe("the module exists", () => {
   it("has implementation files and a test file per rule group", () => {
     expect(brandingCode.length).toBeGreaterThanOrEqual(4);
-    expect(brandingFiles.filter((p) => p.includes(".test."))).toHaveLength(6);
+    expect(brandingFiles.filter((p) => p.includes(".test."))).toHaveLength(7);
   });
 });
