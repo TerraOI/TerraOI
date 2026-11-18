@@ -128,8 +128,9 @@ $$, '31 no function in public is executable by anon except the named allow-list 
 --     inside the function on `knowledge.admin` at `admin`. The two signatures take `p_organisation_id`
 --     first and establish the scope themselves (#163, FAQ-0011), so both rows are re-pinned here
 --   brand (`20261116210000_brand_config.sql`): load_public_brand(text) — the same projection anon
---     already holds — and get_tenant_brand_v1(), the member read that takes **no** organisation
---     argument. put_tenant_brand_v1(jsonb, jsonb) is created by that migration and granted to no
+--     already holds — and get_tenant_brand_v1(uuid), the member read that takes `p_organisation_id`
+--     first and establishes scope itself (FAQ-0011). put_tenant_brand_v1(uuid, jsonb, jsonb) is created
+--     by that migration and granted to no
 --     request role at all, so it must not appear here: 026_brand_config.test.sql test 9 pins that
 --     closed until the admin surface and its seeded permission arrive.
 -- The session functions the ruling also lists live in `toi_identity`, not `public`
@@ -168,7 +169,7 @@ select is_empty($$
            ('public.create_collection_v1(uuid, text, text, text, uuid, text)'::regprocedure),
            ('public.update_collection_v1(uuid, uuid, text)'::regprocedure),
            ('public.load_public_brand(text)'::regprocedure),
-           ('public.get_tenant_brand_v1()'::regprocedure)
+           ('public.get_tenant_brand_v1(uuid)'::regprocedure)
          ) as allowed(proc)
      )
 $$, '32 no function in public is executable by authenticated beyond the named allow-list (§4.3, #60)');

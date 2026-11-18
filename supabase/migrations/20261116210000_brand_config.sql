@@ -253,18 +253,21 @@ $$;
 
 /**
  * The member/admin read of their own tenant's full row, including the columns the public projection
- * refuses. **No organisation argument**: the tenant comes from the transaction scope, which only
- * `set_tenant_scope` can establish after verifying membership (AGENTS.md §4.1 — never an org id from
- * a request argument).
+ * refuses. The tenant arrives as `p_organisation_id`; the first statement establishes scope after
+ * verifying membership (FAQ-0011, AGENTS.md §4.1 — the argument selects among the caller's own
+ * tenants and confers nothing).
  */
-create or replace function public.get_tenant_brand_v1()
+drop function if exists public.get_tenant_brand_v1();
+
+create or replace function public.get_tenant_brand_v1(p_organisation_id uuid)
 returns table (organisation_id uuid, mode text, display_name text, legal_name text,
                descriptor text, tagline text, report_owner text, email_sender_name text,
                email_reply_to text, document_prefix text, support_label text, support_url text,
                primary_color text, on_primary_color text, accent_color text,
                logo_asset_id uuid, favicon_asset_id uuid, config_version bigint)
-language plpgsql stable security definer set search_path = public, pg_temp as $$
+language plpgsql volatile security definer set search_path = public, pg_temp as $$
 begin
+  perform public.set_tenant_scope(p_organisation_id);
   return query
     select b.organisation_id, b.mode, b.display_name, b.legal_name, b.descriptor, b.tagline,
            b.report_owner, b.email_sender_name, b.email_reply_to, b.document_prefix,
@@ -291,11 +294,17 @@ $$;
  * in brand-rules.ts and is re-applied on every read, so a bad-contrast row is stored and then
  * refused by the loader rather than silently shown.
  */
-create or replace function public.put_tenant_brand_v1(p_brand jsonb, p_assets jsonb)
+drop function if exists public.put_tenant_brand_v1(jsonb, jsonb);
+
+create or replace function public.put_tenant_brand_v1(
+  p_organisation_id uuid,
+  p_brand jsonb,
+  p_assets jsonb
+)
 returns bigint
-language plpgsql security definer set search_path = public, pg_temp as $$
+language plpgsql volatile security definer set search_path = public, pg_temp as $$
 declare
-  v_org uuid := public.current_organisation_id();
+  v_org uuid;
   v_version bigint;
   v_asset jsonb;
   v_name text;
@@ -304,6 +313,8 @@ declare
   v_svg text;
   v_brand public.tenant_brands%rowtype;
 begin
+  perform public.set_tenant_scope(p_organisation_id);
+  v_org := public.current_organisation_id();
   if v_org is null then
     raise exception 'a tenant scope is required to write a brand' using errcode = '28000';
   end if;
@@ -368,7 +379,7 @@ begin
     document_prefix = excluded.document_prefix, support_label = excluded.support_label,
     support_url = excluded.support_url, primary_color = excluded.primary_color,
     on_primary_color = excluded.on_primary_color, accent_color = excluded.accent_color,
-    config_version = excluded.config_version
+    config_version = b.config_version + 1
   returning b.config_version into v_version;
 
   for v_asset in select jsonb_array_elements(p_assets) loop
@@ -437,8 +448,8 @@ $$;
 revoke execute on function
   public.load_public_brand(text),
   public.load_public_brand_asset(text, bigint, text),
-  public.get_tenant_brand_v1(),
-  public.put_tenant_brand_v1(jsonb, jsonb)
+  public.get_tenant_brand_v1(uuid),
+  public.put_tenant_brand_v1(uuid, jsonb, jsonb)
   from public, anon, authenticated;
 
 -- Granted back by name, and each grant is a decision with a reason:
@@ -446,8 +457,8 @@ revoke execute on function
 --     brand before anyone is signed in (ADR-0004 §4, the same reason resolve_tenant_host is anon).
 --   load_public_brand_asset(text, bigint, text) — anon only. An <img>/<link rel=icon> request
 --     carries no bearer token, and this returns the same bytes every visitor of that host gets.
---   get_tenant_brand_v1() — authenticated only: a signed-in member/admin read of their own tenant.
---   put_tenant_brand_v1(jsonb, jsonb) — **no request role**, on purpose. Which member may change a
+--   get_tenant_brand_v1(uuid) — authenticated only: a signed-in member/admin read of their own tenant.
+--   put_tenant_brand_v1(uuid, jsonb, jsonb) — **no request role**, on purpose. Which member may change a
 --     customer-visible identity is a security decision this slice does not make; the merged
 --     precedent for a function that exists but is granted to nobody is 20261107024000_session_store.sql
 --     (toi_identity, pending #75, pinned shut by 001_function_privileges.test.sql test 33). The
@@ -456,4 +467,4 @@ revoke execute on function
 --     the function's own gates regardless of who can reach it.
 grant execute on function public.load_public_brand(text) to anon, authenticated;
 grant execute on function public.load_public_brand_asset(text, bigint, text) to anon;
-grant execute on function public.get_tenant_brand_v1() to authenticated;
+grant execute on function public.get_tenant_brand_v1(uuid) to authenticated;

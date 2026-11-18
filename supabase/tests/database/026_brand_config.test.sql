@@ -6,16 +6,16 @@
 -- no real tenant's brand is seeded anywhere (AGENTS.md §4.7).
 --
 -- The two RLS negatives AGENTS.md §4.2 asks for that *fit* a tenant-level row are here (another
--- tenant's member, a deactivated member via the scope rule), and the honest substitute for "another
+-- tenant's member, a deactivated member via set_tenant_scope inside get/put), and the honest substitute for "another
 -- project" is the host-negative pair, exactly as ADR-0004 §4 says to state rather than fake: a brand
 -- row has no project axis, so "this host never returns that tenant's row" is the equivalent test.
 begin;
 create extension if not exists pgtap with schema extensions;
 
--- COUNT: 50 assertions below, numbered 1–50 in their messages. `plan` equals that count exactly:
+-- COUNT: 53 assertions below, numbered 1–53 in their messages. `plan` equals that count exactly:
 -- CI's `database` job is the venue for this file (no builder machine has Docker), and a `plan(N)`
 -- that does not match the assertions that run is a red run, not a warning.
-select plan(50);
+select plan(53);
 
 -- Error-as-SQLSTATE helpers. SECURITY INVOKER on purpose: they run as the role under test.
 create function pg_temp.try_scope(p_organisation_id uuid) returns text
@@ -100,11 +100,23 @@ $fn$;
 -- The write RPC, called as the migration owner with the request GUCs set, because it is granted to
 -- **no request role** today (see the migration's grant note): the grant is T-202's to add, and this
 -- file proves the function's own gates regardless.
-create function pg_temp.try_put(p_brand jsonb, p_assets jsonb) returns text
+create function pg_temp.try_get(p_organisation_id uuid) returns text
 language plpgsql security invoker as $fn$
 begin
   begin
-    return public.put_tenant_brand_v1(p_brand, p_assets)::text;
+    perform 1 from public.get_tenant_brand_v1(p_organisation_id);
+    return 'ok';
+  exception when others then
+    return sqlstate::text;
+  end;
+end;
+$fn$;
+
+create function pg_temp.try_put(p_organisation_id uuid, p_brand jsonb, p_assets jsonb) returns text
+language plpgsql security invoker as $fn$
+begin
+  begin
+    return public.put_tenant_brand_v1(p_organisation_id, p_brand, p_assets)::text;
   exception when others then
     return sqlstate::text;
   end;
@@ -166,9 +178,9 @@ select is(has_function_privilege('anon', 'public.load_public_brand(text)', 'exec
   '6 anon can execute load_public_brand: the sign-in surface needs a brand before anyone is signed in');
 select is(has_function_privilege('anon', 'public.load_public_brand_asset(text, bigint, text)', 'execute'), true,
   '7 anon can execute load_public_brand_asset: an <img> or favicon request carries no bearer token (FAQ-0008)');
-select is(has_function_privilege('anon', 'public.get_tenant_brand_v1()', 'execute'), false,
+select is(has_function_privilege('anon', 'public.get_tenant_brand_v1(uuid)', 'execute'), false,
   '8 anon cannot execute the member read: the full row includes never-pre-sign-in columns (§4.1)');
-select is(has_function_privilege('authenticated', 'public.put_tenant_brand_v1(jsonb, jsonb)', 'execute'), false,
+select is(has_function_privilege('authenticated', 'public.put_tenant_brand_v1(uuid, jsonb, jsonb)', 'execute'), false,
   '9 the brand write is granted to no request role today: who may change a customer-visible identity '
   || 'is a decision this slice does not make, and the grant should arrive with T-202 and the seeded '
   || 'brand.admin permission (precedent: toi_identity, pinned shut by 001 test 33)');
@@ -362,59 +374,60 @@ select is((select count(*)::int from pg_policies where schemaname = 'public'
   2::int, '38 both new tables carry a member-and-scope read policy, held ready for the day a table '
   || 'grant is decided — the grant is withheld today on the column reason (test 3)');
 
--- ---------------------------------------------------------------- 39-41 the member read
+-- ---------------------------------------------------------------- 39-42 the member read
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
-insert into t_full (case_name, rows) select 'a1_noscope', count(*)::int from public.get_tenant_brand_v1();
-insert into t_out values ('scope_c1', pg_temp.try_scope('11111111-1111-4111-8111-111111111111'));
-insert into t_full (case_name, organisation_id, legal_name, config_version)
-  select 'a1_c1', f.organisation_id, f.legal_name, f.config_version from public.get_tenant_brand_v1() f;
+insert into t_full (case_name, organisation_id, legal_name, config_version, rows)
+  select 'a1_c1', f.organisation_id, f.legal_name, f.config_version, 1
+    from public.get_tenant_brand_v1('11111111-1111-4111-8111-111111111111') f;
 insert into t_out values ('scope_c2_forged', pg_temp.try_scope('22222222-2222-4222-8222-222222222222'));
 reset role;
 
-select is((select rows from t_full where case_name = 'a1_noscope'), 0::int,
-  '39 a signed-in member with no scope reads no brand row at all: the read is scope-bound, not '
-  || 'membership-bound (plan §4.3, AGENTS.md §4.1)');
+select is((select rows from t_full where case_name = 'a1_c1'), 1::int,
+  '39 a member reads their tenant''s full row through the RPC without having set scope first: the read '
+  || 'establishes scope from p_organisation_id (FAQ-0011, #163)');
 select is((select organisation_id from t_full where case_name = 'a1_c1'),
   '11111111-1111-4111-8111-111111111111'::uuid,
-  '40 under their own scope a member reads their tenant''s full row');
+  '40 naming their own tenant id returns that tenant''s row');
 select is((select legal_name from t_full where case_name = 'a1_c1'), 'Company1 Geotechnics Pty Ltd',
   '41 and the columns the public projection refuses — legal_name and config_version — are here, for '
   || 'the surface that is allowed them (ADR-0004 §4)');
 
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000b1';
-insert into t_out values ('scope_b1_c2', pg_temp.try_scope('22222222-2222-4222-8222-222222222222'));
-insert into t_full select 'b1_c2', f.organisation_id, f.legal_name, f.config_version, 1
-  from public.get_tenant_brand_v1() f;
+insert into t_out values
+  ('b1_get_c1', pg_temp.try_get('11111111-1111-4111-8111-111111111111')),
+  ('b1_put_c1', pg_temp.try_put('11111111-1111-4111-8111-111111111111',
+     '{"mode":"customer"}'::jsonb, '[]'::jsonb));
 reset role;
 
-select is((select count(*)::int from t_full
-            where case_name = 'b1_c2' and organisation_id = '11111111-1111-4111-8111-111111111111'), 0::int,
-  '42 a company2 member under the company2 scope never sees company1''s row: the other-tenant negative '
-  || 'AGENTS.md §4.2 asks for, on a tenant-level table (the read takes no organisation argument)');
+select ok((select count(*)::int from t_out
+             where case_name in ('b1_get_c1', 'b1_put_c1') and result = '28000') = 2::int,
+  '42 a company2 member naming company1 for get and put is refused with set_tenant_scope''s own code '
+  || 'before any row is returned or written: the other-tenant negative AGENTS.md §4.2 asks for');
 
--- ---------------------------------------------------------------- 43-48 the write path
+select is((select result from t_out where case_name = 'scope_c2_forged'), '28000',
+  '43 a company1 member cannot scope to company2 directly either: membership decides before scope is '
+  || 'set (§4.2, N8)');
+
+-- ---------------------------------------------------------------- 44-49 the write path
 -- Run as the migration owner with the request GUCs set, because nothing grants this function to a
 -- request role today (test 9). The gates are its own, so they are testable either way.
--- The member-read section above established a scope; clear it first, or the no-scope gate below
--- would be tested against a scope that is still set and would pass for the wrong reason.
-select set_config('app.organisation_id', '', true);
-insert into t_out values ('put_noscope', pg_temp.try_put('{"mode":"customer"}'::jsonb, '[]'::jsonb));
+insert into t_out values ('put_no_user', pg_temp.try_put(
+  '11111111-1111-4111-8111-111111111111', '{"mode":"customer"}'::jsonb, '[]'::jsonb));
 
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a2';
-insert into t_out values ('scope_a2', pg_temp.try_scope('11111111-1111-4111-8111-111111111111'));
-reset role;
-
 insert into t_out values
   ('put_member_no_permission', pg_temp.try_put(
+     '11111111-1111-4111-8111-111111111111',
      -- One literal, not two joined ones: `'a' || 'b'::jsonb` resolves as text || jsonb and the
      -- concatenation is cast to jsonb at the call, which is what CI's "invalid input syntax for
      -- type json" was. A JSON string may carry newlines, so the literal simply spans two lines.
      '{"mode":"customer","displayName":"Company1 Geotechnics","documentPrefix":"CO1",
        "primary":"#007F78","onPrimary":"#FFFFFF","accent":"#A48748","logoName":"logo.svg"}'::jsonb,
      '[]'::jsonb));
+reset role;
 
 insert into public.role_permissions (organisation_id, role_id, area, level) values
   ('11111111-1111-4111-8111-111111111111', '31000000-0000-4000-8000-000000000002', 'brand.admin', 'admin')
@@ -422,11 +435,9 @@ insert into public.role_permissions (organisation_id, role_id, area, level) valu
 
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
-insert into t_out values ('scope_a1_admin', pg_temp.try_scope('11111111-1111-4111-8111-111111111111'));
-reset role;
-
 insert into t_out values
   ('put_svg_with_script', pg_temp.try_put(
+     '11111111-1111-4111-8111-111111111111',
      jsonb_build_object('mode', 'customer', 'displayName', 'Company1 Geotechnics',
                         'documentPrefix', 'CO1', 'primary', '#007F78', 'onPrimary', '#FFFFFF',
                         'accent', '#A48748', 'logoName', 'evil.svg'),
@@ -434,17 +445,20 @@ insert into t_out values
        'contentBase64', encode(convert_to('<svg xmlns="http://www.w3.org/2000/svg">'
          || '<script>alert(1)</script></svg>', 'UTF8'), 'base64'))))),
   ('put_oversize', pg_temp.try_put(
+     '11111111-1111-4111-8111-111111111111',
      jsonb_build_object('mode', 'customer', 'displayName', 'Company1 Geotechnics',
                         'documentPrefix', 'CO1', 'primary', '#007F78', 'onPrimary', '#FFFFFF',
                         'accent', '#A48748', 'logoName', 'big.svg'),
      jsonb_build_array(jsonb_build_object('name', 'big.svg', 'contentType', 'image/svg+xml',
        'contentBase64', encode(convert_to(repeat('A', 65600), 'UTF8'), 'base64'))))),
   ('put_missing_logo', pg_temp.try_put(
+     '11111111-1111-4111-8111-111111111111',
      jsonb_build_object('mode', 'customer', 'displayName', 'Company1 Geotechnics',
                         'documentPrefix', 'CO1', 'primary', '#007F78', 'onPrimary', '#FFFFFF',
                         'accent', '#A48748', 'logoName', 'absent.svg'),
      '[]'::jsonb)),
   ('put_first', pg_temp.try_put(
+     '11111111-1111-4111-8111-111111111111',
      jsonb_build_object('mode', 'customer', 'displayName', 'Company1 Geotechnics',
                         'legalName', 'Company1 Geotechnics Pty Ltd', 'documentPrefix', 'CO1',
                         'primary', '#007F78', 'onPrimary', '#FFFFFF', 'accent', '#A48748',
@@ -452,11 +466,13 @@ insert into t_out values
      jsonb_build_array(jsonb_build_object('name', 'logo-v2.svg', 'contentType', 'image/svg+xml',
        'contentBase64', encode(convert_to('<svg xmlns="http://www.w3.org/2000/svg"/>', 'UTF8'), 'base64'))))),
   ('put_second', pg_temp.try_put(
+     '11111111-1111-4111-8111-111111111111',
      jsonb_build_object('mode', 'powered', 'displayName', 'Company1 Geotechnics',
                         'documentPrefix', 'CO1', 'primary', '#007F78', 'onPrimary', '#FFFFFF',
                         'accent', '#A48748', 'logoName', 'logo-v3.svg'),
      jsonb_build_array(jsonb_build_object('name', 'logo-v3.svg', 'contentType', 'image/svg+xml',
        'contentBase64', encode(convert_to('<svg xmlns="http://www.w3.org/2000/svg"/>', 'UTF8'), 'base64')))));
+reset role;
 
 insert into t_brand (case_name, mode, display_name, logo_path, logo_bytes, show_powered_by)
   select 'after_write', b.mode, b.display_name, b.logo_path, b.logo_bytes, b.show_powered_by
@@ -464,29 +480,54 @@ insert into t_brand (case_name, mode, display_name, logo_path, logo_bytes, show_
 insert into t_asset (case_name, rows) select 'v1_after', count(*)::int
   from public.load_public_brand_asset('company1.terraoi.app', 1, 'logo.svg');
 
-select is((select result from t_out where case_name = 'put_noscope'), '28000',
-  '43 a brand write without a scope refuses outright: there is no organisation argument to forge (§4.1)');
+select is((select result from t_out where case_name = 'put_no_user'), '28000',
+  '44 a brand write with no authenticated user refuses with set_tenant_scope''s own code before the '
+  || 'permission gate (§4.1, FAQ-0011)');
 select is((select result from t_out where case_name = 'put_member_no_permission'), '42501',
-  '44 an active member without the brand.admin permission cannot write the brand: branding is a '
+  '45 an active member without the brand.admin permission cannot write the brand: branding is a '
   || 'customer-visible identity change, so it is permissioned, like knowledge publish is (FAQ-0006)');
 select is((select result from t_out where case_name = 'put_svg_with_script'), '22023',
-  '45 an SVG carrying a script element is rejected, not sanitized: plan §5.1 line 269 offers both and '
+  '46 an SVG carrying a script element is rejected, not sanitized: plan §5.1 line 269 offers both and '
   || 'this slice ships no sanitizer (§4.8 documents the choice)');
 select is((select result from t_out where case_name = 'put_oversize'), '22023',
-  '46 the write path enforces the 64 KiB ceiling before the table''s own CHECK has to (#117)');
+  '47 the write path enforces the 64 KiB ceiling before the table''s own CHECK has to (#117)');
 select is((select result from t_out where case_name = 'put_missing_logo'), '22023',
-  '47 a logo named but not supplied fails the write: a half-brand that silently drops the logo is the '
+  '48 a logo named but not supplied fails the write: a half-brand that silently drops the logo is the '
   || 'failure the packet''s failure box forbids');
 select is((select result from t_out where case_name = 'put_first'), '2',
-  '48 the write bumps config_version (1 fixture -> 2): this migration is the first reader of a version '
+  '49 the write bumps config_version (1 fixture -> 2): this migration is the first reader of a version '
   || 'column, so per ADR-0004 §4 it also owns the bump path and asserts the number moves');
 
 select is((select logo_path from t_brand where case_name = 'after_write'), '3/logo-v3.svg',
-  '49 the served path moves with the version: after two writes the brand points at v3, which is what '
+  '50 the served path moves with the version: after two writes the brand points at v3, which is what '
   || 'makes the cache key and the immutable URL mean the same thing (§4.4, FAQ-0008)');
 select is((select rows from t_asset where case_name = 'v1_after'), 1::int,
-  '50 and v1''s bytes are still readable at v1: the version is in the path, so a URL a browser is '
+  '51 and v1''s bytes are still readable at v1: the version is in the path, so a URL a browser is '
   || 'already holding is never re-pointed at another tenant''s bytes by a write');
+
+-- ---------------------------------------------------------------- 52-53 deactivated membership (§4.2)
+savepoint sp_deactivated;
+update public.organisation_memberships
+   set status = 'suspended'
+ where user_id = '00000000-0000-4000-8000-0000000000a1'
+   and organisation_id = '11111111-1111-4111-8111-111111111111';
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+insert into t_out values
+  ('deactivated_get', pg_temp.try_get('11111111-1111-4111-8111-111111111111')),
+  ('deactivated_put', pg_temp.try_put('11111111-1111-4111-8111-111111111111',
+     jsonb_build_object('mode', 'customer', 'displayName', 'Company1 Geotechnics',
+                        'documentPrefix', 'CO1', 'primary', '#007F78', 'onPrimary', '#FFFFFF',
+                        'accent', '#A48748'),
+     '[]'::jsonb));
+reset role;
+
+select is((select result from t_out where case_name = 'deactivated_get'), '28000',
+  '52 a suspended membership cannot read the brand through the RPC, even with brand.admin on the role: '
+  || 'set_tenant_scope refuses before any row is returned (§4.2, precedent 010 test 25)');
+select is((select result from t_out where case_name = 'deactivated_put'), '28000',
+  '53 and the same membership refusal blocks a write before the permission check is reached (§4.2)');
+rollback to savepoint sp_deactivated;
 
 select * from finish();
 rollback;
