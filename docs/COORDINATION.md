@@ -16,7 +16,7 @@ Humans decide; agents propose. An agent never closes another person's issue, app
 ## 1. Claiming a task (before writing code)
 
 1. Run `gh pr list --state open` and `gh issue list --label blocked`. If an open PR already references the packet, **stop**: it is taken.
-2. Check the packet's `Depends on:`. Every listed task must be **merged on `main`**, not merely open. If not, pick another packet or wait.
+2. Check the packet's `Depends on:`. Every listed task must be **merged on `main`**, not merely open. If not, pick another packet or wait. **Slice claims:** a slice of a packet may be claimed while a dependency is only partly merged, if every part the slice consumes is merged and the slice writes nothing the unmerged part owns. The draft PR body then carries a `Consumes:` line (the merged PRs it builds on) and a `Does not consume:` line (the unmerged halves it avoids). Acceptance boxes that need the unmerged half stay unticked. This is not `provisional` (§6.3), and if review finds the slice does consume an unmerged part, the PR waits for it ([FAQ-0012](FAQ.md), [#196](https://github.com/TerraOI/TerraOI/issues/196)).
 3. Claim it: create branch `t-xxx-short-name`, change the packet's line to `Status: in progress (<github-login>)`, commit, and **open a draft PR immediately** titled `T-xxx: <title>`. The draft PR is the claim, and the other lane can see it.
 4. Work, then mark the PR "Ready for review" only when `pnpm verify` passes and the template is filled in.
 5. If you abandon a task, set `Status: ready`, close the draft PR, and say why in a comment.
