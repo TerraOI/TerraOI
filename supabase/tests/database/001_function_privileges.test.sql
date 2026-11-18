@@ -121,8 +121,9 @@ $$, '31 no function in public is executable by anon except the named allow-list 
 --   tenancy (`tenancy_core.sql:349-356`): current_organisation_id, set_tenant_scope,
 --     clear_tenant_scope, is_active_member, is_project_member, resolve_tenant_host
 --   knowledge (`knowledge_core.sql:903-911`): the seven pinned by 16-22 above
---   capture RPCs (`knowledge_uploads.sql:608-612`): begin_upload_session_v1,
---     register_source_version_v1, record_upload_outcome_v1
+--   capture RPCs (`knowledge_uploads.sql:608-612`), re-pinned by `20261116213000_capture_scope.sql`
+--     (T-112c / #96 + #163, FAQ-0011), which moved `p_organisation_id` to first position and dropped the
+--     old signatures: begin_upload_session_v1, register_source_version_v1, record_upload_outcome_v1
 --   collection admin (`20261110120000_collection_admin.sql`, T-111b / #41): create_collection_v1,
 --     update_collection_v1 — a tenant admin's write path, granted to `authenticated` and still gated
 --     inside the function on `knowledge.admin` at `admin`. The two signatures take `p_organisation_id`
@@ -163,9 +164,9 @@ select is_empty($$
            ('public.source_is_readable(uuid)'::regprocedure),
            ('public.source_version_is_readable(uuid)'::regprocedure),
            ('public.chunk_is_readable(uuid)'::regprocedure),
-           ('public.begin_upload_session_v1(uuid, text, text, bigint)'::regprocedure),
-           ('public.register_source_version_v1(uuid, text, bigint, text)'::regprocedure),
-           ('public.record_upload_outcome_v1(uuid, text, text)'::regprocedure),
+           ('public.begin_upload_session_v1(uuid, uuid, text, text, bigint)'::regprocedure),
+           ('public.register_source_version_v1(uuid, uuid, text, bigint, text)'::regprocedure),
+           ('public.record_upload_outcome_v1(uuid, uuid, text, text)'::regprocedure),
            ('public.create_collection_v1(uuid, text, text, text, uuid, text)'::regprocedure),
            ('public.update_collection_v1(uuid, uuid, text)'::regprocedure),
            ('public.load_public_brand(text)'::regprocedure),
