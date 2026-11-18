@@ -141,6 +141,8 @@ as $$
         where jsonb_typeof(f.value) <> 'object')
      -- FormFieldUiHint is a strictObject: unknown keys are rejected at the boundary, and a hint key
      -- like "css" or "href" is exactly how a template would inject a stylesheet, so enforce it here.
+     and (not (p_json_schema ? 'required')
+          or jsonb_typeof(p_json_schema -> 'required') = 'array')
      and not exists (
        select 1 from jsonb_each(p_ui_hints) as f
         where f.key !~ '^[a-z0-9_][a-z0-9_.]{0,127}$'
@@ -175,6 +177,27 @@ begin
     raise exception 'a form template project audience must match its default collection'
       using errcode = '23514';
   end if;
+  -- §6.2 / AGENTS.md §4.4: submit_form_v1 stamps the collection's class, so a template may not
+  -- declare a higher class than its default collection or the higher class is dropped at capture.
+  if public.data_class_rank(new.data_class) >
+     (select public.data_class_rank(kc.data_class)
+        from public.knowledge_collections kc
+       where kc.id = new.default_collection_id
+         and kc.organisation_id = new.organisation_id) then
+    raise exception 'a form template data class cannot exceed its default collection'
+      using errcode = '23514';
+  end if;
+  -- §6.2 / AGENTS.md §4.4: a template cannot declare a higher class than the collection it captures
+  -- into. Capture stamps the collection's class, so a higher template class would be silently dropped.
+  if public.data_class_rank(new.data_class)
+       > public.data_class_rank((
+           select kc.data_class
+             from public.knowledge_collections kc
+            where kc.id = new.default_collection_id
+              and kc.organisation_id = new.organisation_id)) then
+    raise exception 'a form template data_class cannot exceed its default collection'
+      using errcode = '23514';
+  end if;
   if tg_op = 'UPDATE' then
     -- Published content is frozen: re-validating an existing submission against edited fields is
     -- exactly the silent re-validation section 16 forbids. Retiring is allowed, editing is not.
@@ -205,7 +228,7 @@ begin
 end;
 $$;
 comment on function public.form_templates_guard() is
-  'Refuses unsafe template content at write time, keeps project_id aligned with the default collection (CHECK cannot express that subquery), and freezes a published version''s content; only lifecycle fields may change afterwards.';
+  'Refuses unsafe template content at write time, keeps project_id and data_class aligned with the default collection (CHECK cannot express those subqueries), and freezes a published version''s content; only lifecycle fields may change afterwards.';
 
 create trigger form_templates_guard
   before insert or update on public.form_templates
@@ -462,8 +485,10 @@ comment on function public.form_submission_body_text(jsonb, jsonb) is
  * the caller is taken from the client, and created_by is auth.uid().
  *
  * Error vocabulary: 28000 not a member of that organization (from set_tenant_scope), 42501 the
- * template or the corrected submission belongs to someone else or to a project the caller is not in,
- * 22023 the version is not open for submissions or the values fail the schema.
+ * template is not available in this tenant (foreign and unknown ids share this answer so the
+ * function is not an existence oracle), the corrected submission is not one the caller may
+ * correct, or the template belongs to a project the caller is not in, 22023 the version is not
+ * open for submissions or the values fail the schema.
  */
 create function public.save_form_draft_v1(
   p_organisation_id uuid,
@@ -476,7 +501,6 @@ language plpgsql security definer set search_path = public, pg_temp
 as $$
 declare
   v_template public.form_templates%rowtype;
-  v_other public.form_templates%rowtype;
   v_reason text;
   v_submission_id uuid;
 begin
@@ -486,13 +510,9 @@ begin
     from public.form_templates
    where id = p_template_id and organisation_id = p_organisation_id;
   if not found then
-    -- A template id from another tenant is a permission answer, never a "not found": the difference
-    -- would let a caller enumerate which ids exist in other organizations.
-    select * into v_other from public.form_templates where id = p_template_id;
-    if found then
-      raise exception 'this template belongs to another organization' using errcode = '42501';
-    end if;
-    raise exception 'no such template version' using errcode = '22023';
+    -- One answer for "not in this tenant" and "does not exist": a second look-up by id alone would
+    -- make this function a cross-tenant existence oracle (AGENTS.md §4.1).
+    raise exception 'this template is not available' using errcode = '42501';
   end if;
   if v_template.version <> p_template_version or v_template.status <> 'published' then
     -- Section 16: the refusal names the version asked for, and nothing is validated against a
@@ -510,11 +530,14 @@ begin
     raise exception 'form values were rejected: %', v_reason using errcode = '22023';
   end if;
 
+  -- Corrections: the caller must have written the superseded draft, or it must already be a
+  -- submitted row the RLS audience can see — never another member's private draft.
   if p_supersedes_submission_id is not null and not exists (
     select 1 from public.form_submissions s
      where s.id = p_supersedes_submission_id
        and s.organisation_id = p_organisation_id
-       and s.template_id = p_template_id) then
+       and s.template_id = p_template_id
+       and (s.created_by = auth.uid() or s.state = 'submitted')) then
     raise exception 'that submission is not one you may correct' using errcode = '42501';
   end if;
 

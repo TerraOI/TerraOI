@@ -19,7 +19,7 @@
 
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(67);
+select plan(71);
 
 -- ---------------------------------------------------------------- probes: SQLSTATE or a value
 create function pg_temp.try_draft(
@@ -169,18 +169,27 @@ select is((select values_json ->> 'battery_pct' from public.form_submissions
 
 
 -- --------------------------------------------------------------------- 27..34 tenancy and scope
--- company2's owner tries company1's template. The scope argument is honoured, so the template is
--- simply not in scope: 42501, never "not found" with a different tenant's row (4.1).
+-- company2's owner tries company1's template. Foreign and unknown ids share one 42501 answer so the
+-- RPC is not a cross-tenant existence oracle (AGENTS.md §4.1, Round-1 B1).
 -- Must run as ...b1: as ...a1 the company2 scope is refused first (28000), which is test 28.
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000b1';
 insert into pg_temp.drafts (tag, result) values
   ('b1_company1_template', pg_temp.try_draft('22222222-2222-4222-8222-222222222222'::uuid,
                                 '80000000-0000-4000-8000-000000000001'::uuid, 'v1',
                                 ('{"airframe_check": "synthetic", "battery_pct": 92,'
+                                || ' "weather_notes": "synthetic"}')::jsonb)),
+  ('b1_unknown_template', pg_temp.try_draft('22222222-2222-4222-8222-222222222222'::uuid,
+                                'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid, 'v1',
+                                ('{"airframe_check": "synthetic", "battery_pct": 92,'
                                 || ' "weather_notes": "synthetic"}')::jsonb));
 
 select is((select result from pg_temp.drafts where tag = 'b1_company1_template'), '42501',
   '27 a company2 member cannot draft on a company1 template, even with a valid company2 scope');
+select is((select result from pg_temp.drafts where tag = 'b1_unknown_template'), '42501',
+  '27b an unknown template id gets the same 42501 as a foreign one: no existence signal');
+select is((select result from pg_temp.drafts where tag = 'b1_company1_template'),
+         (select result from pg_temp.drafts where tag = 'b1_unknown_template'),
+  '27c foreign and unknown template ids share one refusal code');
 
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
 insert into pg_temp.drafts (tag, result) values
@@ -454,6 +463,16 @@ select is(pg_temp.try_raw_template(
             '{"type": "object", "properties": {"note": {"type": "string"}}}'::jsonb,
             '{}'::jsonb, 'restricted'), '23514',
   '67 restricted is not representable on a form template in M1 (12.4, isIngestibleInM1)');
+-- Collection 510…001 is seeded `public`; a higher template class would capture as public and drop
+-- the declared class (§6.2). The guard refuses that write (Round-1 B2).
+select is(pg_temp.try_raw_template(
+            '{"type": "object", "properties": {"note": {"type": "string"}}}'::jsonb,
+            '{}'::jsonb, 'internal'), '23514',
+  '68 a template whose data_class exceeds its default collection is refused at write (§6.2)');
+select is(pg_temp.try_raw_template(
+            '{"type": "object", "properties": {"note": {"type": "string"}}, "required": "note"}'::jsonb,
+            '{}'::jsonb, 'public'), '23514',
+  '69 required must be a JSON array: a string only fails later inside jsonb_array_elements_text');
 
 select * from finish();
 rollback;
