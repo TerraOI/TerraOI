@@ -4,30 +4,26 @@ import type { TenantBrand } from "./tenant-brand";
 /**
  * T-204's mode contract: for one validated `TenantBrand`, what each surface is allowed to show.
  *
- * The rules are not this file's. They come from three places, quoted where they are used:
- *
- * | Rule | Source |
- * |---|---|
- * | `terraoi` = "TerraOI identity for platform-owned surfaces"; `powered` = "Customer identity with approved Powered by TerraOI attribution"; `customer` = "Customer identity without visible provider attribution in customer product content" | plan §5.1 lines 262-264 |
- * | Customer presentation "cannot hide the provider name in the required `company1.terraoi.app` URL or override necessary legal disclosures" | plan §5.1 line 273 |
- * | The three categories - **provider identity**, **routing facts**, **legal facts** - and the two `data-brand-fact` marker values | [#65](https://github.com/TerraOI/TerraOI/issues/65), supervisor answer of 2026-11-09 |
- * | "Search visible customer output and metadata for unintended TerraOI references" | [WHITE-LABEL.md](../../../brand/terraoi-brand-kit/05-guides/WHITE-LABEL.md) acceptance check |
+ * Rules: plan §5.1 (mode table; customer presentation cannot hide the required host or override
+ * necessary legal disclosures); WHITE-LABEL.md acceptance check; [#65](https://github.com/TerraOI/TerraOI/issues/65)
+ * (2026-11-09) — customer mode forbids provider identity; routing/legal facts live only in
+ * `data-brand-fact="routing"|"legal"` islands; after those islands are removed, `/terraoi/i` must not
+ * appear elsewhere. The substring check stays strict outside those two marked islands.
  *
  * Two things this module deliberately does **not** do:
  *
- * - **It does not render anything.** The surfaces are described; wiring login, shell, chat and email
- *   to them is slice 2, which waits on the PRs already inside those directories (#173, #139, T-131).
- *   Landing the contract first is what keeps slice 2 from inventing three per-surface vocabularies -
+ * - **It does not render anything.** Surfaces are described; wiring login, shell, chat and email is
+ *   slice 2. Landing the contract first keeps slice 2 from inventing three per-surface vocabularies —
  *   the divergence ADR-0004 §3 warns about.
  * - **It takes no request state.** Mode comes from the validated brand, which comes from the host.
  *   `branding-boundary.test.ts` fails the build if this directory mentions a query string, a cookie
  *   or a header, so a public brand selector has nowhere to enter (plan §5.1 line 261).
  *
- * It also does not decide where the contract type lives. #65's answer puts the two marker values in
+ * It also does not decide where the contract type lives. #65 puts the two marker values in
  * `src/contracts/tenant-brand.ts`, and that file does not exist because [ADR-0004](../../../docs/decisions/0004-tenant-brand-contract.md)
  * is still `proposed`. Until it is accepted, `src/contracts/` is a protected path no builder may
- * create ([COORDINATION §2](../../../docs/COORDINATION.md)), so `BRAND_FACT_MARKERS` lives here - the
- * one module the brand contract already occupies - with the values fixed to the ruling's own words so
+ * create ([COORDINATION §2](../../../docs/COORDINATION.md)), so `BRAND_FACT_MARKERS` lives here — the
+ * one module the brand contract already occupies — with the values fixed to the ruling's own words so
  * the ADR's PR is a move, not a redesign.
  */
 
@@ -52,12 +48,10 @@ const ATTRIBUTION_SURFACES: readonly BrandSurface[] = BRAND_SURFACES.filter((sur
 const ROUTING_SURFACES: readonly BrandSurface[] = BRAND_SURFACES.filter((surface) => surface !== "metadata");
 
 /**
- * The two island markers #65's answer prescribes verbatim: "routing and legal facts are rendered
- * inside elements marked `data-brand-fact="routing"` or `data-brand-fact="legal"`", and the
- * customer-mode test "removes those elements, then asserts no `/terraoi/i` anywhere else ... It also
- * asserts that the routing element exists and shows the host." Exporting the values, rather than
- * letting components type the attribute by hand, is what makes a typo a build error instead of a
- * surface that silently stops being checked.
+ * The two island markers #65's answer prescribes verbatim. Exporting the values, rather than letting
+ * components type the attribute by hand, is what makes a typo a build error instead of a surface that
+ * silently stops being checked. The remove-then-scan algorithm itself lives in the component tests;
+ * this module only classifies plain text.
  */
 export const BRAND_FACT_MARKERS = { routing: "routing", legal: "legal" } as const;
 
@@ -113,31 +107,14 @@ function escapeForRegExp(value: string): string {
 }
 
 /**
- * The required host is not a leak: #65's category 2 says the host is "always shown, never hidden",
- * because "showing the real address is a security property: it lets a user tell the real site from a
- * phishing page". So a reference inside it is a routing fact by rule.
- */
-function isInsideRequiredHost(host: string, text: string, index: number): boolean {
-  if (host.length === 0) return false;
-  const hostPattern = new RegExp(escapeForRegExp(host), "gi");
-  for (let match = hostPattern.exec(text); match !== null; match = hostPattern.exec(text)) {
-    if (index >= match.index && index < match.index + host.length) return true;
-  }
-  return false;
-}
-
-/**
- * Bounded on both sides, because an unbounded substring match is worse than a miss: it flags a
- * customer genuinely named "TerraOils Ltd", telling a company its own name is not allowed in its own
- * product. #65's own framing of the merged test is that a substring "cannot express that difference".
+ * Strict `/terraoi/i` substring match. #65 keeps the substring check strict everywhere except the
+ * two marked islands; those islands are removed before the scan runs, so this function never sees
+ * them and never invents a host exemption that would let an unmarked title or paragraph pass.
  */
 function findReferences(text: string): { index: number; text: string }[] {
   const pattern = new RegExp(PROVIDER_TERMS.map(escapeForRegExp).join("|"), "gi");
   const found: { index: number; text: string }[] = [];
   for (let match = pattern.exec(text); match !== null; match = pattern.exec(text)) {
-    const before = match.index > 0 ? text[match.index - 1] ?? "" : "";
-    const after = text[match.index + match[0].length] ?? "";
-    if (/[A-Za-z0-9]/.test(before) || /[A-Za-z0-9]/.test(after)) continue;
     found.push({ index: match.index, text: match[0] });
   }
   return found;
@@ -148,18 +125,17 @@ function findReferences(text: string): { index: number; text: string }[] {
  * are classified rather than dropped, because #65's point is that the substring and the categories
  * are different questions: a reviewer reading a failure needs to see which of the three each one was.
  *
- * The classification here is deliberately narrower than the ruling's DOM mechanism. A plain-text
- * check can see the routing island (the host is in the string); it cannot see a "dedicated legal
- * element", which is what `data-brand-fact="legal"` is for. On the `legal` surface the whole surface
- * is such an element, so every reference there is a legal fact; on a product surface, a legal
- * disclosure has to be inside a marked element, and that assertion belongs to the component tests of
- * slice 2, not to this function.
+ * A plain-text check cannot see a marked routing island. The host is therefore **not** exempted
+ * here: an unmarked host string (including in metadata, where `routingFact` is false and no island
+ * can exist) is identity. Routing facts are asserted by the remove-then-scan pair in the component
+ * tests, which strips marked islands first. On the `legal` surface the whole surface is a dedicated
+ * legal element, so every reference there is a legal fact.
  */
 export function checkProductContent(brand: TenantBrand, surface: BrandSurface, text: string): ProductContentVerdict {
   const contract = brandSurfaceContract(brand, surface);
   const references: ProviderReference[] = findReferences(text).map((reference) => ({
     ...reference,
-    fact: classify(brand.host, text, reference.index, surface),
+    fact: classify(surface),
   }));
 
   if (references.length === 0) return { ok: true, references };
@@ -167,8 +143,7 @@ export function checkProductContent(brand: TenantBrand, surface: BrandSurface, t
   return { ok: references.every((reference) => reference.fact !== "identity"), references };
 }
 
-function classify(host: string, text: string, index: number, surface: BrandSurface): ProviderFactKind {
-  if (isInsideRequiredHost(host, text, index)) return BRAND_FACT_MARKERS.routing;
+function classify(surface: BrandSurface): ProviderFactKind {
   if (surface === "legal") return BRAND_FACT_MARKERS.legal;
   return "identity";
 }

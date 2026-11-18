@@ -153,10 +153,19 @@ describe("checkProductContent automates the kit's acceptance check", () => {
     expect(verdict.references[0]?.text.toLowerCase()).toBe("terraoi");
   });
 
-  it("exempts the reference inside the host the plan requires to be shown", () => {
+  it("flags an unmarked host string in product content — the host is not exempt outside islands", () => {
+    // #65: substring stays strict everywhere except the two marked islands. Those islands are
+    // stripped before the scan; this function never invents a host exemption for unmarked text.
     const verdict = checkProductContent(customerBrand, "shell", `Signed in at ${TENANT_HOST}`);
-    expect(verdict.ok).toBe(true);
-    expect(verdict.references.every((reference) => reference.fact === "routing")).toBe(true);
+    expect(verdict.ok).toBe(false);
+    expect(verdict.references.every((reference) => reference.fact === "identity")).toBe(true);
+  });
+
+  it("flags a metadata title that embeds the tenant host", () => {
+    // metadata has routingFact:false — no island can exist — so a title carrying terraoi is identity.
+    const verdict = checkProductContent(customerBrand, "metadata", `Company1 · ${TENANT_HOST}`);
+    expect(verdict.ok).toBe(false);
+    expect(verdict.references.some((reference) => reference.fact === "identity")).toBe(true);
   });
 
   it("matches the provider reference whatever its case", () => {
@@ -164,11 +173,13 @@ describe("checkProductContent automates the kit's acceptance check", () => {
     expect(verdict.ok).toBe(false);
   });
 
-  it("does not flag a customer whose own name merely contains the provider string", () => {
+  it("flags a customer name that merely contains the provider substring (strict /terraoi/i)", () => {
+    // No TerraOils carve-out: #65 keeps the substring strict. A word-boundary exception would need a
+    // needs-supervisor decision; this suite does not invent one.
     const brand = brandFor(TENANT_HOST, { displayName: "TerraOils Ltd" });
     const verdict = checkProductContent(brand, "shell", "Quarterly report from TerraOils Ltd");
-    expect(verdict.references).toHaveLength(0);
-    expect(verdict.ok).toBe(true);
+    expect(verdict.ok).toBe(false);
+    expect(verdict.references.some((reference) => /terraoi/i.test(reference.text))).toBe(true);
   });
 
   it("allows the reference in powered mode and in terraoi mode", () => {
@@ -222,25 +233,9 @@ describe("the mode never arrives from the request", () => {
 });
 
 /**
- * The supervisor's answer on [#65](https://github.com/TerraOI/TerraOI/issues/65) (2026-11-09) is the
- * authority for this block, and it is more specific than the one-line summary T-204 carries. Its
- * words: "The rule is 'no provider identity', not 'no `terraoi` substring'", with three named
- * categories —
- *
- * 1. **provider identity**: "never visible in `customer` mode" — the name, wordmark, logo, the
- *    "Powered by" attribution, TerraOI support or marketing links, the favicon, browser titles and
- *    social metadata, email sender **display names**, report and document headers, export metadata
- *    and filenames;
- * 2. **routing facts**: "always shown, never hidden" — the host as text and links to the tenant's
- *    own host, because "showing the real address is a security property: it lets a user tell the
- *    real site from a phishing page";
- * 3. **legal facts**: "shown only where the law needs them … only inside dedicated legal elements …
- *    never as product branding".
- *
- * and its test mechanism: "routing and legal facts are rendered inside elements marked
- * `data-brand-fact="routing"` or `data-brand-fact="legal"`", the customer-mode test removing those
- * elements and then asserting no `/terraoi/i` anywhere else — "so a builder cannot 'fix' it by
- * hiding the host".
+ * [#65](https://github.com/TerraOI/TerraOI/issues/65) (2026-11-09): "no provider identity", not
+ * "no `terraoi` substring" — identity / routing / legal, with islands for the last two. Cited once
+ * here; the remove-then-scan algorithm is in `brand-fact.test.tsx`.
  */
 describe("the #65 categories: identity, routing, legal", () => {
   it("exports exactly the two marker values the ruling names, in the ruling's own words", () => {
@@ -248,10 +243,10 @@ describe("the #65 categories: identity, routing, legal", () => {
     expect(Object.keys(BRAND_FACT_MARKERS)).toEqual(["routing", "legal"]);
   });
 
-  it("counts the reference inside the host as a routing fact, category 2", () => {
+  it("counts an unmarked host string as identity — routing facts need a marked island", () => {
     const verdict = checkProductContent(customerBrand, "shell", `You are on ${TENANT_HOST}`);
-    expect(verdict.references[0]?.fact).toBe("routing");
-    expect(verdict.ok).toBe(true);
+    expect(verdict.references[0]?.fact).toBe("identity");
+    expect(verdict.ok).toBe(false);
   });
 
   it("counts a provider name in customer-mode product content as identity, category 1", () => {
@@ -267,9 +262,6 @@ describe("the #65 categories: identity, routing, legal", () => {
   });
 
   it("requires the routing fact to be present in customer mode, so hiding the host is not a fix", () => {
-    // Category 2 is not merely permitted: the ruling pairs it with an assertion that "the routing
-    // element exists and shows the host", which is what stops the substring test being satisfied by
-    // deleting the address.
     const contract = brandSurfaceContract(customerBrand, "shell");
     expect(contract.routingFact).toBe(true);
     expect(contract.hostDisplay).toBe(TENANT_HOST);

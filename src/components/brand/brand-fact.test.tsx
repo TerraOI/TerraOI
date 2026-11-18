@@ -7,19 +7,9 @@ import { parseTenantBrand, type BrandSource, type TenantBrand } from "@/platform
 import { BrandFact, brandFactMarker } from "./brand-fact";
 
 /**
- * #65's mechanism, in code the product can use and a test can check.
- *
- * The ruling (wyu610, 2026-11-09) is explicit about how the customer-mode rule is tested:
- * "routing and legal facts are rendered inside elements marked `data-brand-fact="routing"` or
- * `data-brand-fact="legal"`. The customer-mode test removes those elements, then asserts **no
- * `/terraoi/i` anywhere else** in the rendered HTML, the document title and the favicon `href`. It
- * also asserts that the routing element exists and shows the host. The substring check stays strict
- * everywhere except two explicitly marked islands, so a builder cannot 'fix' it by hiding the host."
- *
- * So this file is the smallest thing that makes that sentence checkable: a production component that
- * can only render a marked island, and the remove-then-scan pair the ruling describes. It uses a
- * fixture brand and a fixture page, because the real pages that will carry these islands are the
- * login/shell/chat surfaces, and those files belong to #173, #139 and T-131 until they merge.
+ * #65's remove-then-scan mechanism, in code: a production island component plus the pair that strips
+ * marked islands and asserts no `/terraoi/i` remains (ruling cited once in `brand-modes.ts`). Fixture
+ * pages only — real login/shell/chat wiring is slice 2.
  */
 
 afterEach(cleanup);
@@ -149,8 +139,7 @@ describe("the remove-then-scan pair #65 prescribes", () => {
   });
 
   it("does not let an unmarked host string count as the routing fact", () => {
-    // The scan alone passes here - a bare host string is an exempt reference wherever it appears -
-    // which is exactly why the ruling pairs it with an existence assertion.
+    // Unmarked host text is identity under the strict scan; the page also lacks a routing island.
     const brand = customerBrand();
     const { container } = render(
       <div>
@@ -158,7 +147,10 @@ describe("the remove-then-scan pair #65 prescribes", () => {
         <p>You are on {TENANT_HOST}</p>
       </div>,
     );
-    expect(checkProductContent(brand, "shell", container.innerHTML).ok).toBe(true);
-    expect(customerModePagePasses(brand, container)).toEqual({ ok: false, reasons: ["no routing island showing the host"] });
+    expect(checkProductContent(brand, "shell", container.innerHTML).ok).toBe(false);
+    expect(customerModePagePasses(brand, container)).toEqual({
+      ok: false,
+      reasons: ["identity outside the islands", "no routing island showing the host"],
+    });
   });
 });
