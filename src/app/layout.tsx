@@ -3,8 +3,8 @@ import type { ReactNode } from "react";
 
 import { inter } from "@/components/auth/fonts";
 
-// Per-host product identity is applied by the tenant layout (plan §5.1, F04). This root stays
-// TerraOI-named so a customer host never inherits a title from a shared default.
+// Root metadata is TerraOI (provider) identity until T-204 applies per-host titles (#65).
+// The tenant layout owns branded chrome; it does not yet override document title.
 export const metadata: Metadata = {
   title: "TerraOI",
   description: "Operational intelligence platform",

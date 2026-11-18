@@ -12,6 +12,12 @@ import { pageRoutedHost } from "@/platform/tenancy/page-host";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Same bare-host guard as `resolvePageTenantContext` / login `loginPageRequest`. Kept local
+ * because this packet must not edit `src/platform/tenancy/` (T-103 Owns).
+ */
+const BARE_HOST = /^[A-Za-z0-9.-]+(?::\d{1,5})?$/;
+
 function identityEnv(): Partial<IdentityEnv> {
   try {
     return getCloudflareContext().env as Partial<IdentityEnv>;
@@ -20,21 +26,27 @@ function identityEnv(): Partial<IdentityEnv> {
   }
 }
 
-/** Proxy-stamped host, or the dev override under `next dev` only. */
-function shellHost(headerList: Headers): string | null {
+/**
+ * Proxy-stamped host, or the dev override under `next dev` only. A folded or otherwise non-bare
+ * stamp fails closed to null (platform brand, no sign-out token) — same rule as #172's login page.
+ */
+export function shellHost(headerList: Headers): string | null {
   if (process.env.NODE_ENV === "development") {
     return process.env.TERRAOI_DEV_HOST || "company1.terraoi.app";
   }
-  return pageRoutedHost(headerList);
+  const routed = pageRoutedHost(headerList);
+  if (routed === null || !BARE_HOST.test(routed)) return null;
+  return routed;
 }
 
 async function signOutToken(host: string | null): Promise<string | undefined> {
   if (host === null || host.length === 0) return undefined;
-  const secret = buildIdentityPorts(identityEnv()).signingSecret();
-  if (!hasUsableSecret(secret)) return undefined;
   try {
+    const secret = buildIdentityPorts(identityEnv()).signingSecret();
+    if (!hasUsableSecret(secret)) return undefined;
     return await issueCsrfToken({ host, secret, now: Math.floor(Date.now() / 1000) });
   } catch {
+    // A throw from bindings must not take down /login or any tenant page (supervisor N2).
     return undefined;
   }
 }
