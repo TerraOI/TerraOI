@@ -60,6 +60,14 @@ describe("loginPageRequest (ADR-0006 page host)", () => {
   it("fails closed to invalid: when the proxy did not stamp a host", () => {
     expect(loginPageRequest(new Headers()).url).toBe("invalid:");
   });
+
+  it("fails closed to invalid: when the stamped host is folded or otherwise not bare", () => {
+    const headersList = new Headers({
+      [ROUTED_HOST_HEADER]: "company2.terraoi.app, evil.example",
+    });
+    expect(loginPageRequest(headersList).url).toBe("invalid:");
+    expect(() => loginPageRequest(headersList)).not.toThrow();
+  });
 });
 
 describe("/login surface selection", () => {

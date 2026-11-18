@@ -34,13 +34,22 @@ function developmentHostOption(): string | undefined {
 }
 
 /**
+ * Same bare-host guard as `resolvePageTenantContext` / `platformHostFromHeaders`. Kept local
+ * because this packet must not edit `src/platform/tenancy/` — if the proxy stamp is ever folded
+ * (`a.example, b.example`), building `https://${routedHost}/…` throws inside `new Request` and
+ * the page 500s instead of failing closed (ADR-0006 spike note on #172).
+ */
+const BARE_HOST = /^[A-Za-z0-9.-]+(?::\d{1,5})?$/;
+
+/**
  * Rebuild a Request the login gate can trust: host from the proxy-stamped header (ADR-0006),
  * cookie from the page's own headers. Scheme and path are inert for tenancy; `requestHost` reads
  * only the host.
  */
 export function loginPageRequest(headerList: Headers, pathWithQuery = "/login"): Request {
   const routedHost = pageRoutedHost(headerList);
-  const url = routedHost === null ? "invalid:" : `https://${routedHost}${pathWithQuery}`;
+  const url =
+    routedHost === null || !BARE_HOST.test(routedHost) ? "invalid:" : `https://${routedHost}${pathWithQuery}`;
   const cookie = headerList.get("cookie");
   return new Request(url, cookie === null ? undefined : { headers: { cookie } });
 }
