@@ -3,32 +3,41 @@ import { z } from "zod";
 import { DataClass, maxDataClass } from "@/contracts/data-class";
 import type { EmbeddingIndex } from "@/contracts/provider-route";
 import type { TenantContext } from "@/contracts/tenant-context";
+import {
+  withTenantRpc,
+  type BackendFailureReason,
+  type FetchImpl,
+  type TenantRpcArgs,
+  type TenantRpcFailure,
+} from "@/platform/tenancy/tenant-rpc";
 
 /**
  * T-114 half 2: the typed caller of `public.search_corpus_v1` (plan §8.1–§8.3, §6.2; the SQL half is
  * `supabase/migrations/20261111030000_search_corpus.sql`, #160).
  *
- * This file constructs **no SQL**. It posts the ten named arguments of the RPC's signature to the
- * Data API and reads the `o_*` columns back. Two things it is deliberately not:
+ * This file constructs **no SQL**. It dials the RPC through `withTenantRpc` (T-101c; FAQ-0011; #163)
+ * with the nine non-tenant arguments of the signature, and reads the `o_*` columns back. Two things
+ * it is deliberately not:
  *
  * - **Not an authorizer.** The RPC is `security invoker` (#136): RLS on the querying role decides
  *   what exists. The call carries the **signed-in user's own access token** (ADR-0003 §7), so
  *   `auth.uid()`, the `authenticated` grant and every policy behave exactly as the migration assumes.
  *   There is no service-role field in `SearchCorpusDeps`, and there must never be one (AGENTS.md §4.2,
- *   #37). The tenant is read off `TenantContext` and nothing else — the call type has no organisation
- *   field, so a caller cannot pass one, and `p_organisation_id` is only the cross-check the SQL
- *   refuses (28000) when it disagrees with the transaction scope.
- * - **Not the scope setter.** `set_tenant_scope` is transaction-local (`set_config(..., true)`,
- *   tenancy_core.sql:217), so it must be established inside the *same* request as this read: whoever
- *   carries this call to Postgres owns that. A request that gets here without a scope answers 28000,
- *   which this client reports as a refusal — never as an empty corpus.
+ *   #37). The tenant is read off `TenantContext` by `withTenantRpc` and nothing else — the call type
+ *   has no organisation field, so a caller cannot pass one. `p_organisation_id` only *selects* a
+ *   tenant; the membership check inside `set_tenant_scope` decides whether that selection is allowed
+ *   (#163). It confers nothing.
+ * - **Not the scope setter.** The RPC begins with `perform public.set_tenant_scope(p_organisation_id)`
+ *   in the same transaction as the read (FAQ-0011). This client never dials a scope helper of its
+ *   own. A request that the scope refuses answers `28000` / `42501`, which `withTenantRpc` reports as
+ *   `tenancy` and this client maps onto a refusal — never as an empty corpus.
  *
  * **Empty and failure are different answers** (§8.2), and the type system says so: the RPC emits one
  * `o_evidence_kind = 'diagnostics'` row when it found nothing, and raises a SQLSTATE when it could not
  * look. `no_accessible_evidence` / `coverage_unknown` come only from that row. `index_unavailable` /
- * `backend_failure` come from a raised state or a transport fault, and the local pre-flight refusals
- * below use the same names as the SQLSTATE that would have said the same thing, so a caller cannot
- * tell the two halves apart — which is the point.
+ * `backend_failure` come from a local pre-flight or from a `TenantRpcOutcome` failure. The helper
+ * surfaces only `28000`/`42501` as typed SQLSTATEs; other raised states (55000, 22023, …) arrive as
+ * `backend_failure` without a code — local pre-flights keep the same names the SQL would have used.
  *
  * **No span, ever** (ADR-0008 rule 4): `o_body_text` is the chunk body as stored. `startChar` /
  * `endChar` are UTF-16 offsets into it and only the Worker derives them (verifier pass 1), so
@@ -42,23 +51,25 @@ export const MIN_EVIDENCE_LIMIT = 1;
 export const MAX_EVIDENCE_LIMIT = 25;
 /** The RPC's `coalesce(p_limit, 12)`; named so a caller never guesses the default. */
 export const DEFAULT_EVIDENCE_LIMIT = 12;
-/** Refusal details carry the database's message, bounded: query text never appears in one (§9.2). */
+/** Refusal details are fixed strings (+ optional SQLSTATE); bounded so nothing unbounded reaches a run record. */
 export const MAX_REFUSAL_DETAIL = 300;
 
-const RPC_PATH = "/rest/v1/rpc/search_corpus_v1";
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Same narrow shape as `identity/adapters.ts`: injected so the fake and the loopback test share it. */
-export type FetchImpl = (
-  url: string,
-  init: { method: string; headers: Record<string, string>; body: string },
-) => Promise<{ ok: boolean; status: number; json: () => Promise<unknown> }>;
+/** Re-exported so unit tests and the loopback harness share the helper's transport shape. */
+export type { FetchImpl };
 
 export interface SearchCorpusDeps {
-  /** The Data API origin, e.g. `https://<ref>.supabase.co`. Not a connection string: no key, no host:port. */
-  dataApiBaseUrl: string;
-  /** The publishable (anon) key, sent as `apikey`. A service-role key has no field here at all. */
-  publishableKey?: string;
+  /**
+   * Where PostgREST lives (e.g. `https://<ref>.supabase.co/rest/v1`). No default host; an unbound
+   * base is a named refusal, never a throw (N5). Prefer this name — it matches `TenantRpcConfig`.
+   */
+  postgrestBaseUrl?: string;
+  /**
+   * Legacy alias for `postgrestBaseUrl`. Soft migration for callers/tests that still say Data API;
+   * prefer renaming.
+   */
+  dataApiBaseUrl?: string;
   fetchImpl?: FetchImpl;
 }
 
@@ -114,7 +125,7 @@ export interface CorpusRefusal {
   /** `local` means the request never left the process: provable, and proven in the tests. */
   origin: "local" | "database" | "transport";
   reason: RefusalReason;
-  /** The SQLSTATE the RPC raised, or null for a local or transport refusal. */
+  /** The SQLSTATE the helper surfaced (`28000`/`42501`), or null for local / opaque backend failures. */
   sqlState: string | null;
   detail: string;
   reachedDatabase: boolean;
@@ -261,45 +272,114 @@ const ChunkRow = z.looseObject({
 
 // ---------------------------------------------------------------- refusal helpers
 
+/**
+ * Fixed per-reason copy. Never built from a PostgREST `message` — those can name another organisation,
+ * a project id, an index id or a host (plan §20.4 item 8; withTenantRpc rule 4).
+ */
+const REFUSAL_DETAIL: Record<RefusalReason, string> = {
+  unwired: "search corpus client is not configured for this deployment",
+  query_blank: "query text must not be blank",
+  query_too_long: `query text exceeds ${MAX_QUERY_CHARS} characters`,
+  limit_out_of_range: `p_limit must be between ${MIN_EVIDENCE_LIMIT} and ${MAX_EVIDENCE_LIMIT}`,
+  authority_filters_unsupported:
+    "authority filters cannot be evaluated by this corpus yet (§7.1); passing them would return more than was asked for",
+  index_identity_missing: "a query vector needs the pinned index identity it was produced for (§8.3, TOI-ADR-13)",
+  index_not_active: "the pinned embedding index is not active",
+  dimension_mismatch: "query vector dimensions disagree with the pinned embedding index",
+  argument_shape: "one or more call arguments have the wrong shape",
+  tenancy: "tenant scope refused this caller",
+  scope_claim: "caller is not allowed to claim this resource in the current scope",
+  argument: "the database refused an argument",
+  index: "the embedding index is unavailable",
+  unauthenticated: "no usable user access token for this request (ADR-0003 §7)",
+  retryable: "the Data API is temporarily unavailable",
+  transport: "the Data API request did not complete",
+  response_shape: "the RPC returned a body that does not match its contract",
+  database: "the database refused the search",
+};
+
 function bound(detail: string): string {
   return detail.length <= MAX_REFUSAL_DETAIL ? detail : `${detail.slice(0, MAX_REFUSAL_DETAIL - 1)}…`;
+}
+
+/** Fixed reason string, plus the SQLSTATE when the helper surfaced one — nothing else. */
+function detailFor(reason: RefusalReason, sqlState: string | null = null): string {
+  const base = REFUSAL_DETAIL[reason];
+  return bound(sqlState === null ? base : `${base} (${sqlState})`);
 }
 
 function refusal(
   status: "index_unavailable" | "backend_failure",
   reason: RefusalReason,
-  detail: string,
-  options: { origin?: CorpusRefusal["origin"]; sqlState?: string | null } = {},
+  options: { origin?: CorpusRefusal["origin"]; sqlState?: string | null; detail?: string } = {},
 ): SearchCorpusResult {
   const origin = options.origin ?? "local";
+  const sqlState = options.sqlState ?? null;
   return {
     ok: false,
     status,
     evidence: [],
     caveats: [],
     diagnostics: null,
-    refusal: { origin, reason, sqlState: options.sqlState ?? null, detail: bound(detail), reachedDatabase: origin !== "local" },
+    refusal: {
+      origin,
+      reason,
+      sqlState,
+      detail: options.detail !== undefined ? bound(options.detail) : detailFor(reason, sqlState),
+      reachedDatabase: origin !== "local",
+    },
   };
 }
 
-/** The closed SQLSTATE set the migration raises. Anything unmapped is a database fault, never an empty. */
-function sqlStateRefusal(code: string, message: string): SearchCorpusResult {
-  if (code === "55000") return refusal("index_unavailable", "index", message, { origin: "database", sqlState: code });
-  if (code === "42501") return refusal("backend_failure", "scope_claim", message, { origin: "database", sqlState: code });
-  if (code === "28000") return refusal("backend_failure", "tenancy", message, { origin: "database", sqlState: code });
-  if (code === "22023" || code === "22P02") return refusal("backend_failure", "argument", message, { origin: "database", sqlState: code });
-  if (/^(08|40|53|57)/.test(code)) return refusal("backend_failure", "retryable", message, { origin: "database", sqlState: code });
-  return refusal("backend_failure", "database", message, { origin: "database", sqlState: code });
+/**
+ * Map `TenantRpcOutcome` failures onto the T-114 taxonomy.
+ *
+ * N4: `withTenantRpc` folds both `28000` and `42501` into `kind: "tenancy"`. This client re-splits by
+ * `sqlstate` so a foreign project/index (`42501`) stays `scope_claim` and a membership/scope miss
+ * (`28000`) stays `tenancy`. Either way the status is `backend_failure`, never an empty corpus.
+ *
+ * `not_configured` stays apart from the helper's `backend_failure`: local origin, `unwired` /
+ * `unauthenticated`, and no socket was opened.
+ */
+function mapTenantRpcFailure(failure: TenantRpcFailure): SearchCorpusResult {
+  if (failure.kind === "tenancy") {
+    const reason: RefusalReason = failure.sqlstate === "42501" ? "scope_claim" : "tenancy";
+    return refusal("backend_failure", reason, { origin: "database", sqlState: failure.sqlstate });
+  }
+  if (failure.kind === "not_configured") {
+    const reason: RefusalReason =
+      failure.reason === "access_token_unbound" || failure.reason === "access_token_invalid"
+        ? "unauthenticated"
+        : "unwired";
+    return refusal("backend_failure", reason, { origin: "local" });
+  }
+  return mapBackendFailure(failure.reason);
 }
 
-function statusRefusal(status: number, message: string): SearchCorpusResult {
-  if (status === 401 || status === 403) return refusal("backend_failure", "unauthenticated", message, { origin: "database" });
-  if (status === 408 || status === 429 || status >= 500) return refusal("backend_failure", "retryable", message, { origin: "database" });
-  return refusal("backend_failure", "database", message, { origin: "database" });
+function mapBackendFailure(reason: BackendFailureReason): SearchCorpusResult {
+  switch (reason) {
+    case "transport":
+      return refusal("backend_failure", "transport", { origin: "transport" });
+    case "timeout":
+      return refusal("backend_failure", "retryable", { origin: "transport" });
+    case "server_error":
+      return refusal("backend_failure", "retryable", { origin: "database" });
+    case "rejected":
+      // Raised SQLSTATEs other than 28000/42501 (e.g. 55000, 22023) land here without a code:
+      // withTenantRpc does not surface them, and this client does not bypass the helper to read them.
+      return refusal("backend_failure", "database", { origin: "database" });
+    case "invalid_response":
+      return refusal("backend_failure", "response_shape", { origin: "database" });
+    default: {
+      const _exhaustive: never = reason;
+      void _exhaustive;
+      return refusal("backend_failure", "database", { origin: "database" });
+    }
+  }
 }
 
 function shapeRefusal(detail: string): SearchCorpusResult {
-  return refusal("backend_failure", "response_shape", detail, { origin: "database" });
+  return refusal("backend_failure", "response_shape", { origin: "database", detail });
 }
 
 function caveatsOf(diagnostics: CorpusDiagnostics): CorpusCaveat[] {
@@ -338,8 +418,8 @@ function mapDiagnostics(raw: DiagnosticsJson): CorpusDiagnostics {
 
 // ---------------------------------------------------------------- the call, validated before it leaves
 
-interface RpcArgs {
-  p_organisation_id: string;
+/** Nine non-tenant arguments. `p_organisation_id` is injected by `withTenantRpc` from TenantContext. */
+type RpcArgs = TenantRpcArgs & {
   p_service_keys: string[];
   p_project_id: string | null;
   p_collection_ids: string[] | null;
@@ -349,42 +429,40 @@ interface RpcArgs {
   p_effective_on: string | null;
   p_authority_filters: string[] | null;
   p_limit: number;
-}
+};
 
 function validate(call: SearchCorpusCall): { args: RpcArgs } | { refusal: SearchCorpusResult } {
   const queryText = typeof call.queryText === "string" ? call.queryText : "";
   if (queryText.trim().length === 0) {
     // The RPC has no "return the corpus" mode; neither does this client.
-    return { refusal: refusal("backend_failure", "query_blank", "query text must not be blank") };
+    return { refusal: refusal("backend_failure", "query_blank") };
   }
   if (queryText.length > MAX_QUERY_CHARS) {
-    return { refusal: refusal("backend_failure", "query_too_long", `query text exceeds ${MAX_QUERY_CHARS} characters`) };
+    return { refusal: refusal("backend_failure", "query_too_long") };
   }
   const limit = call.limit ?? DEFAULT_EVIDENCE_LIMIT;
   if (!Number.isInteger(limit) || limit < MIN_EVIDENCE_LIMIT || limit > MAX_EVIDENCE_LIMIT) {
-    return { refusal: refusal("backend_failure", "limit_out_of_range", `p_limit must be between ${MIN_EVIDENCE_LIMIT} and ${MAX_EVIDENCE_LIMIT}`) };
+    return { refusal: refusal("backend_failure", "limit_out_of_range") };
   }
 
   const isUuid = (value: unknown) => z.uuid().safeParse(value).success;
   const serviceKeys = call.serviceKeys ?? [];
   if (!Array.isArray(serviceKeys) || serviceKeys.some((key) => !z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/).safeParse(key).success)) {
-    return { refusal: refusal("backend_failure", "argument_shape", "service keys must be lowercase service keys") };
+    return { refusal: refusal("backend_failure", "argument_shape") };
   }
   if (call.collectionIds !== undefined) {
     if (!Array.isArray(call.collectionIds) || call.collectionIds.some((id) => !isUuid(id))) {
-      return { refusal: refusal("backend_failure", "argument_shape", "collection ids must be uuids") };
+      return { refusal: refusal("backend_failure", "argument_shape") };
     }
   }
   if (call.projectId !== undefined && !isUuid(call.projectId)) {
-    return { refusal: refusal("backend_failure", "argument_shape", "project id must be a uuid") };
+    return { refusal: refusal("backend_failure", "argument_shape") };
   }
   if (call.effectiveOn !== undefined && !DATE_ONLY.test(call.effectiveOn)) {
-    return { refusal: refusal("backend_failure", "argument_shape", "effectiveOn must be a YYYY-MM-DD date") };
+    return { refusal: refusal("backend_failure", "argument_shape") };
   }
   if (call.authorityFilters !== undefined && call.authorityFilters.length > 0) {
-    return {
-      refusal: refusal("backend_failure", "authority_filters_unsupported", "authority filters cannot be evaluated by this corpus yet (§7.1); passing them would return more than was asked for"),
-    };
+    return { refusal: refusal("backend_failure", "authority_filters_unsupported") };
   }
 
   const embedding = call.queryEmbedding;
@@ -392,40 +470,49 @@ function validate(call: SearchCorpusCall): { args: RpcArgs } | { refusal: Search
   const index = call.embeddingIndex;
   if (embedding !== undefined && embedding !== null) {
     if (indexId === undefined || index === undefined) {
-      return {
-        refusal: refusal("backend_failure", "index_identity_missing", "a query vector needs the pinned index identity it was produced for (§8.3, TOI-ADR-13)"),
-      };
+      return { refusal: refusal("backend_failure", "index_identity_missing") };
     }
     if (!isUuid(indexId)) {
-      return { refusal: refusal("backend_failure", "argument_shape", "embedding index id must be a uuid") };
+      return { refusal: refusal("backend_failure", "argument_shape") };
     }
     if (index.status !== "active") {
-      return { refusal: refusal("index_unavailable", "index_not_active", `${index.indexKey} g${index.generation} is ${index.status}: no vector lane without an active pointer`) };
+      return {
+        refusal: refusal("index_unavailable", "index_not_active", {
+          detail: `${index.indexKey} g${index.generation} is ${index.status}: no vector lane without an active pointer`,
+        }),
+      };
     }
     if (embedding.length === 0 || embedding.some((value) => !Number.isFinite(value))) {
-      return { refusal: refusal("backend_failure", "argument_shape", "query embedding must be a non-empty vector of finite numbers") };
+      return { refusal: refusal("backend_failure", "argument_shape") };
     }
     if (embedding.length !== index.dimensions) {
       // Mirrors embeddings.ts: refusing here is what keeps an incomparable vector off the wire, and
-      // the same name as the 55000 the database would have raised.
-      return { refusal: refusal("index_unavailable", "dimension_mismatch", `${index.indexKey} g${index.generation} pins ${index.dimensions} dimensions, the query vector has ${embedding.length}`) };
+      // the same name as the 55000 the database would have raised (the helper does not surface 55000).
+      return {
+        refusal: refusal("index_unavailable", "dimension_mismatch", {
+          detail: `${index.indexKey} g${index.generation} pins ${index.dimensions} dimensions, the query vector has ${embedding.length}`,
+        }),
+      };
     }
   } else if (indexId !== undefined || index !== undefined) {
     // An index with no vector is legal in the RPC (it only reports coverage), but a caller that names
     // a retired generation should hear about it before the query runs.
     if (index !== undefined && index.status !== "active") {
-      return { refusal: refusal("index_unavailable", "index_not_active", `${index.indexKey} g${index.generation} is ${index.status}`) };
+      return {
+        refusal: refusal("index_unavailable", "index_not_active", {
+          detail: `${index.indexKey} g${index.generation} is ${index.status}`,
+        }),
+      };
     }
     if (indexId !== undefined && !isUuid(indexId)) {
-      return { refusal: refusal("backend_failure", "argument_shape", "embedding index id must be a uuid") };
+      return { refusal: refusal("backend_failure", "argument_shape") };
     }
   }
 
   return {
     args: {
-      // The tenant, from the resolved context only. The SQL cross-checks it against the transaction
-      // scope and raises 28000 when they disagree (§4.1).
-      p_organisation_id: call.context.organisationId,
+      // Organisation is not among these args: withTenantRpc injects p_organisation_id from
+      // TenantContext. The argument only selects; set_tenant_scope + RLS decide (#163).
       p_service_keys: [...serviceKeys],
       p_project_id: call.projectId ?? null,
       // An empty array is kept as an empty array: null would widen the search to every collection,
@@ -444,56 +531,37 @@ function validate(call: SearchCorpusCall): { args: RpcArgs } | { refusal: Search
   };
 }
 
+function resolvePostgrestBase(deps: SearchCorpusDeps): string | undefined {
+  const preferred = typeof deps.postgrestBaseUrl === "string" ? deps.postgrestBaseUrl.trim() : "";
+  if (preferred.length > 0) return preferred;
+  const legacy = typeof deps.dataApiBaseUrl === "string" ? deps.dataApiBaseUrl.trim() : "";
+  return legacy.length > 0 ? legacy : undefined;
+}
+
 // ---------------------------------------------------------------- the client
 
 export function createSearchCorpusClient(deps: SearchCorpusDeps): SearchCorpusClient {
-  const base = typeof deps.dataApiBaseUrl === "string" ? deps.dataApiBaseUrl.replace(/\/+$/, "") : "";
-  if (base.length === 0) {
-    throw new Error("search_corpus_v1 client: a Data API base URL binding is required (ADR-0003 §7)");
+  const postgrestBaseUrl = resolvePostgrestBase(deps);
+  if (postgrestBaseUrl === undefined) {
+    // N5: a missing binding is the typed-unavailable port, never a throw that invents an empty corpus.
+    return unavailableSearchCorpusClient("no PostgREST base URL binding in this deployment");
   }
-  const fetchImpl: FetchImpl = deps.fetchImpl ?? ((fetch as unknown) as FetchImpl);
-  const publishableKey = typeof deps.publishableKey === "string" ? deps.publishableKey : "";
+  const fetchImpl = deps.fetchImpl;
 
   return {
     search: async (call: SearchCorpusCall): Promise<SearchCorpusResult> => {
       const checked = validate(call);
       if ("refusal" in checked) return checked.refusal;
-      const accessToken = typeof call.accessToken === "string" ? call.accessToken.trim() : "";
-      if (accessToken.length === 0) {
-        // No token, no auth.uid(), no RLS: the call would be unauthenticated, so it is not made.
-        return refusal("backend_failure", "unauthenticated", "no user access token for this request (ADR-0003 §7)");
-      }
 
-      const headers: Record<string, string> = {
-        accept: "application/json",
-        "content-type": "application/json",
-        authorization: `Bearer ${accessToken}`,
-      };
-      if (publishableKey.length > 0) headers.apikey = publishableKey;
+      // One call, one transaction: withTenantRpc puts organisationId from TenantContext into
+      // p_organisation_id and dials as the signed-in user. The RPC sets its own scope (#163).
+      const outcome = await withTenantRpc(call.context, "search_corpus_v1", checked.args, call.accessToken, {
+        postgrestBaseUrl,
+        fetchImpl,
+      });
+      if (!outcome.ok) return mapTenantRpcFailure(outcome);
 
-      let response: Awaited<ReturnType<FetchImpl>>;
-      try {
-        response = await fetchImpl(`${base}${RPC_PATH}`, { method: "POST", headers, body: JSON.stringify(checked.args) });
-      } catch {
-        // The fault's own message can name hosts and credentials, so it is not echoed.
-        return refusal("backend_failure", "transport", "the Data API request did not complete", { origin: "transport" });
-      }
-
-      let payload: unknown;
-      try {
-        payload = await response.json();
-      } catch {
-        if (response.ok) return shapeRefusal("the Data API answered a 2xx with a body that is not JSON");
-        return statusRefusal(response.status, `the Data API answered ${response.status}`);
-      }
-
-      if (!response.ok) {
-        const error = payload as { code?: unknown; message?: unknown } | null;
-        const code = typeof error?.code === "string" ? error.code : null;
-        const message = typeof error?.message === "string" ? error.message : `the Data API answered ${response.status}`;
-        return code === null ? statusRefusal(response.status, message) : sqlStateRefusal(code, message);
-      }
-
+      const payload = outcome.data;
       if (!Array.isArray(payload)) return shapeRefusal("expected the RPC to return a row array");
       const envelopes: Array<z.infer<typeof RowEnvelope>> = [];
       for (const row of payload) {
@@ -568,10 +636,16 @@ export function createSearchCorpusClient(deps: SearchCorpusDeps): SearchCorpusCl
 }
 
 /**
- * The unwired port, in the style of `identity/adapters.ts`: a deployment with no Data API binding
- * answers `backend_failure` rather than inventing an empty corpus or reaching for a key it was never
- * given. The reason goes in the detail so the operator can tell this from a database fault.
+ * The unwired port, in the style of `identity/adapters.ts`: a deployment with no PostgREST binding
+ * answers `backend_failure` / `unwired` rather than inventing an empty corpus or reaching for a key
+ * it was never given. Kept apart from transport/database `backend_failure` by origin `local`.
  */
 export function unavailableSearchCorpusClient(detail: string): SearchCorpusClient {
-  return { search: async () => refusal("backend_failure", "unwired", detail, { origin: "local" }) };
+  return {
+    search: async () =>
+      refusal("backend_failure", "unwired", {
+        origin: "local",
+        detail: detail.length > 0 ? detail : REFUSAL_DETAIL.unwired,
+      }),
+  };
 }

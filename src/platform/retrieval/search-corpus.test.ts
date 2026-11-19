@@ -5,12 +5,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { EmbeddingIndex } from "@/contracts/provider-route";
 import { createTenantContext, type TenantContext } from "@/contracts/tenant-context";
+import type { FetchImpl } from "@/platform/tenancy/tenant-rpc";
 
 import {
   createSearchCorpusClient,
   unavailableSearchCorpusClient,
   type CorpusRefusal,
-  type FetchImpl,
   type SearchCorpusCall,
   type SearchCorpusResult,
 } from "./search-corpus";
@@ -28,9 +28,9 @@ import {
  *    versions of the same mistake apart by which side caught it.
  * 2. **Empty is not failure, and failure is not empty.** `no_accessible_evidence` /
  *    `coverage_unknown` come from the diagnostics row the RPC emits when it found nothing;
- *    `index_unavailable` / `backend_failure` come from a raised SQLSTATE or a transport fault. A
- *    test that only checked "no rows" could not tell those apart, which is exactly the confusion
- *    §8.2 forbids, so each case asserts the status name.
+ *    `index_unavailable` / `backend_failure` come from a local pre-flight or a `TenantRpcOutcome`
+ *    failure. A test that only checked "no rows" could not tell those apart, which is exactly the
+ *    confusion §8.2 forbids, so each case asserts the status name.
  *
  * Everything is synthetic: `SYNTH-*` ids, invented sentences, a fake JWT. The last block is the
  * loopback harness COORDINATION §6a requires: a real `fetch` to a `127.0.0.1:listen(0)` listener,
@@ -186,7 +186,7 @@ function diagnosticsRow(status: string, signals: Record<string, unknown> = {}): 
   });
 }
 
-// ---------------------------------------------------------------- the fake Data API transport
+// ---------------------------------------------------------------- the fake PostgREST transport
 
 interface Captured {
   url: string;
@@ -200,14 +200,19 @@ function fakeTransport(reply: () => { status: number; body: unknown }): {
   calls: Captured[];
 } {
   const calls: Captured[] = [];
-  const fetchImpl: FetchImpl = async (url, init) => {
-    calls.push({ url, method: init.method, headers: init.headers, body: init.body });
+  const fetchImpl: FetchImpl = async (input, init) => {
+    const headers = new Headers(init?.headers);
+    calls.push({
+      url: input,
+      method: init?.method ?? "GET",
+      headers: Object.fromEntries(headers.entries()),
+      body: typeof init?.body === "string" ? init.body : "",
+    });
     const sent = reply();
-    return {
-      ok: sent.status >= 200 && sent.status < 300,
+    return new Response(JSON.stringify(sent.body), {
       status: sent.status,
-      json: async () => sent.body,
-    };
+      headers: { "content-type": "application/json" },
+    });
   };
   return { fetchImpl, calls };
 }
@@ -220,10 +225,12 @@ function sqlstateTransport(code: string, message: string): { fetchImpl: FetchImp
   return fakeTransport(() => ({ status: 400, body: { code, message, details: null, hint: null } }));
 }
 
+/** PostgREST base already includes `/rest/v1`; withTenantRpc appends `/rpc/<name>`. */
+const POSTGREST_BASE = "https://synthetic.supabase.co/rest/v1";
+
 function client(fetchImpl: FetchImpl) {
   return createSearchCorpusClient({
-    dataApiBaseUrl: "https://synthetic.supabase.co",
-    publishableKey: "synthetic-publishable-key",
+    postgrestBaseUrl: POSTGREST_BASE,
     fetchImpl,
   });
 }
@@ -231,7 +238,8 @@ function client(fetchImpl: FetchImpl) {
 function baseCall(overrides: Partial<SearchCorpusCall> = {}): SearchCorpusCall {
   return {
     context: context(),
-    accessToken: "eyJhbGciOi synthetic-user-token",
+    // Bearer must be printable with no space (withTenantRpc's BEARER_TOKEN rule).
+    accessToken: "eyJhbGciOi.synthetic-user-token.sig",
     queryText: "SYNTH-KX-9 re-calibration interval",
     ...overrides,
   };
@@ -239,7 +247,7 @@ function baseCall(overrides: Partial<SearchCorpusCall> = {}): SearchCorpusCall {
 
 function posted(calls: Captured[], index = 0): Record<string, unknown> {
   const call = calls[index];
-  if (call === undefined) throw new Error(`expected a Data API call at ${index}`);
+  if (call === undefined) throw new Error(`expected a PostgREST call at ${index}`);
   return JSON.parse(call.body) as Record<string, unknown>;
 }
 
@@ -320,7 +328,13 @@ describe("search_corpus_v1 client: local refusals (no socket opened)", () => {
   });
 
   it("the unwired port answers backend_failure, never an empty corpus", async () => {
-    const result = await unavailableSearchCorpusClient("no Data API binding in this deployment").search(baseCall());
+    const result = await unavailableSearchCorpusClient("no PostgREST binding in this deployment").search(baseCall());
+    expect(failureOf(result)).toMatchObject({ status: "backend_failure", reason: "unwired", origin: "local" });
+  });
+
+  it("a missing PostgREST base is not_configured/unwired, never a throw (N5)", async () => {
+    const search = createSearchCorpusClient({});
+    const result = await search.search(baseCall());
     expect(failureOf(result)).toMatchObject({ status: "backend_failure", reason: "unwired", origin: "local" });
   });
 });
@@ -328,12 +342,12 @@ describe("search_corpus_v1 client: local refusals (no socket opened)", () => {
 // ---------------------------------------------------------------- the wire call
 
 describe("search_corpus_v1 client: what the call asks for", () => {
-  it("posts to the RPC with the ten argument names of the migration signature", async () => {
+  it("posts through withTenantRpc with the nine non-tenant args plus p_organisation_id from context", async () => {
     const { fetchImpl, calls } = rowsTransport([chunkRow()]);
     await client(fetchImpl).search(baseCall({ limit: 5 }));
     const call = calls[0];
     expect(call?.method).toBe("POST");
-    expect(call?.url).toBe("https://synthetic.supabase.co/rest/v1/rpc/search_corpus_v1");
+    expect(call?.url).toBe(`${POSTGREST_BASE}/rpc/search_corpus_v1`);
     expect(posted(calls)).toMatchObject({
       p_organisation_id: ORG,
       p_service_keys: [],
@@ -346,11 +360,14 @@ describe("search_corpus_v1 client: what the call asks for", () => {
       p_authority_filters: null,
       p_limit: 5,
     });
+    // Exactly one credential: the user's bearer. No apikey (withTenantRpc sends one credential).
+    expect(call?.headers.authorization).toMatch(/^Bearer /);
+    expect(call?.headers.apikey).toBeUndefined();
   });
 
   it("takes the tenant only from TenantContext: no call shape carries another organisation", async () => {
     // `SearchCorpusCall` has no organisationId field, so the only tenant a caller can name is the one
-    // already resolved into TenantContext — and that is what reaches the wire.
+    // already resolved into TenantContext — and that is what withTenantRpc puts on the wire.
     const { fetchImpl, calls } = rowsTransport([chunkRow()]);
     const search = client(fetchImpl).search;
     await search({ ...baseCall(), context: context({ organisationId: OTHER_ORG }) });
@@ -497,20 +514,46 @@ describe("search_corpus_v1 client: rows, evidence and diagnostics", () => {
 // ---------------------------------------------------------------- failures are not empties
 
 describe("search_corpus_v1 client: refusals and transport", () => {
-  it("maps the closed SQLSTATE set to the packet's taxonomy, never to an empty result", async () => {
-    const cases: [string, string, string][] = [
-      ["55000", "index_unavailable", "index"],
-      ["42501", "backend_failure", "scope_claim"],
-      ["22023", "backend_failure", "argument"],
-      ["28000", "backend_failure", "tenancy"],
+  it("maps tenancy SQLSTATEs onto the T-114 taxonomy, never to an empty result (N4)", async () => {
+    // N4: withTenantRpc folds 42501 into kind "tenancy"; this client re-splits by sqlstate so a
+    // foreign project/index stays scope_claim and a membership miss stays tenancy.
+    const cases: [string, string][] = [
+      ["28000", "tenancy"],
+      ["42501", "scope_claim"],
     ];
-    for (const [sqlState, status, reason] of cases) {
+    for (const [sqlState, reason] of cases) {
       const transport = sqlstateTransport(sqlState, `search_corpus_v1: refused (${sqlState})`);
       const result = await client(transport.fetchImpl).search(baseCall());
       expect(transport.calls).toHaveLength(1);
-      expect(failureOf(result)).toMatchObject({ status, reason, origin: "database", sqlState });
+      expect(failureOf(result)).toMatchObject({ status: "backend_failure", reason, origin: "database", sqlState });
       if (!result.ok) expect(result.status).not.toBe("no_accessible_evidence");
     }
+  });
+
+  it("raised SQLSTATEs the helper does not surface (55000/22023) arrive as backend_failure without those codes", async () => {
+    // withTenantRpc does not bypass: 55000/22023 become kind backend_failure / reason rejected, with
+    // no sqlstate on the outcome. Local preflights still use index_unavailable / authority names.
+    for (const code of ["55000", "22023"]) {
+      const transport = sqlstateTransport(code, `search_corpus_v1: refused (${code}) planted-host.db.internal`);
+      const result = await client(transport.fetchImpl).search(baseCall());
+      expect(failureOf(result)).toMatchObject({ status: "backend_failure", reason: "database", origin: "database" });
+      expect(failureOf(result).sqlState).toBeNull();
+      expect(JSON.stringify(result)).not.toContain(code);
+      expect(JSON.stringify(result)).not.toContain("planted-host.db.internal");
+    }
+  });
+
+  it("refusal.detail never repeats a PostgREST message that names a foreign org or host (B2)", async () => {
+    const leakHost = "prod-pooler.supabase.co";
+    const message = `search_corpus_v1: organisation ${OTHER_ORG} is not this transaction's scope; dsn=postgres://${leakHost}:5432/prod`;
+    const transport = sqlstateTransport("28000", message);
+    const result = await client(transport.fetchImpl).search(baseCall());
+    expect(failureOf(result)).toMatchObject({ status: "backend_failure", reason: "tenancy", sqlState: "28000" });
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain(OTHER_ORG);
+    expect(serialized).not.toContain(leakHost);
+    expect(serialized).not.toContain("postgres://");
+    expect(refusalOf(result).detail).toBe("tenant scope refused this caller (28000)");
   });
 
   it("a transport fault is backend_failure and echoes nothing from the fault body", async () => {
@@ -524,10 +567,12 @@ describe("search_corpus_v1 client: refusals and transport", () => {
     expect(detail.length).toBeLessThanOrEqual(300);
   });
 
-  it("a 503 from the Data API is a failure with the status preserved, not an empty corpus", async () => {
+  it("a 503 from the Data API is a failure with retryable, not an empty corpus", async () => {
     const transport = fakeTransport(() => ({ status: 503, body: { code: "08006", message: "database connection failure" } }));
     const result = await client(transport.fetchImpl).search(baseCall());
-    expect(failureOf(result)).toMatchObject({ status: "backend_failure", reason: "retryable", sqlState: "08006" });
+    // Helper maps 5xx to server_error → retryable; the SQLSTATE is not surfaced.
+    expect(failureOf(result)).toMatchObject({ status: "backend_failure", reason: "retryable", sqlState: null });
+    expect(JSON.stringify(result)).not.toContain("database connection failure");
   });
 
   it("rejects a row set that contradicts the RPC contract instead of answering from it", async () => {
@@ -553,13 +598,24 @@ describe("search_corpus_v1 client: refusals and transport", () => {
     expect(result.ok).toBe(false);
     expect(JSON.stringify(result)).not.toContain("SYNTH-4412/B");
   });
+
+  it("not_configured from the helper stays unwired/local, apart from backend_failure", async () => {
+    // An invalid (non-loopback http) base never dials: withTenantRpc returns not_configured.
+    const { fetchImpl, calls } = rowsTransport([chunkRow()]);
+    const search = createSearchCorpusClient({
+      postgrestBaseUrl: "http://evil.example.com/rest/v1",
+      fetchImpl,
+    });
+    const result = await search.search(baseCall());
+    expect(calls).toHaveLength(0);
+    expect(failureOf(result)).toMatchObject({ status: "backend_failure", reason: "unwired", origin: "local" });
+  });
 });
 
 // ---------------------------------------------------------------- loopback (COORDINATION §6a)
 
 const USER_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.synthetic-user.4069";
 const SERVICE_ROLE_CANARY = "sb_secret_synthetic_service_role_canary_must_never_leave";
-const PUBLISHABLE = "synthetic-publishable-anon-key";
 
 let server: Server;
 let base = "";
@@ -599,7 +655,7 @@ describe("the client against a loopback listener: what actually crossed the sock
     process.env.SUPABASE_SERVICE_ROLE_KEY = SERVICE_ROLE_CANARY;
     replyStatus = 200;
     replyBody = [chunkRow()];
-    const search = createSearchCorpusClient({ dataApiBaseUrl: base, publishableKey: PUBLISHABLE });
+    const search = createSearchCorpusClient({ postgrestBaseUrl: base });
     const result = await search.search(
       baseCall({ accessToken: USER_TOKEN, collectionIds: [], serviceKeys: ["uav"], projectId: PROJECT }),
     );
@@ -607,9 +663,10 @@ describe("the client against a loopback listener: what actually crossed the sock
     const call = wire[wire.length - 1];
     if (!call) throw new Error("expected a request on the loopback socket");
     expect(call.method).toBe("POST");
-    expect(call.url).toBe("/rest/v1/rpc/search_corpus_v1");
+    expect(call.url).toBe("/rpc/search_corpus_v1");
     expect(call.headers.authorization).toBe(`Bearer ${USER_TOKEN}`);
-    expect(call.headers.apikey).toBe(PUBLISHABLE);
+    // withTenantRpc sends exactly one credential — no apikey.
+    expect(call.headers.apikey).toBeUndefined();
     const crossed = `${Object.entries(call.headers).map(([k, v]) => `${k}:${v}`).join("\n")}${call.url}${call.body}`;
     expect(crossed).not.toContain(SERVICE_ROLE_CANARY);
     expect(crossed).not.toMatch(/service_role|sb_secret_|postgres:\/\//);
@@ -626,9 +683,10 @@ describe("the client against a loopback listener: what actually crossed the sock
   it("a SQLSTATE refusal over the socket answers with the taxonomy name, and the query text stays in the body", async () => {
     replyStatus = 400;
     replyBody = { code: "42501", message: "search_corpus_v1: project is not readable in this scope (§4.2)" };
-    const search = createSearchCorpusClient({ dataApiBaseUrl: base, publishableKey: PUBLISHABLE });
+    const search = createSearchCorpusClient({ postgrestBaseUrl: base });
     const result = await search.search(baseCall({ accessToken: USER_TOKEN, projectId: PROJECT }));
     expect(failureOf(result)).toMatchObject({ status: "backend_failure", reason: "scope_claim", sqlState: "42501" });
     expect(JSON.stringify(result)).not.toContain("SYNTH-KX-9");
+    expect(JSON.stringify(result)).not.toContain("project is not readable");
   });
 });
