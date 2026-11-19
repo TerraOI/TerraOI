@@ -339,9 +339,12 @@ describe("completing a password reset through the callback", () => {
     expect(h.store.rows.size).toBe(1);
     expect(outcomeOf(response)).toBeNull();
     // Recovery must land on set-password, not "/": otherwise the forgotten credential still works
-    // and "reset" was only a second magic link (#181 B1).
+    // and "reset" was only a second magic link (#181 B1). The grant cookie is what keeps an ordinary
+    // signed-in session out of that surface (#181 Round-2).
     expect(locationOf(response).pathname).toBe("/account/set-password");
     expect(sessionCookieOf(response)).toContain("__Host-toi_session=");
+    const setCookies = response.headers.getSetCookie().join("\n");
+    expect(setCookies).toContain("__Host-toi_set_password=");
   });
 
   it("an ordinary sign-in does not revoke anything: only a marked recovery does", async () => {

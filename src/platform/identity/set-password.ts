@@ -1,11 +1,16 @@
 import { parseHost, requestHost, type HostAdapterOptions } from "@/platform/tenancy/host";
 import type { HostRecord, MembershipRecord } from "@/platform/tenancy/resolve-tenant-context";
 
+import { isHttpsUrl } from "./cookie";
 import { issueCsrfToken, verifyCsrfToken } from "./csrf";
 import { loginRedirect, redirectSameHost, readCappedBody, statusOnly } from "./http-response";
 import { MAX_PASSWORD_CHARS } from "./password-signin";
 import { MAX_BODY_BYTES } from "./request-magic-link";
 import { readSessionTokens } from "./session";
+import {
+  clearSetPasswordGrant,
+  verifySetPasswordGrant,
+} from "./set-password-grant";
 import type { SessionStore, TokenCipher } from "./session-store";
 import { hasUsableSecret } from "./signed-token";
 
@@ -16,8 +21,10 @@ import { hasUsableSecret } from "./signed-token";
  * the forgotten password is still the credential (#181 B1).
  *
  * The recovery completion already issued a host-only session whose sealed access token is what
- * authorizes the update; this surface never accepts a password-reset token in the URL or a user id
- * from the form. The organization still comes only from the routed host.
+ * authorizes the update, **and** a short-lived set-password grant cookie bound to that user on this
+ * host. An ordinary signed-in session without the grant is refused (Round-2 on #181). This surface
+ * never accepts a password-reset token in the URL or a user id from the form. The organization still
+ * comes only from the routed host.
  */
 
 /** Where a completed recovery redirects; owned by this packet (`src/app/(tenant)/account/…`). */
@@ -50,8 +57,8 @@ export type SetPasswordView =
   | { kind: "redirect"; response: Response };
 
 /**
- * GET half: a live session on this host is required. No session → login, never a form that would
- * accept a password for nobody.
+ * GET half: a live recovery grant + session on this host is required. No grant → login, even if a
+ * normal session cookie is present — never a form that would accept a password for an ordinary visit.
  */
 export async function buildSetPasswordView(input: {
   request: Request;
@@ -89,6 +96,17 @@ export async function buildSetPasswordView(input: {
     cipher: tokenCipher,
   });
   if (!tokens.ok) {
+    return { kind: "redirect", response: loginRedirect(parsed.host, "unavailable", []) };
+  }
+
+  const grant = await verifySetPasswordGrant({
+    cookieHeader: input.request.headers.get("cookie"),
+    host: parsed.host,
+    userId: tokens.userId,
+    secret,
+    now: ports.now(),
+  });
+  if (!grant.ok) {
     return { kind: "redirect", response: loginRedirect(parsed.host, "unavailable", []) };
   }
 
@@ -145,14 +163,24 @@ export async function handleSetPassword(input: {
     return loginRedirect(parsed.host, "unavailable", []);
   }
 
+  const cookieHeader = input.request.headers.get("cookie");
   const tokens = await readSessionTokens({
-    cookieHeader: input.request.headers.get("cookie"),
+    cookieHeader,
     host: parsed.host,
     now: ports.now(),
     store: sessionStore,
     cipher: tokenCipher,
   });
   if (!tokens.ok) return loginRedirect(parsed.host, "unavailable", []);
+
+  const grant = await verifySetPasswordGrant({
+    cookieHeader,
+    host: parsed.host,
+    userId: tokens.userId,
+    secret,
+    now: ports.now(),
+  });
+  if (!grant.ok) return loginRedirect(parsed.host, "unavailable", []);
 
   // Per-user budget on this host: not shared with Entra start or malformed-address posts (B2/N4).
   const limitKey = await ports.rateLimitKey({
@@ -186,13 +214,16 @@ export async function handleSetPassword(input: {
     return redirectSameHost(parsed.host, `${SET_PASSWORD_PATH}?outcome=rejected`, []);
   }
 
+  const secureTransport = isHttpsUrl(input.request.url);
+  const clearGrant = [clearSetPasswordGrant(secureTransport)];
+
   // Membership decides where they land after the credential exists again — same rule as completion.
   try {
     const membership = await ports.findMembership(organisation.organisationId, tokens.tokens.accessToken);
     if (membership !== null && membership.status === "active") {
-      return redirectSameHost(parsed.host, "/", []);
+      return redirectSameHost(parsed.host, "/", clearGrant);
     }
-    return loginRedirect(parsed.host, "not_a_member", []);
+    return loginRedirect(parsed.host, "not_a_member", clearGrant);
   } catch {
     console.error("set-password failed", { host: parsed.host, step: "membership" });
     return redirectSameHost(parsed.host, `${SET_PASSWORD_PATH}?outcome=unavailable`, []);

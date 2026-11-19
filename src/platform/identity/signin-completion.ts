@@ -6,7 +6,9 @@ import { canonicalEmail } from "./email";
 import { loginRedirect, redirectSameHost } from "./http-response";
 import type { CookieSpec } from "./cookie";
 import { issueSession } from "./session";
+import { issueSetPasswordGrant } from "./set-password-grant";
 import { SET_PASSWORD_PATH } from "./set-password";
+import { hasUsableSecret } from "./signed-token";
 import { isUsableTokenPair, type SessionStore, type TokenCipher } from "./session-store";
 
 /**
@@ -60,6 +62,11 @@ export type IdentityExchange =
 
 export interface SignInCompletionPorts {
   now(): number;
+  /**
+   * Signing secret for the recovery-only set-password grant cookie. Null refuses a recovery
+   * completion rather than redirecting to set-password with an ordinary session alone (#181 Round-2).
+   */
+  signingSecret(): string | null;
   /** Null where the session row is not reachable: the honest answer is "unavailable", never a self-contained cookie. */
   sessionStore(): SessionStore | null;
   /** Null means the token pair cannot be sealed, so there is no session to issue. */
@@ -189,7 +196,27 @@ export async function completeSignIn(input: {
     // A recovery that stops at "/" never changes the password: the forgotten credential still works
     // and "reset" was only a second magic link. The set-password surface runs GoTrue's user update
     // with this session's access token (`set-password.ts`); membership decides access *after* that.
+    // The grant cookie is what keeps an ordinary signed-in session out of that surface (#181 Round-2).
     if (input.recovery) {
+      const secret = ports.signingSecret();
+      if (!hasUsableSecret(secret)) {
+        console.error(`${logContext} refused`, { host, step: "set_password_grant", reason: "unwired" });
+        return loginRedirect(host, "unavailable", cookies);
+      }
+      try {
+        cookies.push(
+          await issueSetPasswordGrant({
+            host,
+            userId: identity.userId,
+            secret,
+            now: ports.now(),
+            secureTransport: input.secureTransport,
+          }),
+        );
+      } catch {
+        console.error(`${logContext} failed`, { host, step: "set_password_grant" });
+        return loginRedirect(host, "unavailable", cookies);
+      }
       return redirectSameHost(host, SET_PASSWORD_PATH, cookies);
     }
 

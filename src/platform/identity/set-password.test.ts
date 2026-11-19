@@ -9,6 +9,7 @@ import {
   SET_PASSWORD_PATH,
   type SetPasswordPorts,
 } from "./set-password";
+import { issueSetPasswordGrant } from "./set-password-grant";
 import { createTokenCipher, type SessionStore, type StoredSession } from "./session-store";
 
 /**
@@ -65,6 +66,7 @@ interface Harness {
   allowRequest: boolean;
   limiterKeys: Array<{ host: string; material: string }>;
   sessionCookie: string;
+  grantCookie: string;
 }
 
 async function harness(overrides: Partial<Harness> = {}): Promise<Harness> {
@@ -83,6 +85,13 @@ async function harness(overrides: Partial<Harness> = {}): Promise<Harness> {
     now: NOW,
     secureTransport: true,
   });
+  const grant = await issueSetPasswordGrant({
+    host: HOST_A,
+    userId: OWNER1,
+    secret: SECRET,
+    now: NOW,
+    secureTransport: true,
+  });
   const state: Harness = {
     ports: {} as SetPasswordPorts,
     store,
@@ -93,6 +102,7 @@ async function harness(overrides: Partial<Harness> = {}): Promise<Harness> {
     allowRequest: true,
     limiterKeys: [],
     sessionCookie: `${issued.cookie.name}=${issued.cookie.value}`,
+    grantCookie: `${grant.name}=${grant.value}`,
     ...overrides,
   };
   state.ports = {
@@ -150,7 +160,9 @@ async function post(input: {
   const headers = new Headers();
   if (input.origin !== null) headers.set("origin", input.origin ?? `https://${HOST_A}`);
   headers.set("content-type", "application/x-www-form-urlencoded");
-  if (input.cookie !== null) headers.set("cookie", input.cookie ?? h.sessionCookie);
+  if (input.cookie !== null) {
+    headers.set("cookie", input.cookie ?? `${h.sessionCookie}; ${h.grantCookie}`);
+  }
 
   const response = await handleSetPassword({
     request: new Request(`https://${HOST_A}/auth/set-password`, {
@@ -170,11 +182,11 @@ describe("SET_PASSWORD_PATH", () => {
 });
 
 describe("buildSetPasswordView", () => {
-  it("issues a CSRF token when the recovery session is live on this host", async () => {
+  it("issues a CSRF token when the recovery session and grant are live on this host", async () => {
     const h = await harness();
     const view = await buildSetPasswordView({
       request: new Request(`https://${HOST_A}${SET_PASSWORD_PATH}`, {
-        headers: { cookie: h.sessionCookie },
+        headers: { cookie: `${h.sessionCookie}; ${h.grantCookie}` },
       }),
       ports: h.ports,
     });
@@ -189,6 +201,19 @@ describe("buildSetPasswordView", () => {
     const h = await harness();
     const view = await buildSetPasswordView({
       request: new Request(`https://${HOST_A}${SET_PASSWORD_PATH}`),
+      ports: h.ports,
+    });
+    expect(view.kind).toBe("redirect");
+    if (view.kind !== "redirect") return;
+    expect(outcomeOf(view.response)).toBe("unavailable");
+  });
+
+  it("an ordinary signed-in session without the recovery grant never gets the form", async () => {
+    const h = await harness();
+    const view = await buildSetPasswordView({
+      request: new Request(`https://${HOST_A}${SET_PASSWORD_PATH}`, {
+        headers: { cookie: h.sessionCookie },
+      }),
       ports: h.ports,
     });
     expect(view.kind).toBe("redirect");
@@ -228,12 +253,17 @@ describe("handleSetPassword (POST /auth/set-password)", () => {
     expect(mismatch.h.updates).toHaveLength(0);
   });
 
-  it("keeps the guard chain: origin, CSRF, session", async () => {
+  it("keeps the guard chain: origin, CSRF, session, recovery grant", async () => {
     expect((await post({ origin: "https://evil.example" })).response.status).toBe(403);
     expect((await post({ csrf: null })).response.status).toBe(403);
     const noSession = await post({ cookie: null });
     expect(outcomeOf(noSession.response)).toBe("unavailable");
     expect(noSession.h.updates).toHaveLength(0);
+
+    const sessionOnly = await harness();
+    const withoutGrant = await post({ cookie: sessionOnly.sessionCookie });
+    expect(outcomeOf(withoutGrant.response)).toBe("unavailable");
+    expect(withoutGrant.h.updates).toHaveLength(0);
   });
 
   it("a provider rejection or outage stays on the set-password surface", async () => {
