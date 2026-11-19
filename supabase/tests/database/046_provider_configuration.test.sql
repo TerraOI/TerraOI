@@ -319,7 +319,11 @@ select is(pg_temp.try_health('workers_ai', 'down', 99999999), '23514', 'latency 
 
 -- ── 8. cross-tenant / deactivated-member negatives (#143 B9; 010 JWT pattern) ───────────────
 -- Rows for both orgs exist above. Capture under each seed user, assert as the migration owner.
+-- Temp result tables must be created by authenticated (010/040/041 idiom): a table made as the
+-- migration owner answers `permission denied for table` when authenticated tries to INSERT.
+set local role authenticated;
 create temp table t_policy_read (case_name text, result text);
+reset role;
 
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
