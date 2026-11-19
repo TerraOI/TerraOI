@@ -26,9 +26,12 @@ begin
 end;
 $fn$;
 
+-- INITIALLY IMMEDIATE: checked at end of each statement (so a bad INSERT is refused inside
+-- try_* helpers). Still DEFERRABLE so a test can SET CONSTRAINTS … DEFERRED, leave a mixed
+-- state, then SET CONSTRAINTS … IMMEDIATE to prove the half-swap fails (#143 B7).
 create constraint trigger model_providers_one_revision
   after insert or update on public.model_providers
-  deferrable initially deferred
+  deferrable initially immediate
   for each row execute function public.model_providers_one_revision();
 
 create or replace function public.model_providers_revision_on_matrix_change()

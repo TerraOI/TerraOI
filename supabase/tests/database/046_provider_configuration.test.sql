@@ -79,6 +79,22 @@ exception when others then
 end;
 $fn$;
 
+-- B7: defer the one-revision check, leave a mixed table, then force the check (supervisor: under
+-- `set constraints … immediate`). The raise must land inside this subtransaction.
+create function pg_temp.try_mixed_revision_then_immediate(p_key text, p_revision bigint) returns text
+language plpgsql security invoker set search_path = public, pg_temp as $fn$
+begin
+  execute 'set constraints model_providers_one_revision deferred';
+  update public.model_providers
+     set clearance_revision = p_revision
+   where provider_key = p_key;
+  execute 'set constraints model_providers_one_revision immediate';
+  return 'ok';
+exception when others then
+  return sqlstate::text;
+end;
+$fn$;
+
 create function pg_temp.try_route(p_task text, p_provider text, p_position int) returns text
 language plpgsql security invoker set search_path = public, pg_temp as $fn$
 begin
@@ -248,13 +264,13 @@ select is((select count(*) from public.model_providers), 5::bigint, 'the reviewe
 -- ── 5. the guards that make the configuration replayable (F40; #143 B7) ─────────────────────
 select is(pg_temp.try_insert_provider('second_local_box', 'medium', 6, 'restricted', 2), '23514', 'two rows with different clearance_revision are refused: a half-swapped matrix cannot be replayed');
 select is(pg_temp.try_bump_all_revisions(), 'ok',
-  'B7: a one-statement bump of every provider row succeeds under the deferred one-revision constraint');
+  'B7: a one-statement bump of every provider row succeeds under the deferrable one-revision constraint');
 select is(pg_temp.try_ceiling_without_bump('openrouter', 'restricted'), '23514',
   'B7: changing max_cleared_class without increasing clearance_revision is refused');
-set constraints model_providers_one_revision immediate;
-select is(pg_temp.try_bump_one_revision('local_box', 99), '23514',
+select is(pg_temp.try_mixed_revision_then_immediate('local_box', 99), '23514',
   'B7: a mixed clearance_revision under set constraints … immediate is refused');
-set constraints model_providers_one_revision deferred;
+-- Restore the session default after the mixed-revision subtransaction (INITIALLY IMMEDIATE).
+set constraints model_providers_one_revision immediate;
 
 select is(pg_temp.try_insert_provider('claude', 'large', 7, 'restricted', 1), '23505', 'duplicate provider_key is refused by the primary key');
 select is(pg_temp.try_insert_provider('box2', 'large', 3, 'public', 1), '23505', 'cost_rank is unique: two providers cannot claim the same place in the cost order');
