@@ -68,10 +68,12 @@ export function fakeEmailTransportWith(options: {
   tenantHost: string;
 } & FakeEmailOptions): EmailTransport & FakeEmailTransport {
   const { fromAddress, sendingDomain, tenantHost, ...fakeOptions } = options;
-  return {
-    ...fakeEmailTransport(fakeOptions),
-    fromAddress,
-    sendingDomain,
-    tenantHost,
-  };
+  // Do not spread the fake: spreading would turn `credentialReads` into a plain data property
+  // frozen at 0 (#139 B2). Attach sender fields without copying accessors.
+  const fake = fakeEmailTransport(fakeOptions);
+  return Object.defineProperties(fake, {
+    fromAddress: { value: fromAddress, enumerable: true },
+    sendingDomain: { value: sendingDomain, enumerable: true },
+    tenantHost: { value: tenantHost, enumerable: true },
+  }) as EmailTransport & FakeEmailTransport;
 }

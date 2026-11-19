@@ -8,7 +8,7 @@ import {
   type EmailTransport,
   type SendEmailResult,
 } from "./email";
-import { fakeEmailTransport } from "./email-fixtures";
+import { fakeEmailTransport, fakeEmailTransportWith } from "./email-fixtures";
 
 /**
  * T-105: the outbound email port, tested against the packet's own contract
@@ -72,7 +72,7 @@ describe("sendEmail — the happy path reaches the transport with the configured
     expect(transport.sent).toHaveLength(1);
     const request = transport.sent[0] as NonNullable<(typeof transport.sent)[number]>;
     // The address is configuration; only the display name is the tenant's (§64: no per-tenant senders).
-    expect(request.from).toBe(`Company1 <${FROM}>`);
+    expect(request.from).toBe(`"Company1" <${FROM}>`);
     expect(request.to).toBe("owner1@company1.test");
     expect(request.subject).toBe("Sign in to Company1");
     expect(request.text).toContain(`https://${HOST}/auth/callback`);
@@ -179,9 +179,15 @@ describe("sendEmail — links must live on the resolved tenant host (plan §4.1 
     `https://${HOST}:8443/auth/callback?code=abc123`,
     `https://${HOST}.evil.test/auth/callback`,
     // The scheme's case is not a defence: an email client linkifies these exactly like the lowercase
-    // form, so the scan has to be case-insensitive.
+    // form, so the scan has to be case-insensitive on discovery and still require lowercase https://.
     `HTTPS://company2.terraoi.app/auth/callback?code=abc123`,
     `HtTpS://company2.terraoi.app/auth/callback?code=abc123`,
+    // Entity-encoded / backslash / scheme-without-slashes forms (#139 B1).
+    `&#104;ttps://company2.terraoi.app/auth/callback?code=abc123`,
+    `https:&#47;&#47;company2.terraoi.app/auth/callback?code=abc123`,
+    `https:\\\\company2.terraoi.app/auth/callback?code=abc123`,
+    `/\\company2.terraoi.app/auth/callback?code=abc123`,
+    `https:company2.terraoi.app/x`,
   ];
 
   for (const [index, link] of foreign.entries()) {
@@ -193,13 +199,53 @@ describe("sendEmail — links must live on the resolved tenant host (plan §4.1 
     });
   }
 
-  it("accepts a relative link and a mailto, and a bare domain in prose that is not a URL", async () => {
+  it("refuses a relative href — an email has no base URL (#139 B1)", async () => {
     const { transport } = transportFor();
     const result = await sendEmail(
-      message({ text: `open /login or mailto:support@terraoi.app — we are at terraoi.app`, html: `<a href="/login">x</a>` }),
+      message({ text: `open the app`, html: `<a href="/login">x</a>` }),
+      transport,
+    );
+    expect(result).toEqual({ status: "rejected", reason: "link_host" });
+    expect(transport.sent).toHaveLength(0);
+  });
+
+  it("accepts mailto and a bare domain in prose that is not a URL", async () => {
+    const { transport } = transportFor();
+    const result = await sendEmail(
+      message({
+        text: `mailto:support@terraoi.app — we are at terraoi.app`,
+        html: `<a href="mailto:support@terraoi.app">x</a><p>https://${HOST}/auth/callback</p>`,
+      }),
       transport,
     );
     expect(result.status).toBe("sent");
+  });
+
+  it("credentialReads stays a live getter on fakeEmailTransportWith (#139 B2)", async () => {
+    const transport = fakeEmailTransportWith({
+      fromAddress: FROM,
+      sendingDomain: DOMAIN,
+      tenantHost: HOST,
+      credential: "synthetic-provider-token",
+    });
+    expect(transport.credentialReads).toBe(0);
+    expect(await sendEmail(message({ html: `<a href="/login">x</a>` }), transport)).toEqual({
+      status: "rejected",
+      reason: "link_host",
+    });
+    expect(transport.credentialReads).toBe(0);
+    expect(await sendEmail(message(), transport)).toEqual({
+      status: "sent",
+      providerMessageId: "synthetic-message-id",
+    });
+    expect(transport.credentialReads).toBe(1);
+  });
+
+  it("quotes a display name that would otherwise break the From header (#139 N1)", async () => {
+    const { transport } = transportFor();
+    const result = await sendEmail(message({ senderDisplayName: "Acme, Inc." }), transport);
+    expect(result.status).toBe("sent");
+    expect(transport.sent[0]?.from).toBe(`"Acme, Inc." <${FROM}>`);
   });
 
   it("fails closed on a scheme it cannot read even when the host is the tenant's", async () => {

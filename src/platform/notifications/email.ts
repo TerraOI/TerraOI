@@ -147,42 +147,87 @@ function domainOf(address: string): string {
 }
 
 /**
- * Absolute and protocol-relative URLs in a body. A bare domain in prose is not a link.
- *
- * The `i` flag is not decoration: an email client linkifies `HTTPS://company2.terraoi.app/x` exactly
- * like the lowercase form, so a scan that only read lowercase schemes would wave a foreign link
- * through. Same rule for `HtTpS://`. A protocol-relative `//host/path` is matched only when no `//`
- * scheme precedes it, which is what the lookbehind is for.
+ * Link scan for outbound email (plan §4.1 step 6 / #64). An email has no base URL, so every
+ * URL-bearing value must already be an absolute `https://${tenantHost}…` (or `mailto:`). Relative
+ * paths, entity-encoded schemes, backslash schemes and foreign hosts are refused before send.
  */
-const LINK_CANDIDATES = /https?:\/\/[^\s"'<>`)\]}]+|(?<![\w:])\/\/[^\s"'<>`)\]}]+/gi;
+
+const HTML_URL_ATTR = /\b(?:href|src|srcset|action|background|formaction)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi;
+const CSS_URL = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)'"\s]+))\s*\)/gi;
+const TEXT_SCHEME = /https?:[\\/]*/gi;
+
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&#x([0-9a-fA-F]+);/gi, (_, hex: string) => {
+      const code = Number.parseInt(hex, 16);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : "";
+    })
+    .replace(/&#([0-9]+);/g, (_, dec: string) => {
+      const code = Number(dec);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : "";
+    })
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;/gi, "'");
+}
+
+function normalizeLinkCandidate(raw: string): string {
+  return decodeHtmlEntities(raw).replace(/\\/g, "/").trim();
+}
+
+/** Exact `https://${tenantHost}` followed by `/`, `?`, `#`, or end — or `mailto:`. */
+function isAllowedTenantOrMailto(candidate: string, tenantHost: string): boolean {
+  if (candidate.toLowerCase().startsWith("mailto:")) return true;
+  const prefix = `https://${tenantHost}`;
+  if (!candidate.startsWith(prefix)) return false;
+  const remainder = candidate.slice(prefix.length);
+  return remainder.length === 0 || "/?#".includes(remainder[0] as string);
+}
+
+function htmlUrlCandidates(html: string): string[] {
+  const found: string[] = [];
+  for (const re of [HTML_URL_ATTR, CSS_URL]) {
+    re.lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(html)) !== null) {
+      const raw = match[1] ?? match[2] ?? match[3] ?? "";
+      if (raw.length === 0) continue;
+      // srcset can list several "url size" pairs; each URL token is a candidate.
+      for (const part of raw.split(",")) {
+        const token = part.trim().split(/\s+/)[0] ?? "";
+        if (token.length > 0) found.push(token);
+      }
+    }
+  }
+  return found;
+}
+
+function textUrlCandidates(text: string): string[] {
+  const normalized = text.replace(/\\/g, "/");
+  const found: string[] = [];
+  TEXT_SCHEME.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = TEXT_SCHEME.exec(normalized)) !== null) {
+    let end = match.index;
+    while (end < normalized.length && !/[\s"'<>`)\]}]/.test(normalized[end] as string)) end += 1;
+    found.push(normalized.slice(match.index, end));
+  }
+  // Protocol-relative links in plain text (no scheme).
+  const protoRel = /(?<![\w:])\/\/[^\s"'<>`)\]}]+/g;
+  let rel: RegExpExecArray | null;
+  while ((rel = protoRel.exec(normalized)) !== null) {
+    found.push(`https:${rel[0]}`);
+  }
+  return found;
+}
 
 function linksAreOnTenantHost(text: string, html: string | undefined, tenantHost: string): boolean {
-  const expectedOrigin = `https://${tenantHost}`;
-  for (const source of [text, html ?? ""]) {
-    for (const match of source.matchAll(LINK_CANDIDATES)) {
-      const candidate = match[0];
-      const absolute = candidate.startsWith("//") ? `https:${candidate}` : candidate;
-      let url: URL;
-      try {
-        url = new URL(absolute);
-      } catch {
-        // A string that looks like a link and does not parse is not one we will send.
-        return false;
-      }
-      // Origin equality is the whole rule in one comparison: same scheme (https), same host, no port.
-      // `http://company1.terraoi.app` and `https://company1.terraoi.app.evil.test` fail it outright.
-      if (url.origin !== expectedOrigin) return false;
-      // …and the host must also match character for character. `URL` silently lower-cases the host, so
-      // origin equality alone would accept `https://Company1.terraoi.app` or a Unicode-look-alike case
-      // variant; the resolved tenant host is already lowercase, so an exact prefix is the strict rule.
-      // The same exactness refuses a link written `HTTPS://company1.terraoi.app/x`: the host is right,
-      // but a scheme this port cannot read is not a scheme it will vouch for, so it fails closed
-      // instead of normalizing. Templates (T-204) write lowercase `https://`.
-      const prefix = `https://${tenantHost}`;
-      if (!absolute.startsWith(prefix)) return false;
-      const remainder = absolute.slice(prefix.length);
-      if (remainder.length > 0 && !"/?#".includes(remainder[0] as string)) return false;
-    }
+  const candidates = [...textUrlCandidates(text), ...(html === undefined ? [] : htmlUrlCandidates(html))];
+  for (const raw of candidates) {
+    const candidate = normalizeLinkCandidate(raw);
+    if (!isAllowedTenantOrMailto(candidate, tenantHost)) return false;
   }
   return true;
 }
@@ -296,8 +341,10 @@ export async function sendEmail(message: EmailMessage, transport: EmailTransport
     return { status: "unavailable" };
   }
 
+  // Quote the display name so "Acme, Inc." / "(EU)" stay one header field (RFC 5322). `"` and `\`
+  // are already refused by DISPLAY_NAME_UNSAFE above.
   const request: EmailRequest = {
-    from: `${displayName} <${fromAddress}>`,
+    from: `"${displayName}" <${fromAddress}>`,
     to,
     subject,
     text,

@@ -83,7 +83,7 @@ describe("createPostmarkTransport — the documented request shape", () => {
     expect(headers.get("x-postmark-server-token")).toBe(TOKEN);
 
     const body = JSON.parse(String(call.init.body)) as Record<string, string>;
-    expect(body.From).toBe(`Company1 <${FROM}>`);
+    expect(body.From).toBe(`"Company1" <${FROM}>`);
     expect(body.To).toBe("owner1@company1.test");
     expect(body.Subject).toBe("Sign in to Company1");
     expect(body.TextBody).toContain(`https://${HOST}/auth/callback`);

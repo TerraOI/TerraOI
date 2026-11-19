@@ -140,7 +140,7 @@ describe("the Postmark adapter over a real loopback socket (COORDINATION §6a)",
     expect(request.headers["content-type"]).toBe("application/json");
 
     const body = JSON.parse(request.body) as Record<string, string>;
-    expect(body.From).toBe(`Company1 <${FROM}>`);
+    expect(body.From).toBe(`"Company1" <${FROM}>`);
     expect(body.To).toBe("owner1@company1.test");
     expect(body.Subject).toBe("Sign in to Company1");
     expect(body.HtmlBody).toContain(`https://${HOST}/auth/callback`);
