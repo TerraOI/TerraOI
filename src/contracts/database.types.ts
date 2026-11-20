@@ -691,6 +691,11 @@ isOneToOne: false
               "host": string,"is_canonical": boolean,"organisation_id": string,"organisation_status": string
             }[]
                            },
+"search_corpus_v1":
+{ Args: { "p_authority_filters": (string)[],"p_collection_ids": (string)[],"p_effective_on": string,"p_embedding_index_id": string,"p_limit": number,"p_organisation_id": string,"p_project_id": string,"p_query_embedding": string,"p_query_text": string,"p_service_keys": (string)[] }; Returns: {
+              "o_body_text": string,"o_chunk_id": string,"o_chunk_index": number,"o_collection_id": string,"o_content_hash": string,"o_data_class": string,"o_diagnostics": Json,"o_evidence_kind": string,"o_exact_match": boolean,"o_index_generation": number,"o_lane": string,"o_lexical_rank": number,"o_locator": Json,"o_organisation_id": string,"o_project_id": string,"o_published_at": string,"o_rank": number,"o_result_status": string,"o_rrf_score": number,"o_service_key": string,"o_source_id": string,"o_source_version_id": string,"o_vector_rank": number
+            }[]
+                           },
 "set_tenant_scope":
 { Args: { "p_organisation_id": string }; Returns: string
                            },
