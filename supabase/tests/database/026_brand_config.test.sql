@@ -15,7 +15,7 @@ create extension if not exists pgtap with schema extensions;
 -- COUNT: 56 assertions below, numbered 1–56 in their messages. `plan` equals that count exactly:
 -- CI's `database` job is the venue for this file (no builder machine has Docker), and a `plan(N)`
 -- that does not match the assertions that run is a red run, not a warning.
-select plan(56);
+select plan(57);
 
 -- Error-as-SQLSTATE helpers. SECURITY INVOKER on purpose: they run as the role under test.
 create function pg_temp.try_scope(p_organisation_id uuid) returns text
@@ -251,6 +251,14 @@ select is((select rows from t_brand where case_name = 'staging'), 0::int,
 select is((select rows from t_brand where case_name = 'c2_not_c1'), 0::int,
   '20 company1''s brand is never returned on company2''s host — the project-axis substitute this row '
   || 'type allows, named as such in ADR-0004 §4');
+
+-- Round 2 B4.3 / N0: a comma-folded Host is not a bare hostname. The normalize guard only raises
+-- 22023 for space/:/`, so this string falls through to the exact-host join and must still yield
+-- zero rows — never company1's brand via a prefix before the comma.
+insert into t_brand select 'folded', null, null, null, null, null, count(*)::int
+  from public.load_public_brand('company1.terraoi.app,evil.example');
+select is((select rows from t_brand where case_name = 'folded'), 0::int,
+  '20b a comma-folded host gets nothing: exact match only, no Host-list prefix');
 
 -- ---------------------------------------------------------------- 21 the suspended tenant (F28)
 savepoint sp_suspend;

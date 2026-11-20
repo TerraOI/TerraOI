@@ -68,6 +68,20 @@ describe("serveBrandAsset: a served brand asset", () => {
     expect(response.status).toBe(200);
     expect(calls[0]?.host).toBe("company1.terraoi.app");
   });
+
+  it("serves a name at the SQL CHECK ceiling (100-char stem + .svg), so the HTTP path matches the table", async () => {
+    // Before the stem/extension split, `{0,99}` on the whole name 404'd this (~104 chars) without
+    // consulting the store, while `tenant_brand_assets.name` would have accepted the insert.
+    const longName = "a" + "b".repeat(99) + ".svg";
+    const { dep, calls } = deps({ contentType: "image/svg+xml", bytes: SVG });
+    const response = await serveBrandAsset(
+      route(`https://company1.terraoi.app/brand-assets/1/${longName}`),
+      { configVersion: "1", name: longName },
+      dep,
+    );
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([{ host: "company1.terraoi.app", configVersion: "1", name: longName }]);
+  });
 });
 
 describe("serveBrandAsset: every refusal is the same answer", () => {
@@ -90,6 +104,11 @@ describe("serveBrandAsset: every refusal is the same answer", () => {
   push("climbing name", "https://company1.terraoi.app/brand-assets/1/../secret.png", { configVersion: "1", name: "../secret.png" });
   push("disallowed type", "https://company1.terraoi.app/brand-assets/1/logo.html", { configVersion: "1", name: "logo.html" });
   push("no extension", "https://company1.terraoi.app/brand-assets/1/logo", { configVersion: "1", name: "logo" });
+  // Stem longer than the SQL CHECK allows (100 + ".svg" would be legal; 101 + ".svg" is not).
+  push("name stem overflow", "https://company1.terraoi.app/brand-assets/1/" + ("a" + "b".repeat(100) + ".svg"),
+    { configVersion: "1", name: "a" + "b".repeat(100) + ".svg" });
+  push("folded host in URL", "https://company1.terraoi.app,evil.example/brand-assets/1/logo.png",
+    { configVersion: "1", name: "logo.png" });
 
   it.each(refusals)("404s for %s, with no body to explain itself", async (_label, run) => {
     const response = await run();

@@ -68,7 +68,8 @@ const PublicBrandRowSchema = z.strictObject({
  * is refused rather than normalized, because the version segment is what makes the served URL
  * immutable (FAQ-0008).
  */
-const VERSIONED_ASSET_PATH = /^\d{1,15}\/[a-z0-9][a-z0-9._-]{0,99}$/;
+/** Same name shape as `tenant_brand_assets.name` / `serve-brand-asset` NAME_SEGMENT, after the version. */
+const VERSIONED_ASSET_PATH = /^\d{1,15}\/[a-z0-9][a-z0-9._-]{0,99}\.(svg|png|ico)$/;
 
 export class BrandSourceFailure extends Error {
   constructor(message: string) {
