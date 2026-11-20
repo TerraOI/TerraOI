@@ -2,9 +2,6 @@ import { BRAND_FACT_MARKERS, type BrandMode } from "@/contracts/tenant-brand";
 
 import type { LoadedBrand } from "./tenant-brand";
 
-/** Re-export so existing branding callers keep a single import path (Round-2 B2 / #65). */
-export { BRAND_FACT_MARKERS };
-
 /**
  * T-204's mode contract: for one validated `LoadedBrand`, what each surface is allowed to show.
  *
