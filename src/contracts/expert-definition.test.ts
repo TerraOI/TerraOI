@@ -102,6 +102,13 @@ describe("ExpertDefinition (plan §5.2)", () => {
         refusalTemplates: { out_of_scope: "outside", unavailable: "down" },
       }),
     ).toThrow();
+    // #97 / #151 B4: exactly four keys — a fifth must fail, or relaxing strictObject would go green.
+    expect(() =>
+      ExpertDefinition.parse({
+        ...validExpert(),
+        refusalTemplates: { ...validExpert().refusalTemplates, not_found: "x" },
+      }),
+    ).toThrow();
     expect(() =>
       ExpertDefinition.parse({ ...validExpert(), modelChains: { ...validExpert().modelChains, compose: [] } }),
     ).toThrow();

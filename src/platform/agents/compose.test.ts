@@ -587,9 +587,9 @@ describe("the refusal vocabulary (ADR-0009, #97)", () => {
     expect(answer.summary).not.toBe(EXPERT.refusalTemplates.no_evidence);
     expect(answer.refusalKey).toBe("insufficient_support");
     assertNothingInternalLeaks(answer, "pass-1 refusal");
-    // What changes is the sentence, not the run's honesty about gaps: the composer's stated unknowns
-    // still reach the employee, which is why the refusal is not simply an empty message (§12.1).
-    expect(answer.unknowns).toEqual(["The yearly replacement interval is not stated in the pack."]);
+    // Unknowns must be present on a refusal (§12.1); whether composer prose may reach the employee
+    // on an insufficient_support path is a §9.3 Question (ADR-0009 Open), not pinned here (#151 N1).
+    expect(answer.unknowns.length).toBeGreaterThan(0);
   });
 
   it("the verifier dropping every claim is an insufficient-support refusal", async () => {
@@ -645,7 +645,7 @@ describe("the refusal vocabulary (ADR-0009, #97)", () => {
     });
     const dropped = depsOf({ local_box: [answered(candidate([]), "open-weights-alpha")] });
     shapes.push({
-      label: "no claim survived pass 1",
+      label: "the composer returned no claims",
       run: () => composeAnswer(input(), dropped.deps),
     });
     const deadChain = depsOf({

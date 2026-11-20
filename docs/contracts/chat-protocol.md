@@ -47,6 +47,9 @@ dependencies, §6.2). Rules the schema enforces:
 - `status: answered` needs at least one **non-inference claim that carries evidence**; an answer made
   only of inferences, however many, is `partial` at best (issue #16 N2). `refused`, `partial` and
   `unavailable` may have none;
+- `refusalKey` is required exactly when `status` is `refused` or `unavailable`, and absent otherwise;
+  `no_evidence` / `insufficient_support` / `out_of_scope` ⇒ `refused`, and `unavailable` ⇔
+  `unavailable` ([ADR-0009](../decisions/0009-refusal-vocabulary.md), #97 / #151);
 - evidence rows are typed (`chunk` with source version + chunk + span, `record` with tool call +
   record version + observed-at, `form_field` with submission + field path + template version);
   spans are ordered, and a URL or signed object reference cannot be represented.

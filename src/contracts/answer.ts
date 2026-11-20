@@ -166,13 +166,10 @@ export const Answer = z
       });
     }
 
-    // ADR-0009 (#97), the pairing rule, in both directions:
+    // ADR-0009 (#97 / #137 / #151 B1 ruling): refusalKey ↔ status coherence.
     // - a refusal that does not say which sentence it used cannot be replayed, scored, or audited;
-    // - a refusal key on an answer the employee received would describe a sentence nobody was shown.
-    // A key is deliberately **not** pinned to one status: `no_evidence`, `insufficient_support` and
-    // `out_of_scope` all surface as `refused`, and `unavailable` is the only key that surfaces as
-    // `unavailable`. Which path picks which key is compose's rule (ADR-0009 decision 2), not a fact the
-    // contract can enumerate for every future producer.
+    // - a refusal key on an answer the employee received would describe a sentence nobody was shown;
+    // - the first three keys surface only as `refused`; `unavailable` ⇔ status `unavailable`.
     const refused = answer.status === "refused" || answer.status === "unavailable";
     if (refused && answer.refusalKey === undefined) {
       ctx.addIssue({
@@ -187,6 +184,20 @@ export const Answer = z
         path: ["refusalKey"],
         message: `refusalKey is set only when status is refused or unavailable, not '${answer.status}' (ADR-0009)`,
       });
+    }
+    if (answer.refusalKey !== undefined) {
+      const key = answer.refusalKey;
+      const statusOk =
+        key === "unavailable"
+          ? answer.status === "unavailable"
+          : answer.status === "refused";
+      if (!statusOk) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["refusalKey"],
+          message: "refusalKey does not match status",
+        });
+      }
     }
   });
 export type Answer = z.infer<typeof Answer>;

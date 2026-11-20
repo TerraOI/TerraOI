@@ -195,6 +195,18 @@ describe("Answer (plan §12.1)", () => {
         Answer.parse({ ...validAnswer(), status: "refused", claims: [], refusalKey: "no_evidence" }),
       ).not.toThrow();
     });
+
+    // #151 B1 ruling: the four wrong pairings fail at construction (#97 / #137 item 4).
+    it("rejects a refusalKey that does not match status", () => {
+      for (const refusalKey of ["no_evidence", "insufficient_support", "out_of_scope"] as const) {
+        expect(() =>
+          Answer.parse({ ...validAnswer(), status: "unavailable", claims: [], refusalKey }),
+        ).toThrow(/refusalKey does not match status/);
+      }
+      expect(() =>
+        Answer.parse({ ...validAnswer(), status: "refused", claims: [], refusalKey: "unavailable" }),
+      ).toThrow(/refusalKey does not match status/);
+    });
   });
 
   it("validates evidence: spans are ordered and every evidence row is typed", () => {
