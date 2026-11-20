@@ -1,6 +1,6 @@
 import { parseHost, requestHost } from "@/platform/tenancy/host";
 
-import { BRAND_ASSET_EXTENSIONS, MAX_BRAND_ASSET_BYTES } from "./brand-rules";
+import { BRAND_ASSET_EXTENSIONS, MAX_BRAND_ASSET_BYTES, svgBytesLookScripted } from "./brand-rules";
 import type { BrandAsset } from "./brand-source";
 
 /**
@@ -33,8 +33,13 @@ export const BRAND_ASSET_SVG_CSP = "default-src 'none'; style-src 'unsafe-inline
 /** One flat version segment: digits, capped at 15 so `Number()` stays inside the safe integer range. */
 const VERSION_SEGMENT = /^\d{1,15}$/;
 
-/** One flat lowercase filename, the same form `tenant_brand_assets.name` stores. */
-const NAME_SEGMENT = /^[a-z0-9][a-z0-9._-]{0,99}$/;
+/**
+ * One flat lowercase filename — the same CHECK as `tenant_brand_assets.name` and
+ * `load_public_brand_asset`'s p_name guard: first char + up to 99 of `[a-z0-9._-]`, then a required
+ * `.(svg|png|ico)`. Keeping the quantifier on the stem (not the whole name) matters: a stem of 100
+ * plus `.svg` is legal in SQL (~104 chars) and must still be servable here.
+ */
+const NAME_SEGMENT = /^[a-z0-9][a-z0-9._-]{0,99}\.(svg|png|ico)$/;
 
 export interface BrandAssetDeps {
   readAsset(input: { host: string; configVersion: string; name: string }): Promise<BrandAsset | undefined>;
@@ -100,6 +105,12 @@ export async function serveBrandAsset(
   }
   if (asset.bytes.length === 0 || asset.bytes.length > MAX_BRAND_ASSET_BYTES) {
     console.error("brand asset size refused", { host: parsed.host, step: "size" });
+    return notFound();
+  }
+  if (extension === "svg" && svgBytesLookScripted(asset.bytes)) {
+    // Put already refuses these; this is the read-path backstop for a bypass insert (service role /
+    // migration). Same bodyless 404 as every other refusal — never explain which guard fired.
+    console.error("brand asset SVG content refused", { host: parsed.host, step: "svgContent" });
     return notFound();
   }
 

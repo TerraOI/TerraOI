@@ -177,6 +177,28 @@ export function assetFactProblem(fact: unknown): string | null {
   return null;
 }
 
+/**
+ * Defence-in-depth for SVG bytes at serve time: the same reject list as `put_tenant_brand_v1`.
+ * Write-path checks are the primary gate; this catches a service-role or migration INSERT that
+ * bypassed the RPC. Non-UTF-8 SVG is treated as scripted (refuse).
+ */
+export function svgBytesLookScripted(bytes: Uint8Array): boolean {
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return true;
+  }
+  return (
+    /<\s*(script|iframe|object|embed|foreignObject)/i.test(text) ||
+    /<!DOCTYPE|<!ENTITY/i.test(text) ||
+    /url\s*\(/i.test(text) ||
+    /@import/i.test(text) ||
+    /\son[a-z]+\s*=/i.test(text) ||
+    /(xlink:)?href\s*=/i.test(text)
+  );
+}
+
 /** Field length ceilings, from the kit's own template fields; long enough for any real company. */
 export const BRAND_TEXT_LIMITS = {
   displayName: 80,

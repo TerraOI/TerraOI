@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { platformBrand } from "./kit-brand";
 import { toSignInBrand } from "./sign-in-brand";
+import type { TenantBrand } from "./tenant-brand";
 
 describe("toSignInBrand (ADR-0004 §3 projection)", () => {
   it("maps TenantBrand fields onto SignInBrand without inventing a third vocabulary", () => {
@@ -16,5 +17,17 @@ describe("toSignInBrand (ADR-0004 §3 projection)", () => {
       showPoweredBy: brand.showPoweredBy,
       supportLabel: brand.supportLabel,
     });
+  });
+
+  it("prefixes a versioned tenant logo path for /brand-assets (FAQ-0008)", () => {
+    const brand = {
+      ...platformBrand(),
+      host: "company1.terraoi.app",
+      mode: "customer",
+      displayName: "Company1 Geotechnics",
+      showPoweredBy: false,
+      logoPath: "1/logo.svg",
+    } as TenantBrand;
+    expect(toSignInBrand(brand).logoUrl).toBe("/brand-assets/1/logo.svg");
   });
 });

@@ -12,10 +12,10 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
--- COUNT: 56 assertions below, numbered 1–56 in their messages. `plan` equals that count exactly:
+-- COUNT: assertions below, numbered in their messages. `plan` equals that count exactly:
 -- CI's `database` job is the venue for this file (no builder machine has Docker), and a `plan(N)`
 -- that does not match the assertions that run is a red run, not a warning.
-select plan(56);
+select plan(59);
 
 -- Error-as-SQLSTATE helpers. SECURITY INVOKER on purpose: they run as the role under test.
 create function pg_temp.try_scope(p_organisation_id uuid) returns text
@@ -221,6 +221,28 @@ select is((select string_agg(a, ',' order by a)
   null::text,
   '14 the public projection carries no config_version, legal_name, reply-to or organisation id: the '
   || 'version lives inside the asset path, not as a page fact (ADR-0004 §4, §5.1 line 273)');
+-- Round 2 B4.2: pin the OUT column list itself (not only the absent ones). Matches PublicBrandRowSchema.
+select is(
+  (select string_agg(n, ',' order by ord)
+     from (
+       select p.proargnames[i] as n, p.proargmodes[i]::text as m, i as ord
+         from pg_proc p
+         join pg_namespace ns on ns.oid = p.pronamespace
+         cross join lateral generate_subscripts(p.proargnames, 1) as i
+        where ns.nspname = 'public' and p.proname = 'load_public_brand'
+     ) x
+    where m = 't'),
+  'mode,display_name,descriptor,tagline,primary_color,on_primary_color,accent_color,'
+    || 'logo_path,logo_bytes,favicon_path,favicon_bytes,support_label,support_url,'
+    || 'report_owner,email_sender_name,document_prefix,show_powered_by',
+  '14b load_public_brand OUT columns are exactly the PublicBrand projection (Round 2 B4.2)');
+select is(
+  (select string_agg(column_name, ',' order by column_name)
+     from information_schema.columns
+    where table_schema = 'public' and table_name = 'tenant_brands'
+      and column_name in ('locale', 'timezone')),
+  null::text,
+  '14c locale and timezone stay off tenant_brands (ADR-0004 §2 / Round 2 B4.4)');
 select is((select logo_path from t_brand where case_name = 'c1'), '1/logo.svg',
   '15 the logo path is composed with the version in it, which is what makes FAQ-0008''s immutable '
   || 'Cache-Control honest');
@@ -251,6 +273,14 @@ select is((select rows from t_brand where case_name = 'staging'), 0::int,
 select is((select rows from t_brand where case_name = 'c2_not_c1'), 0::int,
   '20 company1''s brand is never returned on company2''s host — the project-axis substitute this row '
   || 'type allows, named as such in ADR-0004 §4');
+
+-- Round 2 B4.3 / N0: a comma-folded Host is not a bare hostname (20261120165000 tightens the guard).
+insert into t_out values
+  ('host_folded', pg_temp.try_host_brand('company1.terraoi.app,evil.example')),
+  ('asset_host_folded', pg_temp.try_host_asset('company1.terraoi.app,evil.example', 1, 'logo.svg'));
+select ok((select count(*)::int = 2 from t_out
+             where case_name in ('host_folded', 'asset_host_folded') and result = '22023'),
+  '20b a comma-folded host is refused as not a bare hostname on both brand readers (Round 2 B4.3)');
 
 -- ---------------------------------------------------------------- 21 the suspended tenant (F28)
 savepoint sp_suspend;
