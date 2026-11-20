@@ -1,5 +1,8 @@
 -- T-114 Migration: `search_corpus_v1` — one hybrid reader (full text + vector, reciprocal-rank fusion)
 -- in `public`, scoped by RLS, with bounded coverage diagnostics. Plan §8.1–§8.3, §6.2, §4.3; F08, F16.
+-- Timestamp claim (COORDINATION §3): `20261120120000`, later than every migration on `main` at push
+-- (`20261116213000_capture_scope.sql`) and later than in-flight #149 `20261120110000_ocr_job_leases.sql`
+-- so either merge order keeps a single sequence. Exactly one migration in this PR; never edit merged ones.
 -- Supersedes nothing; reads the tables of 20261105070000_knowledge_core.sql and the tenant scope of
 -- 20261105060000_tenancy_core.sql.
 --
