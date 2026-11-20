@@ -21,8 +21,8 @@ Source: #163, #169 · Date: 2026-11-12 · Applies to: all scoped RPCs and their 
 Source: #142 · Date: 2026-11-09 · Applies to: Lane 2, `supabase/migrations/`
 
 ### FAQ-0009: How do I update `database.types.ts` without Docker?
-**Answer:** Push the migration with its pgTAP. If the types are stale, CI's `database` job fails only on that step and uploads the regenerated file as the `database-types` artifact; run `gh run download <run id> -n database-types -D src/contracts/`, commit it and push. Never hand-edit the file, and never take types from a run whose pgTAP failed (that run uploads none). **Why:** no builder machine has Docker, and CI is the only place the generator runs ([#122](https://github.com/TerraOI/TerraOI/issues/122)).
-Source: #122 · Date: 2026-11-09 · Applies to: all (migration PRs)
+**Answer:** Push the migration with its pgTAP. If the types are stale, CI's `database` job fails only on that step and uploads the regenerated file as the `database-types` artifact; run `gh run download <run id> -n database-types -D src/contracts/`, commit it and push. Never hand-edit the file, and never take types from a run whose pgTAP failed (that run uploads none). Until the file is first committed, every passing `database` run uploads the artifact; the supervisor commits that first copy, and builders do not ([#176](https://github.com/TerraOI/TerraOI/issues/176)). **Why:** no builder machine has Docker, and CI is the only place the generator runs ([#122](https://github.com/TerraOI/TerraOI/issues/122)).
+Source: #122, #176 · Date: 2026-11-09, amended 2026-11-20 · Applies to: all (migration PRs)
 
 ### FAQ-0003: Can I upgrade TypeScript to 7?
 **Answer:** Not yet. TypeScript is pinned to 6.x. **Why:** `typescript-eslint` does not support TS 7, and lint crashes with it (plan §3.1: pin a tested compatibility set). Upgrade in a dedicated PR once typescript-eslint supports TS 7 and `pnpm verify` passes.
