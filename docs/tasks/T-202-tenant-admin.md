@@ -6,10 +6,11 @@ Plan refs: §4.2, §5.2 (permission areas), §6.1–§6.2, §15.0 (Thin: tenant 
 ## Supervisor rulings to apply (2026-11-09)
 These supersede anything below that disagrees.
 - **Collection writes** ([#41](https://github.com/TerraOI/TerraOI/issues/41)): the collection page calls [T-111b](./T-111b-collection-admin-rpc.md)'s `create_collection_v1`/`update_collection_v1`; a class raise calls T-213's `review_reclass_v1` ([#21](https://github.com/TerraOI/TerraOI/issues/21)). This packet writes no knowledge table.
-- **Seed** ([#39](https://github.com/TerraOI/TerraOI/issues/39)): one `contributor` role with `knowledge.write`, its permission row and one membership grant, plus the matching fixture in `040_knowledge_uploads.test.sql`.
+- **Seed** ([#39](https://github.com/TerraOI/TerraOI/issues/39), [#198](https://github.com/TerraOI/TerraOI/issues/198)): one `contributor` role with `knowledge.write`, its permission row and one membership grant, plus the matching fixture in `040_knowledge_uploads.test.sql`. It lands in its own small PR after PR-1 merges, using ids grepped as unused, and that PR is authorized under FAQ-0007 to re-pin exactly `010_tenancy.test.sql` 44–45, `017_scoped_identity_reads.test.sql` 10 and `040_knowledge_uploads.test.sql` 17 ([#179 ruling](https://github.com/TerraOI/TerraOI/pull/179#issuecomment-6985900913)).
 - **Brand fallback banner** ([#62](https://github.com/TerraOI/TerraOI/issues/62)): admins see a banner when the tenant brand fell back (`brand.fallback` log event).
 - **`policy_revision` writer** ([#98](https://github.com/TerraOI/TerraOI/issues/98)): ship `public.bump_policy_revision()` (after-statement trigger, `security definer`, pinned `search_path`, EXECUTE revoked from request roles) and attach it to `organisation_memberships`, `roles`, `role_permissions`, group membership and `organisations` status changes; replace the table comment at `tenancy_core.sql:34` ("a monotonic stamp … recorded for audit and used as a cache key; access is always re-derived"); pgTAP in `013` asserts each write moves it and a no-op does not.
 - **Tenant scope** ([#163](https://github.com/TerraOI/TerraOI/issues/163), FAQ-0011): every scoped RPC this packet calls goes through `withTenantRpc` (T-101c), which injects `p_organisation_id` from `TenantContext`. No page or component passes an organisation id.
+- **Invitations** ([#179 ruling](https://github.com/TerraOI/TerraOI/pull/179#issuecomment-6985900913), 2026-11-18): an invitation is a `tenant_invitations` row keyed by `(organisation_id, normalized email)`, not a membership row, because `organisation_memberships.user_id` needs an existing profile. `invite_member_v1` writes only that table, never reads `profiles` or `auth.users`, and gives every well-formed address the same answer (#13(2)). Invitations expire after 7 days. No admin RPC creates an `active` membership or writes `status = 'active'`; only T-201's `redeem_invitation_v1` does. `activate_membership_v1` is not built. The table and the new `invite_member_v1` land in **PR-1b**, after PR-1 (#179), and `bump_policy_revision` also watches `tenant_invitations`.
 - **Last-admin guard** ([#202](https://github.com/TerraOI/TerraOI/issues/202), 2026-11-20): every RPC that can demote, revoke or deactivate a member refuses a change that would leave the tenant with zero **active** holders of `members.admin`. Count under a lock so two concurrent demotions cannot both pass, and refuse with `23514` and a fixed message (a state rule, not a permission failure). pgTAP in `013`: the last admin cannot demote or revoke themself; with two admins one can be demoted and then the other cannot; a suspended admin does not count. The page shows the refusal as plain copy and does not pre-empt the database. This lands in PR-2 or its own small migration PR; PR-1 (#179) does not need it.
 
 ## Goal
@@ -22,9 +23,11 @@ tenant's ids, and cannot lower a data class or widen an audience.
 - `src/platform/tenancy/` (membership, role, project and invite admin calls), `src/app/(tenant)/admin/`
 - `src/components/admin/`, `src/components/knowledge/` (collection list and create UI only)
 - `src/platform/tenancy/*.test.ts`, `supabase/tests/database/013_tenant_admin.test.sql`
-- one migration `supabase/migrations/YYYYMMDDHHMMSS_tenant_admin_rpc.sql` holding these scoped RPCs
-  — timestamp agreed in the daily sync, migrations are protected, and the merged tenancy migration
-  is never edited
+- one migration per PR, timestamp agreed in the daily sync (migrations are protected, and the merged
+  tenancy migration is never edited): PR-1 `supabase/migrations/YYYYMMDDHHMMSS_tenant_admin_rpc.sql`
+  (the role, project and membership-status RPCs and `bump_policy_revision`), and PR-1b
+  `supabase/migrations/YYYYMMDDHHMMSS_tenant_invitations.sql` (the `tenant_invitations` table and
+  `invite_member_v1`)
 
 ## Must not edit
 `src/contracts/`, merged migrations, `src/platform/knowledge/` (Lane 2),
@@ -44,8 +47,9 @@ collections are project-scoped (§6.2 of
 [FAQ-0004](../../docs/FAQ.md)).
 
 ## Acceptance tests (write first)
-- [ ] positive: `supabase/tests/database/013_tenant_admin.test.sql` — an admin invites an address, the
-      membership appears as `invited`, and it becomes `active` only once the invite is claimed
+- [ ] positive: `supabase/tests/database/013_tenant_admin.test.sql` — an admin invites an address, a
+      pending invitation appears and no membership row exists, and the membership is created `active`
+      only by the invitee's verified claim (T-201); a known and an unknown address get the same answer
 - [ ] negative: same file — a company1 admin cannot read, invite into or modify company2 rows, and a
       `project_id` from company2 is refused by the composite FK (`23503`), never silently ignored
 - [ ] negative: same file — a member without the matching `*.admin` level is refused by the RPC, a
