@@ -199,6 +199,29 @@ describe("sendEmail — links must live on the resolved tenant host (plan §4.1 
     });
   }
 
+  // #139 B3: a foreign URL outside the attribute list or only in a text node must still be refused
+  // after the whole-HTML entity-decode + textUrlCandidates pass.
+  const foreignHtmlShapes: Array<[string, (link: string) => string]> = [
+    ["text node", (link) => `<p>${link}</p>`],
+    ["meta refresh", (link) => `<meta http-equiv="refresh" content="0;url=${link}">`],
+    ["object data", (link) => `<object data="${link}"></object>`],
+    ["video poster", (link) => `<video poster="${link}"></video>`],
+    ["a ping", (link) => `<a ping="${link}">x</a>`],
+  ];
+  for (const [shapeName, wrap] of foreignHtmlShapes) {
+    for (const [index, link] of foreign.entries()) {
+      it(`refuses ${shapeName} foreign ${index + 1}: ${link.slice(0, 40)}… (#139 B3)`, async () => {
+        const { transport } = transportFor();
+        const result = await sendEmail(
+          message({ text: `open the app`, html: wrap(link) }),
+          transport,
+        );
+        expect(result).toEqual({ status: "rejected", reason: "link_host" });
+        expect(transport.sent).toHaveLength(0);
+      });
+    }
+  }
+
   it("refuses a relative href — an email has no base URL (#139 B1)", async () => {
     const { transport } = transportFor();
     const result = await sendEmail(

@@ -177,9 +177,19 @@ function normalizeLinkCandidate(raw: string): string {
   return decodeHtmlEntities(raw).replace(/\\/g, "/").trim();
 }
 
-/** Exact `https://${tenantHost}` followed by `/`, `?`, `#`, or end — or `mailto:`. */
+/**
+ * Fixed non-link URLs a template may need (CDN pixel, etc.). Exact strings only, keyed by name —
+ * never a host allowlist. Empty until a template names one.
+ */
+const ALLOWED_EXACT_URLS_BY_NAME: Readonly<Record<string, string>> = {
+  // add by name only when a legitimate template needs a fixed non-tenant URL
+};
+const ALLOWED_EXACT_URLS = new Set(Object.values(ALLOWED_EXACT_URLS_BY_NAME));
+
+/** Exact `https://${tenantHost}` followed by `/`, `?`, `#`, or end — or `mailto:` / named exact. */
 function isAllowedTenantOrMailto(candidate: string, tenantHost: string): boolean {
   if (candidate.toLowerCase().startsWith("mailto:")) return true;
+  if (ALLOWED_EXACT_URLS.has(candidate)) return true;
   const prefix = `https://${tenantHost}`;
   if (!candidate.startsWith(prefix)) return false;
   const remainder = candidate.slice(prefix.length);
@@ -224,7 +234,14 @@ function textUrlCandidates(text: string): string[] {
 }
 
 function linksAreOnTenantHost(text: string, html: string | undefined, tenantHost: string): boolean {
-  const candidates = [...textUrlCandidates(text), ...(html === undefined ? [] : htmlUrlCandidates(html))];
+  const candidates = [...textUrlCandidates(text)];
+  if (html !== undefined) {
+    // Attribute / CSS url() pass first (relative hrefs, srcset, etc.).
+    candidates.push(...htmlUrlCandidates(html));
+    // Then entity-decode the whole HTML and scan every http(s): / protocol-relative token anywhere —
+    // text nodes, off-list attributes (meta refresh, object data, video poster, a ping), comments.
+    candidates.push(...textUrlCandidates(decodeHtmlEntities(html)));
+  }
   for (const raw of candidates) {
     const candidate = normalizeLinkCandidate(raw);
     if (!isAllowedTenantOrMailto(candidate, tenantHost)) return false;
