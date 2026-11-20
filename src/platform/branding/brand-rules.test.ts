@@ -146,6 +146,13 @@ describe("svgBytesLookScripted (serve-time backstop for put_tenant_brand_v1)", (
     expect(svgBytesLookScripted(enc("<svg><rect style='fill:url(#a)'/></svg>"))).toBe(true);
     expect(svgBytesLookScripted(enc('<svg><a href="https://evil.example"/></svg>'))).toBe(true);
   });
+
+  it("refuses a spaced DOCTYPE/ENTITY the way SQL does (#211 N1)", () => {
+    expect(svgBytesLookScripted(enc("<!DOCTYPE svg><svg/>"))).toBe(true);
+    expect(svgBytesLookScripted(enc("<!  DOCTYPE svg><svg/>"))).toBe(true);
+    expect(svgBytesLookScripted(enc("<!ENTITY x 'y'><svg/>"))).toBe(true);
+    expect(svgBytesLookScripted(enc("<! ENTITY x 'y'><svg/>"))).toBe(true);
+  });
 });
 
 describe("tenantModeIsAllowed (plan §5.1 line 261)", () => {

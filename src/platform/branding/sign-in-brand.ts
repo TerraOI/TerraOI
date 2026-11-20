@@ -27,7 +27,8 @@ export function toSignInBrand(brand: TenantBrand): SignInBrandFields {
   return {
     name: brand.displayName,
     tagline: brand.tagline,
-    logoUrl: brandAssetUrl(brand.logoPath) ?? brand.logoPath ?? "",
+    // Only a versioned FAQ-0008 path becomes a URL; anything else is empty (never a raw path in <img>).
+    logoUrl: brandAssetUrl(brand.logoPath) ?? "",
     primary: brand.primary,
     onPrimary: brand.onPrimary,
     accent: brand.accent,

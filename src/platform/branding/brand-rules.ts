@@ -191,7 +191,8 @@ export function svgBytesLookScripted(bytes: Uint8Array): boolean {
   }
   return (
     /<\s*(script|iframe|object|embed|foreignObject)/i.test(text) ||
-    /<!DOCTYPE|<!ENTITY/i.test(text) ||
+    // Same spacing allowance as put_tenant_brand_v1: `<![[:space:]]*(DOCTYPE|ENTITY)`.
+    /<!\s*(DOCTYPE|ENTITY)/i.test(text) ||
     /url\s*\(/i.test(text) ||
     /@import/i.test(text) ||
     /\son[a-z]+\s*=/i.test(text) ||

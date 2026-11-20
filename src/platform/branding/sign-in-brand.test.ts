@@ -30,4 +30,12 @@ describe("toSignInBrand (ADR-0004 §3 projection)", () => {
     } as TenantBrand;
     expect(toSignInBrand(brand).logoUrl).toBe("/brand-assets/1/logo.svg");
   });
+
+  it("drops a non-versioned logo path rather than handing it to <img src> (#211 N2)", () => {
+    const brand = {
+      ...platformBrand(),
+      logoPath: "assets/logo.svg",
+    } as TenantBrand;
+    expect(toSignInBrand(brand).logoUrl).toBe("");
+  });
 });

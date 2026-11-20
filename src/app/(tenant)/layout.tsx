@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import type { ReactNode } from "react";
 
 import { TenantFrame } from "@/components/tenant-shell/tenant-frame";
+import { brandSourceReader, type BrandSourceEnv } from "@/platform/branding/brand-source";
 import { loadTenantBrand } from "@/platform/branding/load-tenant-brand";
 import { toSignInBrand } from "@/platform/branding/sign-in-brand";
 import { buildIdentityPorts, type IdentityEnv } from "@/platform/identity/adapters";
@@ -24,6 +25,12 @@ function identityEnv(): Partial<IdentityEnv> {
   } catch {
     return {};
   }
+}
+
+/** Same Worker bindings login and /brand-assets use; publishable key only (#211 / #173 N1). */
+function brandEnv(): Partial<BrandSourceEnv> {
+  const env = identityEnv();
+  return { SUPABASE_URL: env.SUPABASE_URL, SUPABASE_ANON_KEY: env.SUPABASE_ANON_KEY };
 }
 
 /**
@@ -54,7 +61,11 @@ async function signOutToken(host: string | null): Promise<string | undefined> {
 export default async function TenantLayout({ children }: { children: ReactNode }) {
   const headerList = await headers();
   const host = shellHost(headerList);
-  const resolved = await loadTenantBrand({ host: host ?? "" });
+  // Same F04 reader as /login (#211): missing bindings / refused rows fall closed to platform.
+  const resolved = await loadTenantBrand({
+    host: host ?? "",
+    readSource: brandSourceReader(brandEnv()),
+  });
   const csrfToken = await signOutToken(host);
   return (
     <TenantFrame brand={toSignInBrand(resolved.brand)} csrfToken={csrfToken}>

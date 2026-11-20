@@ -42,7 +42,10 @@ describe("tenant layout brand host", () => {
       host: "company2.terraoi.app",
     });
     render(await TenantLayout({ children: <p>Login child</p> }));
-    expect(loadTenantBrand).toHaveBeenCalledWith({ host: "company1.terraoi.app" });
+    expect(loadTenantBrand).toHaveBeenCalledWith({
+      host: "company1.terraoi.app",
+      readSource: expect.any(Function),
+    });
     expect(screen.getByText("Login child")).toBeTruthy();
     expect(screen.queryByText("No services are available.")).toBeNull();
   });
@@ -50,7 +53,18 @@ describe("tenant layout brand host", () => {
   it("still renders the child when the proxy stamped no host", async () => {
     loadTenantBrand.mockResolvedValue({ brand: platformBrand(), origin: "platform", fallback: null });
     render(await TenantLayout({ children: <p>Login child</p> }));
-    expect(loadTenantBrand).toHaveBeenCalledWith({ host: "" });
+    expect(loadTenantBrand).toHaveBeenCalledWith({
+      host: "",
+      readSource: expect.any(Function),
+    });
     expect(screen.getByText("Login child")).toBeTruthy();
+  });
+
+  it("hands brandSourceReader to the loader (#173 Round 3 N1)", async () => {
+    loadTenantBrand.mockResolvedValue({ brand: platformBrand(), origin: "platform", fallback: null });
+    requestHeaders = new Headers({ [ROUTED_HOST_HEADER]: "company1.terraoi.app" });
+    render(await TenantLayout({ children: <p>Shell child</p> }));
+    const arg = loadTenantBrand.mock.calls[0]?.[0] as { readSource?: unknown };
+    expect(typeof arg.readSource).toBe("function");
   });
 });
