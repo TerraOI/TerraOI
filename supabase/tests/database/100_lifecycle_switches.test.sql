@@ -258,8 +258,8 @@ select is(pg_temp.try_suspend('11111111-1111-4111-8111-111111111111'), 'ok',
 select is(status, 'suspended',
   '36 and it moves organisations.status, the one status resolve_tenant_host and is_active_member read')
   from public.organisations where id = '11111111-1111-4111-8111-111111111111';
-select is(policy_revision::text, '1',
-  '37 #98 / N8: this migration does not bump policy_revision; the assertion turns red when #179 merges')
+select is(policy_revision::text, '2',
+  '37 #98 / #179: suspend_tenant_v1 changes organisations.status, so bump_policy_revision moves the stamp from 1 to 2')
   from public.organisations where id = '11111111-1111-4111-8111-111111111111';
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
