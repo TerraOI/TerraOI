@@ -333,7 +333,7 @@ describe("the same question asked twice", () => {
     expect(h.adapterCalls()).toBe(0);
   });
 
-  it("a withheld resume emits a claim-free unavailable template and dials nothing (B2 / F24 / B8)", async () => {
+  it("a withheld resume emits refused/no_evidence and dials nothing (B2 / F24 / ADR-0009)", async () => {
     const store = new RecordingStore();
     store.answers.getRun = {
       ok: true,
@@ -362,13 +362,13 @@ describe("the same question asked twice", () => {
     const outcome = await h.run();
     expect(outcome.kind).toBe("delivered");
     if (outcome.kind !== "delivered") return;
-    expect(outcome.status).toBe("unavailable");
+    expect(outcome.status).toBe("refused");
     const frame = answerFrame(h.frames);
     expect(frame.persisted).toBe(true);
-    expect(frame.answer.status).toBe("unavailable");
-    expect(frame.answer.refusalKey).toBe("unavailable");
+    expect(frame.answer.status).toBe("refused");
+    expect(frame.answer.refusalKey).toBe("no_evidence");
     expect(frame.answer.claims).toEqual([]);
-    expect(frame.answer.summary).toBe("This answer is no longer available.");
+    expect(frame.answer.summary).toContain("Nothing in the documents you are allowed to read");
     expect(JSON.stringify(h.frames)).not.toContain(COMPOSED_PHRASE);
     expect(h.searches).toHaveLength(0);
     expect(h.adapterCalls()).toBe(0);

@@ -181,20 +181,21 @@ export async function runChat(
   }
   if (existing.value.withheld) {
     // Round-1 B2 / F24: a cited source is no longer readable — do not re-emit quotes from storage.
-    // Round-3 B8 / ADR-0009: status+key stay coherent (`unavailable` ⇔ the copy we show).
+    // ADR-0009 / #218: withheld resume is refused + no_evidence (nothing the employee may read supports
+    // an answer). Never unavailable — a retry cannot change it.
     const withheld = templateAnswer(
       expert.key,
       expert.version,
       run,
-      "unavailable",
-      "unavailable",
-      "This answer is no longer available.",
+      "refused",
+      "no_evidence",
+      policy.refusalTemplates.no_evidence,
       existing.value.dataClass,
       existing.value.corpusGenerations,
       iso(now),
     );
     deps.emit({ kind: "answer", answer: withheld, persisted: true });
-    return { kind: "delivered", runId: run, status: "unavailable", persisted: true, audit: null };
+    return { kind: "delivered", runId: run, status: "refused", persisted: true, audit: null };
   }
   if (existing.value.answer !== null) {
     // Duplicate submit or a reload after a disconnect: the stored answer is the answer. Zero retrieval
