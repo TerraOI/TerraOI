@@ -11,7 +11,7 @@
 -- docs/decisions/0011-object-bytes-for-the-extraction-workers.md (new here).
 --
 -- Timestamp claim (daily sync, COORDINATION §3): later than every migration on `main` at push time
--- (was re-timed past `20261116213000_capture_scope.sql` as `20261120110000`). Exactly one
+-- (was re-timed past `20261120165000_brand_public_host_guard.sql` as `20261120212000`). Exactly one
 -- migration in this PR (`scripts/migrations.mjs`); merged migrations are never edited.
 --
 -- Privilege discipline (#60 as merged, FAQ-0010): every function created here — in `public` and in
