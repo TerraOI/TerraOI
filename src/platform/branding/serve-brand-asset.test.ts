@@ -82,6 +82,18 @@ describe("serveBrandAsset: a served brand asset", () => {
     expect(response.status).toBe(200);
     expect(calls).toEqual([{ host: "company1.terraoi.app", configVersion: "1", name: longName }]);
   });
+
+  it("404s a stored SVG that carries a script, same bodyless shape as every other refusal", async () => {
+    const scripted = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"><script/></svg>');
+    const { dep } = deps({ contentType: "image/svg+xml", bytes: scripted });
+    const response = await serveBrandAsset(
+      route("https://company1.terraoi.app/brand-assets/1/logo.svg"),
+      { configVersion: "1", name: "logo.svg" },
+      dep,
+    );
+    expect(response.status).toBe(404);
+    expect(await response.text()).toBe("");
+  });
 });
 
 describe("serveBrandAsset: every refusal is the same answer", () => {

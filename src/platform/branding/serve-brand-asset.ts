@@ -1,6 +1,6 @@
 import { parseHost, requestHost } from "@/platform/tenancy/host";
 
-import { BRAND_ASSET_EXTENSIONS, MAX_BRAND_ASSET_BYTES } from "./brand-rules";
+import { BRAND_ASSET_EXTENSIONS, MAX_BRAND_ASSET_BYTES, svgBytesLookScripted } from "./brand-rules";
 import type { BrandAsset } from "./brand-source";
 
 /**
@@ -105,6 +105,12 @@ export async function serveBrandAsset(
   }
   if (asset.bytes.length === 0 || asset.bytes.length > MAX_BRAND_ASSET_BYTES) {
     console.error("brand asset size refused", { host: parsed.host, step: "size" });
+    return notFound();
+  }
+  if (extension === "svg" && svgBytesLookScripted(asset.bytes)) {
+    // Put already refuses these; this is the read-path backstop for a bypass insert (service role /
+    // migration). Same bodyless 404 as every other refusal — never explain which guard fired.
+    console.error("brand asset SVG content refused", { host: parsed.host, step: "svgContent" });
     return notFound();
   }
 

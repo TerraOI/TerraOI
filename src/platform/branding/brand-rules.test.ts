@@ -9,6 +9,7 @@ import {
   isHttpsUrl,
   meetsContrast,
   parseHexColor,
+  svgBytesLookScripted,
   tenantModeIsAllowed,
 } from "./brand-rules";
 
@@ -128,6 +129,22 @@ describe("assetFactProblem (plan §5.1 'sanitize or reject uploaded SVG/HTML')",
   it("refuses an HTML asset outright: a brand asset is an image, not a document to render", () => {
     expect(assetFactProblem({ path: "assets/logo.html", bytes: 100 })).toMatch("type");
     expect(assetFactProblem({ path: "assets/logo.svg", bytes: 100, containsScript: true })).toMatch("content");
+  });
+});
+
+describe("svgBytesLookScripted (serve-time backstop for put_tenant_brand_v1)", () => {
+  const enc = (s: string) => new TextEncoder().encode(s);
+
+  it("clears a plain kit-shaped SVG", () => {
+    expect(svgBytesLookScripted(enc('<svg xmlns="http://www.w3.org/2000/svg"/>'))).toBe(false);
+  });
+
+  it("refuses script, foreignObject, handlers, url(), and href", () => {
+    expect(svgBytesLookScripted(enc("<svg><script/></svg>"))).toBe(true);
+    expect(svgBytesLookScripted(enc("<svg><foreignObject/></svg>"))).toBe(true);
+    expect(svgBytesLookScripted(enc('<svg onload="x"/>'))).toBe(true);
+    expect(svgBytesLookScripted(enc("<svg><rect style='fill:url(#a)'/></svg>"))).toBe(true);
+    expect(svgBytesLookScripted(enc('<svg><a href="https://evil.example"/></svg>'))).toBe(true);
   });
 });
 
