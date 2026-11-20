@@ -8,7 +8,7 @@ Plan refs: §17.1 (kill switches as settings), §15.0 ("Tenant provisioning by s
 These supersede anything below that disagrees.
 - **Kill switches** ([#74](https://github.com/TerraOI/TerraOI/issues/74)): M1 delivers tenant, expert and provider; add an expert-switch acceptance line in `100_lifecycle_switches.test.sql` (a switched-off expert is not selectable and its routes are refused at the gateway).
 - **Tenant switch** ([#98](https://github.com/TerraOI/TerraOI/issues/98)): relies on the `organisations.status` trigger from T-202 to move `policy_revision`.
-- **Control-plane credential** ([#193 ruling](https://github.com/TerraOI/TerraOI/pull/193#issuecomment-6986200996), E1, 2026-11-18): `toi_control_plane` is recorded in ADR-0009, written in this packet's PR. NOLOGIN; `USAGE` on the non-exposed `toi_control` schema and `EXECUTE` on the lifecycle and provisioning functions only, no table grants. Only the operator-run `scripts/provision-tenant.mjs` connects, from the owner's machine: no Worker binding, no Hyperdrive config, no `wrangler.jsonc` entry and no CI secret, and a check refuses a `CONTROL_PLANE_DB` binding in `wrangler.jsonc`. One login per environment, kept in the owner's password manager, rotated after each provisioning session in the pilot.
+- **Control-plane credential** ([#193 ruling](https://github.com/TerraOI/TerraOI/pull/193#issuecomment-6986200996), E1, 2026-11-18): `toi_control_plane` is recorded in ADR-0012, written in this packet's PR. NOLOGIN; `USAGE` on the non-exposed `toi_control` schema and `EXECUTE` on the lifecycle and provisioning functions only, no table grants. Only the operator-run `scripts/provision-tenant.mjs` connects, from the owner's machine: no Worker binding, no Hyperdrive config, no `wrangler.jsonc` entry and no CI secret, and a check refuses a `CONTROL_PLANE_DB` binding in `wrangler.jsonc`. One login per environment, kept in the owner's password manager, rotated after each provisioning session in the pilot.
 - **One host per call** ([#193 ruling](https://github.com/TerraOI/TerraOI/pull/193#issuecomment-6986200996), E2): plan §4.1 (line 212) gives the staging origin its own database, so the script runs once per environment with that environment's host and `kind`; a second host is a second resumable call.
 - **Entitlements** ([#193 ruling](https://github.com/TerraOI/TerraOI/pull/193#issuecomment-6986200996), E3): `tenant_services` / `tenant_experts` are T-311's. Until they merge, provisioning creates no entitlement and asserts the absence. A follow-up slice of this packet then calls a T-311 definer function granted to `toi_control_plane`, never writing T-311's tables directly.
 
@@ -26,7 +26,7 @@ system. §15.2 makes "kill switches verified" an M1-PILOT gate item, so the evid
 - `src/platform/tenancy/` (lifecycle calls and the switch read the request pipeline uses),
   `scripts/provision-tenant.mjs` — `scripts/` is shared ([scripts/README.md](../../scripts/README.md)),
   so the daily sync confirms no other PR is in it
-- `docs/decisions/0009-control-plane-role.md` (new, accepted in the same PR; #193 E1)
+- `docs/decisions/0012-control-plane-role.md` (new, accepted in the same PR; #193 E1)
 - `supabase/tests/database/100_lifecycle_switches.test.sql`, `src/platform/tenancy/*.test.ts`,
   `scripts/provision-tenant.test.mjs`
 
