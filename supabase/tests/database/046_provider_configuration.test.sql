@@ -1,18 +1,16 @@
 -- T-116 provider and clearance configuration: the four §6.1 tables, the narrow-only guard, the
--- one-revision matrix guard, and the privilege closure (#60). Plan §6.1, §12.4, §17.1; F37/F38/F40.
--- Slot 046 (COORDINATION §6b: T-116 claims its slot in the daily sync; 045 is T-211, 050 is T-213).
+-- one-revision matrix guard (deferred + ceiling/enabled bump), and the privilege closure (#60).
+-- Plan §6.1, §12.4, §17.1; F37/F38/F40. Slot 046 (COORDINATION §6b: T-116 claims its slot in the
+-- daily sync; 045 is T-211, 050 is T-213).
 --
--- What this file does NOT re-prove: the membership predicate itself (`is_active_member`, and the
--- deactivated-member and other-tenant cases) is proven in `010_tenancy.test.sql`, where the scope
--- plumbing exists. This suite proves the objects T-116 adds: their shape, their closures, and that
--- the tenant table cannot be widened from SQL. The read-path negatives here are the ones provable
--- without a JWT: the tenant-policy function is closed to both request roles (#143 B5 — an unscoped
--- call would answer zero rows and so silently widen clearance), the direct table read is empty under
--- RLS, and the policy is asserted by definition.
+-- RLS negatives use the seed users via `set local role authenticated` and
+-- `set local request.jwt.claim.sub` (010:147-148). After #143 round-4 B8 there is no SELECT grant
+-- and no policy on `tenant_provider_policy`, so an active member, another tenant, and a suspended
+-- member are all refused with 42501 — matching the three platform tables.
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(74);
+select plan(75);
 
 -- Helpers report an error as its SQLSTATE instead of aborting the test transaction (010/040 idiom).
 create function pg_temp.try_insert_provider(
@@ -33,10 +31,64 @@ begin
 end;
 $fn$;
 
+-- Disabling is a matrix change: bump every row's revision in the same statement so the deferred
+-- one-revision check stays satisfied (#143 B7).
 create function pg_temp.try_disable_provider(p_key text) returns text
 language plpgsql security invoker set search_path = public, pg_temp as $fn$
 begin
-  update public.model_providers set enabled = false where provider_key = p_key;
+  update public.model_providers
+     set enabled = case when provider_key = p_key then false else enabled end,
+         clearance_revision = clearance_revision + 1;
+  return 'ok';
+exception when others then
+  return sqlstate::text;
+end;
+$fn$;
+
+create function pg_temp.try_bump_all_revisions() returns text
+language plpgsql security invoker set search_path = public, pg_temp as $fn$
+begin
+  update public.model_providers set clearance_revision = clearance_revision + 1;
+  return 'ok';
+exception when others then
+  return sqlstate::text;
+end;
+$fn$;
+
+create function pg_temp.try_ceiling_without_bump(p_key text, p_class text) returns text
+language plpgsql security invoker set search_path = public, pg_temp as $fn$
+begin
+  update public.model_providers
+     set max_cleared_class = p_class
+   where provider_key = p_key;
+  return 'ok';
+exception when others then
+  return sqlstate::text;
+end;
+$fn$;
+
+create function pg_temp.try_bump_one_revision(p_key text, p_revision bigint) returns text
+language plpgsql security invoker set search_path = public, pg_temp as $fn$
+begin
+  update public.model_providers
+     set clearance_revision = p_revision
+   where provider_key = p_key;
+  return 'ok';
+exception when others then
+  return sqlstate::text;
+end;
+$fn$;
+
+-- B7: defer the one-revision check, leave a mixed table, then force the check (supervisor: under
+-- `set constraints … immediate`). The raise must land inside this subtransaction.
+create function pg_temp.try_mixed_revision_then_immediate(p_key text, p_revision bigint) returns text
+language plpgsql security invoker set search_path = public, pg_temp as $fn$
+begin
+  execute 'set constraints model_providers_one_revision deferred';
+  update public.model_providers
+     set clearance_revision = p_revision
+   where provider_key = p_key;
+  execute 'set constraints model_providers_one_revision immediate';
   return 'ok';
 exception when others then
   return sqlstate::text;
@@ -75,6 +127,18 @@ begin
   begin
     insert into public.provider_health (provider_key, status, latency_ms, checked_at)
       values (p_provider, p_status, p_latency, now());
+    return 'ok';
+  exception when others then
+    return sqlstate::text;
+  end;
+end;
+$fn$;
+
+create function pg_temp.try_read_tenant_policy() returns text
+language plpgsql security invoker set search_path = public, pg_temp as $fn$
+begin
+  begin
+    perform 1 from public.tenant_provider_policy limit 1;
     return 'ok';
   exception when others then
     return sqlstate::text;
@@ -136,67 +200,37 @@ select is(has_table_privilege('authenticated', 'public.tenant_provider_policy', 
 select is(has_table_privilege('authenticated', 'public.tenant_provider_policy', 'delete'), false,
   'no raw delete on the tenant policy table');
 
--- The one table grant, and the closure of every function this migration adds (#60 rule 4).
-select is(has_table_privilege('authenticated', 'public.tenant_provider_policy', 'select'), true,
-  'authenticated may read the tenant policy — rows are gated by RLS, columns never by policy');
-select is(has_function_privilege('anon', 'public.tenant_provider_policy_v1()', 'execute'), false,
-  'anon may not call the tenant policy read path');
+-- B8: no SELECT grant; gateway uses CONFIG_DB and admin read is T-202.
+select is(has_table_privilege('authenticated', 'public.tenant_provider_policy', 'select'), false,
+  'authenticated may not read tenant_provider_policy directly (§9.3; #143 B8)');
 select is(has_function_privilege('authenticated', 'public.model_providers_one_revision()', 'execute'), false,
   'the matrix-revision guard is a trigger function, not a callable');
+select is(has_function_privilege('authenticated', 'public.model_providers_revision_on_matrix_change()', 'execute'), false,
+  'the ceiling/enabled bump guard is a trigger function, not a callable');
 select is(has_function_privilege('authenticated', 'public.tenant_provider_policy_narrows_platform()', 'execute'), false,
   'the narrow-only guard is a trigger function, not a callable');
-select is(has_function_privilege('authenticated', 'public.tenant_provider_policy_v1()', 'execute'), false,
-  'B5: no request role calls the tenant-policy read: it reads current_organisation_id() and never '
-  'sets it, and FAQ-0011 says the scope does not live between PostgREST calls, so a granted read '
-  'would answer a tenant with nothing and widen its clearance silently');
--- The catalog form of the same rule — the shape `001_function_privileges.test.sql` test 33 pins for
--- `toi_identity` and `intake` — so a grant re-added under a different spelling is caught too.
+-- Catalog form of the same rule for every trigger function this migration adds: no request-role
+-- EXECUTE survives (round-1 finding 1 / B5 shape, applied to the three guards that remain after N6).
 select is_empty($$
-  select n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' as function
-    from pg_proc p
-    join pg_namespace n on n.oid = p.pronamespace
-   where n.nspname = 'public'
-     and p.proname = 'tenant_provider_policy_v1'
-     and p.prokind = 'f'
-     and (has_function_privilege('anon', p.oid, 'EXECUTE')
-          or has_function_privilege('authenticated', p.oid, 'EXECUTE'))
-$$, 'nothing named tenant_provider_policy_v1 in public is executable by anon or authenticated (§4.2)');
--- Non-vacuity for the assertion above: a missing function also returns an empty set (014 test 44 and
--- 017 test 10 are the precedents for naming what a guard has to fail against).
-select is((
-  select count(*) from pg_proc p
-    join pg_namespace n on n.oid = p.pronamespace
-   where n.nspname = 'public' and p.proname = 'tenant_provider_policy_v1'
-     -- The signature, not just the name (finding 3): the FAQ-0011-shaped `(uuid)` overload this packet
-     -- predicts as a follow-up is a different function with its own grant, and it must not trip here.
-     and pg_get_function_identity_arguments(p.oid) = ''
-), 1::bigint, 'the read path still exists, zero-argument, so the closure assertion has something to fail against');
--- Finding 1: the three revokes closed `public, anon, authenticated`, but that leaves the fourth Data API
--- role executable. `20261109160000_function_privileges.sql:83` pins what a new `public` function's ACL
--- comes back as — {=X/postgres, postgres=X/postgres, service_role=X/postgres} — asserted again at
--- `001_function_privileges.test.sql:222-235`, and `service_role` is a Data API role that bypasses RLS
--- (`supabase/config.toml:19-23`). So the migration's revokes name all four, and this pins it for every
--- grantee at once. `aclexplode` names the offender in the diagnostic (016:86-93's form) and the
--- `acldefault` fallback means a NULL proacl — the open default, PUBLIC holding EXECUTE — fails the
--- assertion instead of reading as an empty set. PUBLIC is grantee 0; `anon` and `authenticated` are its
--- members, which is why membership is not what this check trusts.
-select is_empty($$
-  select coalesce(r.rolname, 'PUBLIC') || ' holds EXECUTE' as grantee
+  select coalesce(r.rolname, 'PUBLIC') || ' holds EXECUTE on ' || p.proname as grantee
     from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
     cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
     left join pg_roles r on r.oid = a.grantee
    where n.nspname = 'public'
-     and p.proname = 'tenant_provider_policy_v1'
-     and pg_get_function_identity_arguments(p.oid) = ''
+     and p.proname in (
+       'model_providers_one_revision',
+       'model_providers_revision_on_matrix_change',
+       'tenant_provider_policy_narrows_platform'
+     )
      and a.privilege_type = 'EXECUTE'
      and (a.grantee = 0
           or a.grantee = (select oid from pg_roles where rolname = 'anon')
           or a.grantee = (select oid from pg_roles where rolname = 'authenticated')
           or a.grantee = (select oid from pg_roles where rolname = 'service_role'))
-$$, 'no role a request can arrive as — PUBLIC, anon, authenticated or service_role — holds EXECUTE on the zero-argument tenant-policy read (round-1 finding 1: the revoke names all four)');
+$$, 'no role a request can arrive as holds EXECUTE on any T-116 trigger function');
 
--- ── 3. RLS is on, and the tenant policy has exactly the one read policy ─────────────────────
+-- ── 3. RLS is on, and tenant_provider_policy has zero policies (B8) ──────────────────────────
 select is_empty($$
   select 1 from pg_class where relname = 'tenant_provider_policy' and not relrowsecurity
 $$, 'RLS is enabled on tenant_provider_policy (AGENTS.md §4.2)');
@@ -209,15 +243,7 @@ $$, 'RLS is enabled on provider_health too, as run-audit content (§9.3)');
 select is((
   select count(*) from pg_policies
    where schemaname = 'public' and tablename = 'tenant_provider_policy'
-     and policyname = 'tenant_provider_policy_member_read'
-     and cmd = 'SELECT' and permissive = 'PERMISSIVE'
-     -- the policy's own role list: comparing the literal to itself here was always true (finding 2).
-     -- The view's column is `roles` (`name[]`); `polroles` is the `pg_policy` **catalog** column and
-     -- `policyroles` is in neither — run 43627574162 aborted this file here with
-     -- `column "policyroles" does not exist`, after 37 of the 74 planned tests.
-     and 'authenticated' = any (roles)
-), 1::bigint, 'the one read policy exists, permissive, SELECT, and its role list names authenticated');
-select is((select count(*) from pg_policies where tablename = 'tenant_provider_policy' and schemaname = 'public'), 1::bigint, 'no second policy can appear on tenant_provider_policy unnoticed');
+), 0::bigint, 'tenant_provider_policy has no RLS policies: closed like the three platform tables (#143 B8)');
 
 -- ── 4. seeding the reviewed platform configuration (as the migration owner) ────────────────
 -- Why the five seed rows below are assertions and not bare selects: a bare
@@ -235,14 +261,24 @@ select is(pg_temp.try_insert_provider('deepseek', 'large', 4, 'public', 1), 'ok'
 select is(pg_temp.try_insert_provider('openrouter', 'medium', 5, 'public', 1), 'ok', 'openrouter records at its reviewed ceiling');
 select is((select count(*) from public.model_providers), 5::bigint, 'the reviewed platform registry holds exactly the five providers of the §12.4 cost order');
 
--- ── 5. the guards that make the configuration replayable (F40) ──────────────────────────────
+-- ── 5. the guards that make the configuration replayable (F40; #143 B7) ─────────────────────
 select is(pg_temp.try_insert_provider('second_local_box', 'medium', 6, 'restricted', 2), '23514', 'two rows with different clearance_revision are refused: a half-swapped matrix cannot be replayed');
+select is(pg_temp.try_bump_all_revisions(), 'ok',
+  'B7: a one-statement bump of every provider row succeeds under the deferrable one-revision constraint');
+select is(pg_temp.try_ceiling_without_bump('openrouter', 'restricted'), '23514',
+  'B7: changing max_cleared_class without increasing clearance_revision is refused');
+select is(pg_temp.try_mixed_revision_then_immediate('local_box', 99), '23514',
+  'B7: a mixed clearance_revision under set constraints … immediate is refused');
+-- Restore the session default after the mixed-revision subtransaction (INITIALLY IMMEDIATE).
+set constraints model_providers_one_revision immediate;
+
 select is(pg_temp.try_insert_provider('claude', 'large', 7, 'restricted', 1), '23505', 'duplicate provider_key is refused by the primary key');
 select is(pg_temp.try_insert_provider('box2', 'large', 3, 'public', 1), '23505', 'cost_rank is unique: two providers cannot claim the same place in the cost order');
 select is(pg_temp.try_insert_provider('bad key', 'large', 8, 'public', 1), '23514', 'provider_key must match the contract key shape (keys.ts ProviderKey)');
 select is(pg_temp.try_insert_provider('box3', 'enormous', 9, 'public', 1), '23514', 'capability_tier is the contract enum');
 select is(pg_temp.try_insert_provider('box4', 'large', 10, 'secret_class', 1), '23514', 'max_cleared_class must be a real data class (data_class_is_valid)');
-select is(pg_temp.try_insert_provider('box5', 'large', 11, 'public', 1, 'verifier-only-model', null), '23514', 'a verifier model without the eval set that proved it adequate is a pair violation (#9, config.ts:28-39)');
+-- After the successful all-row bump above, every row is at revision 2; inserts must match.
+select is(pg_temp.try_insert_provider('box5', 'large', 11, 'public', 2, 'verifier-only-model', null), '23514', 'a verifier model without the eval set that proved it adequate is a pair violation (#9, config.ts:28-39)');
 
 select is(pg_temp.try_route('compose', 'local_box', 1), 'ok', 'compose chain position 1 records');
 select is(pg_temp.try_route('compose', 'workers_ai', 2), 'ok', 'compose chain position 2 records');
@@ -255,39 +291,65 @@ select is(pg_temp.try_route('compose', 'no_such_provider', 6), '23503', 'a chain
 select ok(exists(select 1 from public.organisations),
   'a synthetic tenant exists from supabase/seed.sql for the policy fixtures (finding 4: isnt() passed on NULL)');
 select is(pg_temp.try_tenant_policy(
-  (select id from public.organisations order by id limit 1), 'client_confidential', 'claude'), 'ok', 'a narrowing the platform already cleared is accepted');
+  '11111111-1111-4111-8111-111111111111'::uuid, 'client_confidential', 'claude'), 'ok', 'a narrowing the platform already cleared is accepted');
 select is(pg_temp.try_tenant_policy(
-  (select id from public.organisations order by id limit 1), 'internal', 'workers_ai'), 'ok', 'a narrowing at internal is accepted (workers_ai''s ceiling is internal)');
+  '11111111-1111-4111-8111-111111111111'::uuid, 'internal', 'workers_ai'), 'ok', 'a narrowing at internal is accepted (workers_ai''s ceiling is internal)');
 select is(pg_temp.try_tenant_policy(
-  (select id from public.organisations order by id limit 1), 'client_confidential', 'workers_ai'), '23514', 'workers_ai may not be allowed for client_confidential: the tenant cannot widen the platform matrix');
+  '22222222-2222-4222-8222-222222222222'::uuid, 'public', 'deepseek'), 'ok',
+  'company2 also records a narrowing so B9 has a cross-tenant row to fail against');
 select is(pg_temp.try_tenant_policy(
-  (select id from public.organisations order by id limit 1), 'restricted', 'openrouter'), '23514', 'no tenant may open restricted content to a hosted provider (TOI-ADR-12)');
+  '11111111-1111-4111-8111-111111111111'::uuid, 'client_confidential', 'workers_ai'), '23514', 'workers_ai may not be allowed for client_confidential: the tenant cannot widen the platform matrix');
 select is(pg_temp.try_tenant_policy(
-  (select id from public.organisations order by id limit 1), 'public', 'no_such_provider'), '23514',
+  '11111111-1111-4111-8111-111111111111'::uuid, 'restricted', 'openrouter'), '23514', 'no tenant may open restricted content to a hosted provider (TOI-ADR-12)');
+select is(pg_temp.try_tenant_policy(
+  '11111111-1111-4111-8111-111111111111'::uuid, 'public', 'no_such_provider'), '23514',
   'a policy naming a provider outside the registry is refused by the narrow-only BEFORE-row guard, '
   || 'which runs before the foreign key (B1: CI run 42726035516 returned 23514, not 23503)');
 select is(pg_temp.try_tenant_policy(
-  (select id from public.organisations order by id limit 1), 'secret_class', 'claude'), '23514', 'the policy class must be a real data class');
-select is(pg_temp.try_disable_provider('claude'), 'ok', 'a provider can be taken offline by the owner');
+  '11111111-1111-4111-8111-111111111111'::uuid, 'secret_class', 'claude'), '23514', 'the policy class must be a real data class');
+select is(pg_temp.try_disable_provider('claude'), 'ok', 'a provider can be taken offline by the owner (revision bumps with it)');
 select is(pg_temp.try_tenant_policy(
-  (select id from public.organisations order by id limit 1), 'public', 'claude'), '23514', 'a policy row naming a disabled provider is refused: enabling is configuration, not a side effect of a tenant write');
+  '11111111-1111-4111-8111-111111111111'::uuid, 'public', 'claude'), '23514', 'a policy row naming a disabled provider is refused: enabling is configuration, not a side effect of a tenant write');
 
--- ── 7. health rows and the fail-closed read path ───────────────────────────────────────────
+-- ── 7. health rows and request-role closure ────────────────────────────────────────────────
 select is(pg_temp.try_health('workers_ai', 'healthy', 240), 'ok', 'a scheduled probe row records');
 select is(pg_temp.try_health('workers_ai', 'on_fire', 240), '23514', 'status is the F37 vocabulary, not free text');
 select is(pg_temp.try_health('workers_ai', 'degraded', -5), '23514', 'latency cannot be negative');
 select is(pg_temp.try_health('workers_ai', 'down', 99999999), '23514', 'latency is bounded, so a broken probe cannot poison the route window');
 
+-- ── 8. cross-tenant / deactivated-member negatives (#143 B9; 010 JWT pattern) ───────────────
+-- Rows for both orgs exist above. Capture under each seed user, assert as the migration owner.
+-- Temp result tables must be created by authenticated (010/040/041 idiom): a table made as the
+-- migration owner answers `permission denied for table` when authenticated tries to INSERT.
 set local role authenticated;
--- The grant state alone can be vacuous if a later migration grants it back, so the statement itself
--- is run as the role under test: it is refused, not answered with an empty matrix (014's idiom).
-select throws_ok($$ select * from public.tenant_provider_policy_v1() $$, '42501', null,
-  'B5: an authenticated caller of the tenant-policy read is refused outright (42501), never handed '
-  'an empty narrowing that would silently widen clearance');
-select is((select count(*) from public.tenant_provider_policy), 0::bigint, 'a direct read stays empty for a caller with no JWT at all: with no token auth.uid() is null, so '
-  'is_active_member matches no membership and RLS gates every row (finding 5: the old wording called '
-  'this a member with no tenant scope)');
+create temp table t_policy_read (case_name text, result text);
+reset role;
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+insert into t_policy_read values ('a1_member', pg_temp.try_read_tenant_policy());
+reset role;
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000b1';
+insert into t_policy_read values ('b1_other_tenant', pg_temp.try_read_tenant_policy());
+reset role;
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a3';
+insert into t_policy_read values ('a3_suspended', pg_temp.try_read_tenant_policy());
+reset role;
+
+select is((select result from t_policy_read where case_name = 'a1_member'), '42501',
+  'B9: company1 owner cannot SELECT tenant_provider_policy (no grant, no policy; #143 B8)');
+select is((select result from t_policy_read where case_name = 'b1_other_tenant'), '42501',
+  'B9: company2 member cannot read any tenant_provider_policy row, including company1''s');
+select is((select result from t_policy_read where case_name = 'a3_suspended'), '42501',
+  'B9: a suspended company1 member reads nothing from tenant_provider_policy');
+
+set local role authenticated;
 select is(pg_temp.try_health('workers_ai', 'healthy', 100), '42501', 'authenticated cannot write provider_health even through a helper: the revoke is real');
+reset role;
 
 select * from finish();
 rollback;

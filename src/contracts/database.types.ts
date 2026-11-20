@@ -700,11 +700,6 @@ isOneToOne: false
 "source_version_is_readable":
 { Args: { "p_source_version_id": string }; Returns: boolean
                            },
-"tenant_provider_policy_v1":
-{ Args: Record<PropertyKey, never>; Returns: {
-              "data_class": string,"provider_key": string
-            }[]
-                           },
 "update_collection_v1":
 { Args: { "p_collection_id": string,"p_name": string,"p_organisation_id": string }; Returns: undefined
                            },
