@@ -75,16 +75,48 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
-                },"ingestion_jobs": {
+                },"extraction_artifacts": {
                   Row: {
-                    "attempt": number,"completed_at": string | null,"created_at": string,"data_class": string,"executor": string,"id": string,"index_generation": number,"last_error": string | null,"lease_expires_at": string | null,"lease_token": string | null,"organisation_id": string,"parser_generation": string,"source_version_id": string,"stage": string,"status": string,"updated_at": string
+                    "artifact_index": number,"body_text": string,"confidence": number | null,"created_at": string,"data_class": string,"fence": number,"id": string,"index_generation": number,"job_id": string | null,"locator": NonNullable<Json>,"notes": NonNullable<Json>,"organisation_id": string,"parser_generation": string,"producer": string,"source_version_id": string,"stage": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "attempt"?: number,"completed_at"?: string | null,"created_at"?: string,"data_class": string,"executor": string,"id"?: string,"index_generation": number,"last_error"?: string | null,"lease_expires_at"?: string | null,"lease_token"?: string | null,"organisation_id": string,"parser_generation"?: string,"source_version_id": string,"stage": string,"status"?: string,"updated_at"?: string
+                    "artifact_index": number,"body_text": string,"confidence"?: number | null,"created_at"?: string,"data_class": string,"fence": number,"id"?: string,"index_generation": number,"job_id"?: string | null,"locator"?: NonNullable<Json>,"notes"?: NonNullable<Json>,"organisation_id": string,"parser_generation": string,"producer": string,"source_version_id": string,"stage": string
                   }
                   Update: {
-                    "attempt"?: number,"completed_at"?: string | null,"created_at"?: string,"data_class"?: string,"executor"?: string,"id"?: string,"index_generation"?: number,"last_error"?: string | null,"lease_expires_at"?: string | null,"lease_token"?: string | null,"organisation_id"?: string,"parser_generation"?: string,"source_version_id"?: string,"stage"?: string,"status"?: string,"updated_at"?: string
+                    "artifact_index"?: number,"body_text"?: string,"confidence"?: number | null,"created_at"?: string,"data_class"?: string,"fence"?: number,"id"?: string,"index_generation"?: number,"job_id"?: string | null,"locator"?: NonNullable<Json>,"notes"?: NonNullable<Json>,"organisation_id"?: string,"parser_generation"?: string,"producer"?: string,"source_version_id"?: string,"stage"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "extraction_artifacts_job_fk"
+      columns: ["job_id","organisation_id"]
+isOneToOne: false
+      referencedRelation: "ingestion_jobs"
+      referencedColumns: ["id","organisation_id"]
+    },{
+      foreignKeyName: "extraction_artifacts_organisation_fk"
+      columns: ["organisation_id"]
+isOneToOne: false
+      referencedRelation: "organisations"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "extraction_artifacts_source_version_fk"
+      columns: ["source_version_id","organisation_id"]
+isOneToOne: false
+      referencedRelation: "source_versions"
+      referencedColumns: ["id","organisation_id"]
+    }
+                  ]
+                },"ingestion_jobs": {
+                  Row: {
+                    "attempt": number,"completed_at": string | null,"created_at": string,"data_class": string,"executor": string,"id": string,"index_generation": number,"last_error": string | null,"lease_expires_at": string | null,"lease_fence": number,"lease_token": string | null,"organisation_id": string,"parser_generation": string,"source_version_id": string,"stage": string,"status": string,"updated_at": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "attempt"?: number,"completed_at"?: string | null,"created_at"?: string,"data_class": string,"executor": string,"id"?: string,"index_generation": number,"last_error"?: string | null,"lease_expires_at"?: string | null,"lease_fence"?: number,"lease_token"?: string | null,"organisation_id": string,"parser_generation"?: string,"source_version_id": string,"stage": string,"status"?: string,"updated_at"?: string
+                  }
+                  Update: {
+                    "attempt"?: number,"completed_at"?: string | null,"created_at"?: string,"data_class"?: string,"executor"?: string,"id"?: string,"index_generation"?: number,"last_error"?: string | null,"lease_expires_at"?: string | null,"lease_fence"?: number,"lease_token"?: string | null,"organisation_id"?: string,"parser_generation"?: string,"source_version_id"?: string,"stage"?: string,"status"?: string,"updated_at"?: string
                   }
                   Relationships: [
                     {
