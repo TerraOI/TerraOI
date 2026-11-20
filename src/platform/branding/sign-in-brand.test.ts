@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { platformBrand } from "./kit-brand";
 import { toSignInBrand } from "./sign-in-brand";
-import type { TenantBrand } from "./tenant-brand";
+import type { LoadedBrand } from "./tenant-brand";
 
 describe("toSignInBrand (ADR-0004 §3 projection)", () => {
-  it("maps TenantBrand fields onto SignInBrand without inventing a third vocabulary", () => {
+  it("maps LoadedBrand fields onto SignInBrand without inventing a third vocabulary", () => {
     const brand = platformBrand();
     expect(toSignInBrand(brand)).toEqual({
       name: brand.displayName,
@@ -27,7 +27,7 @@ describe("toSignInBrand (ADR-0004 §3 projection)", () => {
       displayName: "Company1 Geotechnics",
       showPoweredBy: false,
       logoPath: "1/logo.svg",
-    } as TenantBrand;
+    } as LoadedBrand;
     expect(toSignInBrand(brand).logoUrl).toBe("/brand-assets/1/logo.svg");
   });
 
@@ -35,7 +35,7 @@ describe("toSignInBrand (ADR-0004 §3 projection)", () => {
     const brand = {
       ...platformBrand(),
       logoPath: "assets/logo.svg",
-    } as TenantBrand;
+    } as LoadedBrand;
     expect(toSignInBrand(brand).logoUrl).toBe("");
   });
 });

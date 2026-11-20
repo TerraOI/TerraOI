@@ -1,6 +1,6 @@
 # T-201 Password sign-in, Microsoft SSO, invites and identity linking
 
-Lane: 1 · Week: 2 · Protected: yes (`src/platform/identity/`) · Depends on: T-002, T-003, T-101, T-102; the invite claim also on T-202 PR-1b (`tenant_invitations`, [#179 ruling](https://github.com/TerraOI/TerraOI/pull/179#issuecomment-6985900913)) · Status: ready
+Lane: 1 · Week: 2 · Protected: yes (`src/platform/identity/`) · Depends on: T-002, T-003, T-101, T-102; the invite claim also on T-202 PR-1b (`tenant_invitations`, [#179 ruling](https://github.com/TerraOI/TerraOI/pull/179#issuecomment-6985900913)) · Status: in progress (wyuinline) — code complete; staging evidence owed (T-004 §20.8; staging deploys blocked while [#177](https://github.com/TerraOI/TerraOI/issues/177) is open). **PR-1** [#181](https://github.com/TerraOI/TerraOI/pull/181); **PR-2** [#186](https://github.com/TerraOI/TerraOI/pull/186) open. Note for T-004 staging: password grants leave from the Worker egress IPs, so GoTrue per-IP sign-in limits apply across tenants at once (#181 N5).
 Plan refs: §4.2 (TOI-ADR-15), §4.1 step 6, §16 (host/session row); F02, F05 (callback registration)
 
 ## Supervisor rulings to apply (2026-11-18)
@@ -62,3 +62,5 @@ show `left@company1.test` (suspended) gets only the no-access page.
 ## Out of scope
 Central SSO, the multi-tenant switcher, custom customer domains and a provisioning UI (plan §15.0
 "Deferred after M1"); admin invite/role/project pages are T-202; reset **email branding** is T-204.
+Brand chrome on `/account/set-password` is T-103/T-131 — this packet ships the functional form and
+GoTrue update only.
