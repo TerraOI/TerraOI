@@ -1,6 +1,6 @@
 # First-week observation plan (plan §14, §17.1)
 
-**Status of this runbook: prepared; the ≥2-week §14 clock has not started.** That clock begins at the M1-PILOT gate, not at this rehearsal ([T-406](../tasks/T-406-pilot-onboarding.md) Out of scope). What follows is what to **read** on days 1–7 of a synthetic staging pilot (and, later, of the real pilot), and how to keep the measures from collapsing into a single misleading number.
+**Status of this runbook: prepared; the ≥2-week §14 clock has not started.** That clock begins at the M1-PILOT gate, not at this rehearsal (T-406 Out of scope on [#190](https://github.com/TerraOI/TerraOI/pull/190)). What follows is what to **read** on days 1–7 of a synthetic staging pilot (and, later, of the real pilot), and how to keep the measures from collapsing into a single misleading number.
 
 Metric queries and alert rules live in [T-405](https://github.com/TerraOI/TerraOI/pull/192) ([#192](https://github.com/TerraOI/TerraOI/pull/192)). Until those tables exist, every cell that needs them is **not_available** and names the missing PR — never a shadow table.
 

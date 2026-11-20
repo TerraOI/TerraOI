@@ -16,7 +16,7 @@ The single description of **where things go** in TerraOI. `scripts/check-structu
 | `brand/` | TerraOI Brand Kit, a design source ([brand/README.md](../brand/README.md)) | Supervisor |
 | `public/` | Static files served as-is by Next.js | Lane 1 |
 | `scripts/` | Repository policy checks and dev tooling ([scripts/README.md](../scripts/README.md)) | Shared |
-| `docs/` | Plan, coordination, tasks, decisions, status, and the operator runbooks under `runbooks/` ([docs/README.md](README.md)) | Supervisor |
+| `docs/` | Plan, coordination, tasks, decisions, status ([docs/README.md](README.md)) | Supervisor |
 | `.github/` | CI/CD workflows, CODEOWNERS, PR/issue templates, labels | Supervisor |
 | `.claude/` | Supervisor's Claude Code commands | Supervisor |
 | Root config | `package.json`, `pnpm-lock.yaml`, `tsconfig.json`, `eslint.config.mjs`, `vitest.config.ts`, `next.config.ts`, `open-next.config.ts`, `wrangler.jsonc`, `.nvmrc`, `.gitignore`, `.gitattributes` (LF everywhere) | Shared |
