@@ -1,8 +1,8 @@
 # ADR-0009 A refusal names its sentence: four templates, and the key that records which one ran
 
-Status: **accepted** — this records the supervisor's decision on [#97](https://github.com/TerraOI/TerraOI/issues/97), restated on [#137](https://github.com/TerraOI/TerraOI/issues/137) (2026-11-09), with key↔status coherence ruled on [#151](https://github.com/TerraOI/TerraOI/pull/151) (2026-11-18) and `insufficient_support` unknowns closed on [#210](https://github.com/TerraOI/TerraOI/issues/210) (2026-11-20). The implementation lands in the PR that carries this file: `src/contracts/expert-definition.ts`, `src/contracts/answer.ts`, `src/platform/agents/compose.ts` and their tests.
+Status: **accepted** — this records the supervisor's decision on [#97](https://github.com/TerraOI/TerraOI/issues/97), restated on [#137](https://github.com/TerraOI/TerraOI/issues/137) (2026-11-09), with key↔status coherence ruled on [#151](https://github.com/TerraOI/TerraOI/pull/151) (2026-11-18) and `insufficient_support` unknowns closed on [#210](https://github.com/TerraOI/TerraOI/issues/210) (2026-11-20), and the withheld resume keyed `no_evidence` on [#178](https://github.com/TerraOI/TerraOI/pull/178) (2026-11-20). The implementation lands in the PR that carries this file: `src/contracts/expert-definition.ts`, `src/contracts/answer.ts`, `src/platform/agents/compose.ts` and their tests.
 Plan refs: §9.3 (nothing unverified reaches the employee), §12.1 (the answer contract, withheld `requirement` claims), §14.1 (eval scoring), F20/F22 (run audit)
-Deciders: supervisor (#97, #137, #151 B1, #210) · Lane 2 (implementation) · Date: 2026-11-10
+Deciders: supervisor (#97, #137, #151 B1, #210, #178 B11) · Lane 2 (implementation) · Date: 2026-11-10
 
 ## Context
 
@@ -20,7 +20,7 @@ The vocabulary was also uneven across the codebase: early expert work and the T-
 
 | key | what it asserts | who selects it |
 |---|---|---|
-| `no_evidence` | nothing authorized was found for this question | `composeAnswer`, on an **empty evidence pack** — the only path in M1 that may say it |
+| `no_evidence` | nothing authorized was found for this question | `composeAnswer`, on an **empty evidence pack** — the only compose path that may say it; and T-104's **withheld resume** ([#178](https://github.com/TerraOI/TerraOI/pull/178), 2026-11-20): a stored answer that cites a version the employee can no longer read is not shown, and the run returns `refused` with this key, because nothing the employee may read supports an answer. Never `unavailable` there, since a retry cannot change it |
 | `insufficient_support` | documents were found; what was built from them did not hold up | `composeAnswer`, when a **non-empty pack** yields no claim that survives: pass-1 rejection, verifier drops, every claim withheld for want of an eligible verifier, or **the composer returned no claims** |
 | `out_of_scope` | the question is not what this service answers | **nothing in this PR.** Selectors: T-311's `routeExpert`, and T-104's project-filter / service rejection (`chat-protocol.md`); compose never decides what a service answers, so it never chooses this key |
 | `unavailable` | the platform could not produce an answer right now | `composeAnswer`, whenever the gateway yields no valid structured answer (no cleared provider, deadline, budget authority closed, output the schema rejected) |
