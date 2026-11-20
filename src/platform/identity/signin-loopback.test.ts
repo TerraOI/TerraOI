@@ -7,6 +7,7 @@ import { handlePasswordSignIn } from "./password-signin";
 import { issueCsrfToken } from "./csrf";
 import { SESSION_COOKIE_BASE } from "./session";
 import { createTokenCipher, type SessionStore, type StoredSession } from "./session-store";
+import { sha256Base64Url } from "./signed-token";
 
 /**
  * Loopback harness (COORDINATION.md §6a) for the cross-tenant and deactivated-member claims of
@@ -102,6 +103,10 @@ beforeAll(async () => {
             app_metadata: { provider: "email" },
           },
         });
+      }
+      // Recovery (#201 / #181 B4): accept so the loopback can pin the exact recover query and body.
+      if (path.startsWith("/auth/v1/recover")) {
+        return send(res, 200, {});
       }
       if (path.startsWith("/rpc/resolve_tenant_host")) {
         const host = (JSON.parse(body || "{}") as Record<string, unknown>)["p_host"];
@@ -338,5 +343,35 @@ describe("loopback: what a password sign-in actually puts on the wire", () => {
     } finally {
       providerRefuses = false;
     }
+  });
+});
+
+describe("loopback: GoTrue recover wire (#201 / #181 B4)", () => {
+  const RECOVER_VERIFIER = "synthetic-verifier-AAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+  const RECOVER_REDIRECT = `https://${HOST_COMPANY1}/auth/callback?state=synthetic-nonce`;
+
+  it("posts flat PKCE fields and puts redirect_to on the query, never under options", async () => {
+    captured.length = 0;
+    const store = memoryStore();
+    await ports(store).sendPasswordRecovery({
+      email: "owner1@company1.test",
+      redirectTo: RECOVER_REDIRECT,
+      codeVerifier: RECOVER_VERIFIER,
+    });
+    const recoveries = callsTo("/auth/v1/recover");
+    expect(recoveries).toHaveLength(1);
+    const call = recoveries[0] as Captured;
+    expect(call.method).toBe("POST");
+    // Exact query string: redirect_to is the only parameter, URL-encoded once.
+    expect(call.url).toBe(`/auth/v1/recover?redirect_to=${encodeURIComponent(RECOVER_REDIRECT)}`);
+    expect(new URL(call.url, origin).searchParams.get("redirect_to")).toBe(RECOVER_REDIRECT);
+    // Exact body: email + top-level PKCE. No `options`, no `email_redirect_to`.
+    expect(JSON.parse(call.body)).toEqual({
+      email: "owner1@company1.test",
+      code_challenge: await sha256Base64Url(RECOVER_VERIFIER),
+      code_challenge_method: "s256",
+    });
+    expect(call.body).not.toContain("options");
+    expect(call.body).not.toContain("email_redirect_to");
   });
 });

@@ -346,16 +346,18 @@ export function buildIdentityPorts(env: Partial<IdentityEnv>, options: { fetchIm
     async sendPasswordRecovery({ email, redirectTo, codeVerifier }) {
       const headers = authHeaders();
       const challenge = await sha256Base64Url(codeVerifier);
-      const response = await fetchImpl(`${baseUrl}${SUPABASE_RECOVER_PATH}`, {
+      // GoTrue wire (#201): redirect_to is the query; PKCE fields sit at the top of the body. Nesting
+      // them under `options` is the supabase-js client shape and is ignored on the wire, so the email
+      // would carry no challenge and the default redirect.
+      const recoverUrl = new URL(`${baseUrl}${SUPABASE_RECOVER_PATH}`);
+      recoverUrl.searchParams.set("redirect_to", redirectTo);
+      const response = await fetchImpl(recoverUrl.toString(), {
         method: "POST",
         headers,
         body: JSON.stringify({
           email,
-          options: {
-            email_redirect_to: redirectTo,
-            code_challenge: challenge,
-            code_challenge_method: "s256",
-          },
+          code_challenge: challenge,
+          code_challenge_method: "s256",
         }),
       });
       if (!response.ok) throw new Error(`auth recover refused with status ${response.status}`);
