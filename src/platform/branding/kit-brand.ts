@@ -4,7 +4,7 @@ import brandConfigJson from "../../../brand/terraoi-brand-kit/02-system/brand-co
 import tokensJson from "../../../brand/terraoi-brand-kit/02-system/tokens.json";
 
 import { BRAND_MODES, type BrandMode } from "./brand-rules";
-import { parseTenantBrand, type BrandSource, type TenantBrand } from "./tenant-brand";
+import { parseTenantBrand, type BrandSource, type LoadedBrand } from "./tenant-brand";
 
 /**
  * The only file in this repository allowed to read the brand kit sources
@@ -112,13 +112,13 @@ export function kitModeNames(): BrandMode[] {
   return KIT_MODE_ORDER.filter((mode) => Object.prototype.hasOwnProperty.call(kitConfig.modes, mode));
 }
 
-let cachedPlatformBrand: TenantBrand | null = null;
+let cachedPlatformBrand: LoadedBrand | null = null;
 
 /**
  * The validated `terraoi` mode brand. Memoized: this is a pure function of reviewed build input, so
  * parsing it once per isolate is the whole point of the public cache in plan §4.4.
  */
-export function platformBrand(): TenantBrand {
+export function platformBrand(): LoadedBrand {
   if (cachedPlatformBrand !== null) return cachedPlatformBrand;
   const parsed = parseTenantBrand(PLATFORM_BRAND_HOST, kitBrandSourceForMode(kitConfig.defaultMode), {
     surfaceColor: BRAND_SURFACE_COLOR,
@@ -132,7 +132,7 @@ export function platformBrand(): TenantBrand {
 }
 
 /** A platform brand stamped with the host it is being served on, for host-keyed caching. */
-export function platformBrandForHost(host: string): TenantBrand {
+export function platformBrandForHost(host: string): LoadedBrand {
   const base = platformBrand();
   if (base.host === host) return base;
   return Object.freeze({ ...base, host });

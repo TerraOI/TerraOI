@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { BrandMode, PublicBrand, TenantBrand } from "@/contracts/tenant-brand";
 import { parseHost } from "@/platform/tenancy/host";
 import {
   ACCENT_CONTRAST_MIN_RATIO,
@@ -16,22 +17,12 @@ import {
 } from "./brand-rules";
 
 /**
- * The one validated brand object (plan §5.1 line 269, F04). T-103's packet says the `TenantBrand`
- * contract "lands with this packet in `src/contracts/tenant-brand.ts` - **needs an ADR**"; that ADR
- * is [ADR-0004](../../../docs/decisions/0004-tenant-brand-contract.md), which is still **proposed**
- * and blocked on #62, #65 and #55. So this type lives in the platform module, not in
- * `src/contracts/`, and the packet's own interim instruction is followed: build against
- * `TenantContext` and the kit sources, read only through `src/platform/branding/`.
- *
- * What this file deliberately does **not** carry:
- *
- * - `locale` / `timezone`: the `organisations.locale` CHECK is being questioned in #67, and a brand
- *   object that pre-empted it would be a second source of truth;
- * - a verified email sender or reply-to address: #64 says no packet owns the outbound transport,
- *   and plan §5.1 line 271 is explicit that "a display name does not establish domain
- *   authorization". The *display* name is here; the address is validated and then dropped.
- *
- * Adding either field is a contract change and needs the ADR accepted first (AGENTS.md §6).
+ * The F04 loader's validated output (plan §5.1 line 269, F04), built from the contract in
+ * [`src/contracts/tenant-brand.ts`](../../contracts/tenant-brand.ts) (ADR-0004, #188): the
+ * `PublicBrand` projection, stamped with the host it is served on, plus attribution derived from the
+ * mode and the three display facts surfaces print (report owner, sender display name, document
+ * prefix). It never carries `legalName`, `configVersion` or a reply-to address: those are
+ * `TenantBrand` fields that stay server-side. The reply-to is validated here and then dropped.
  */
 
 const BrandAssetSchema = z.strictObject({
@@ -45,7 +36,7 @@ const BrandAssetSchema = z.strictObject({
  * query parameter naming a brand would travel from a URL into a brand object on its way to the page.
  */
 export const BrandSourceSchema = z.strictObject({
-  mode: z.enum(["terraoi", "powered", "customer"]),
+  mode: BrandMode,
   displayName: z.string().min(1).max(BRAND_TEXT_LIMITS.displayName),
   descriptor: z.string().min(1).max(BRAND_TEXT_LIMITS.descriptor),
   tagline: z.string().max(BRAND_TEXT_LIMITS.tagline),
@@ -65,32 +56,19 @@ export const BrandSourceSchema = z.strictObject({
 
 export type BrandSource = z.infer<typeof BrandSourceSchema>;
 
-/** The validated output. Everything downstream of this packet reads only these fields. */
-export const TenantBrandSchema = z.strictObject({
+/** The validated output. Everything downstream of the loader reads only these fields. */
+export const LoadedBrandSchema = PublicBrand.extend({
   host: z.string().min(1).max(253),
-  mode: z.enum(["terraoi", "powered", "customer"]),
-  displayName: z.string().min(1).max(BRAND_TEXT_LIMITS.displayName),
-  descriptor: z.string().min(1).max(BRAND_TEXT_LIMITS.descriptor),
-  tagline: z.string().max(BRAND_TEXT_LIMITS.tagline),
-  logoPath: z.string().max(300).nullable(),
-  faviconPath: z.string().max(300).nullable(),
-  primary: z.string().regex(/^#[0-9A-F]{6}$/),
-  onPrimary: z.string().regex(/^#[0-9A-F]{6}$/),
-  accent: z.string().regex(/^#[0-9A-F]{6}$/),
   showPoweredBy: z.boolean(),
-  supportLabel: z.string().min(1).max(BRAND_TEXT_LIMITS.supportLabel),
-  supportUrl: z.string().url().nullable(),
-  reportOwner: z.string().min(1).max(BRAND_TEXT_LIMITS.reportOwner),
-  emailSenderName: z.string().min(1).max(BRAND_TEXT_LIMITS.emailSenderName),
-  documentPrefix: z.string().regex(DOCUMENT_PREFIX_SHAPE),
+  ...TenantBrand.pick({ reportOwner: true, emailSenderName: true, documentPrefix: true }).shape,
 });
 
-export type TenantBrand = z.infer<typeof TenantBrandSchema>;
+export type LoadedBrand = z.infer<typeof LoadedBrandSchema>;
 
 export type BrandFallbackReason = "unknown_host" | "no_brand_row" | "invalid_brand" | "source_error";
 
 export const ResolvedBrandSchema = z.strictObject({
-  brand: TenantBrandSchema,
+  brand: LoadedBrandSchema,
   origin: z.enum(["tenant", "platform"]),
   fallback: z.strictObject({ reason: z.enum(["unknown_host", "no_brand_row", "invalid_brand", "source_error"]), note: z.string() }).nullable(),
 });
@@ -118,7 +96,7 @@ export type BrandRejectReason =
   | "asset_type"
   | "asset_content";
 
-export type BrandParse = { ok: true; brand: TenantBrand } | { ok: false; reasons: BrandRejectReason[] };
+export type BrandParse = { ok: true; brand: LoadedBrand } | { ok: false; reasons: BrandRejectReason[] };
 
 function assetReason(problem: string): BrandRejectReason {
   if (problem.includes("size")) return "asset_size";
@@ -210,7 +188,7 @@ export function parseTenantBrand(host: unknown, input: unknown, options: ParseBr
 
   if (reasons.length > 0) return { ok: false, reasons };
 
-  const brand: TenantBrand = {
+  const brand: LoadedBrand = {
     host: hostParse.host,
     mode: source.mode,
     displayName: source.displayName,
@@ -231,5 +209,5 @@ export function parseTenantBrand(host: unknown, input: unknown, options: ParseBr
 
   // Re-parsed on the way out so the type this function hands back is the type the cache and the
   // components rely on, and so a future edit cannot make this a pass-through.
-  return { ok: true, brand: deepFreeze(TenantBrandSchema.parse(brand)) };
+  return { ok: true, brand: deepFreeze(LoadedBrandSchema.parse(brand)) };
 }
