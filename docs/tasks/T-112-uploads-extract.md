@@ -1,6 +1,6 @@
 # T-112 Upload session, completion and cloud extraction of digital PDFs
 
-Lane: 2 · Week: 1 · Protected: yes (`src/app/api/knowledge/`, and any migration here) · Depends on: T-111 · Status: in progress — **T-112c claimed by Lane 2 (PR #168)**; T-112 a/b are done — merged as [PR #32](https://github.com/TerraOI/TerraOI/pull/32) (a: upload session and capture RPCs) and [PR #54](https://github.com/TerraOI/TerraOI/pull/54) (b: digital-PDF extraction with page locators); the staging demo below is **not** claimed — it waits on #37 (how a Worker carries verified identity into Postgres), #38 (storage credential) and #75 (session-store reach), and until #37/#38 are decided `uploadDeps()` stays null and the routes answer 503 (`upload-adapters.ts:8-21`). The acceptance list below is now ticked item by item with the test that proves each one, and each item says what that proof does not cover
+Lane: 2 · Week: 1 · Protected: yes (`src/app/api/knowledge/`, and any migration here) · Depends on: T-111 · Status: in progress — **code complete; staging evidence owed**: T-112 a/b/c are on `main` ([PR #32](https://github.com/TerraOI/TerraOI/pull/32), [PR #54](https://github.com/TerraOI/TerraOI/pull/54), [PR #168](https://github.com/TerraOI/TerraOI/pull/168)); #37/#38/#75 are closed, but `uploadDeps()` is still null so the routes answer 503 (`upload-adapters.ts:8-21`) until the Postgres `UploadStore` and storage `ObjectStore` are wired, after which the Done-evidence staging run (company1 → `indexing`, same upload refused on company2) can be recorded in `docs/status/`
 Plan refs: §7.2 steps 1–3, §9.2.1, §6.2; F09, F10, F12
 
 ## Supervisor rulings to apply (2026-11-09)
@@ -39,8 +39,8 @@ All eight are ticked, each with the test that proves it. Two limits cover the wh
 not repeated item by item:
 
 - The handler-side items are proven at the seam (`handleBeginUpload` / `handleCompleteUpload`)
-  against the fake `UploadStore` of `upload-session.test.ts`. `uploadDeps()` returns null
-  (`upload-adapters.ts:19-21`) while #37 and #38 stay open, so the deployed routes answer 503 and
+  against the fake `UploadStore` of `upload-session.test.ts`. `uploadDeps()` still returns null
+  (`upload-adapters.ts:19-21`) until those adapters are wired, so the deployed routes answer 503 and
   nothing here is proven over HTTP.
 - The SQL items run only in CI's `database` job: there is no Docker on this machine (FAQ-0009), so
   no `pnpm db:test` number exists for them locally.
