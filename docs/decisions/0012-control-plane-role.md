@@ -1,4 +1,4 @@
-# ADR-0009 The control-plane role (`toi_control_plane`) (#193 E1, T-304)
+# ADR-0012 The control-plane role (`toi_control_plane`) (#193 E1, T-304)
 
 Status: **accepted** · Date: 2026-11-18 · Deciders: wyu610 ([#193](https://github.com/TerraOI/TerraOI/pull/193) E1)
 Plan refs: §4.1 (line 212), §6.1, §11 F05, §15.0, §20.8; FAQ-0010; ADR-0003 §3a (#75)
@@ -10,7 +10,9 @@ T-304 adds a privileged path that can suspend any tenant, resume it, flip expert
 switches, and provision tenants by script. That path needs a database role. ADR-0003 §3a already
 records how the Worker reaches the session store (`toi_session_worker` over `SESSION_DB`); this
 role is not that carrier and must not ride the same binding. Round 1 on [#193](https://github.com/TerraOI/TerraOI/pull/193)
-escalated the credential shape as E1; this ADR is the ruling.
+escalated the credential shape as E1; this ADR is the ruling. ADR-0009 is reserved for the
+refusal vocabulary (#97 / #137 / #151); ADR-0010 for T-312; ADR-0011 for #149 — this record is
+0012.
 
 ## Decision
 
@@ -72,8 +74,6 @@ path means "which login", not a verified human identity.
 - A follow-up T-304 slice that seeds entitlements after T-311 merges will call a T-311 definer
   function granted to `toi_control_plane` and add that signature here — it never writes T-311's
   tables directly (#193 E3).
-- `#151`'s planned refusal-vocabulary ADR must take the next free number once this file is on
-  `main` (or rebase onto whatever lands first).
 
 ## Alternatives considered
 

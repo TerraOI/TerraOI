@@ -1,6 +1,6 @@
 -- T-304 — the lifecycle switch settings, their flip history, the tenant suspend/resume RPCs and
 -- `provision_tenant_v1` (F05). pgTAP slot `100`. Packet:
--- docs/tasks/T-304-kill-switch-provisioning.md.
+-- docs/tasks/T-304-kill-switch-provisioning.md. Control-plane role: ADR-0012.
 --
 -- Rulings applied: **#74** / **#199 §4** (M1 stores expert and provider only; tenant is
 -- organisations.status), **#98** (policy_revision writer is T-202 / #179 — merge-order coupling:
@@ -9,8 +9,8 @@
 -- signature; objects live in non-exposed `toi_control` (#75 toi_identity pattern).
 --
 -- FAQ-0011 does **not** apply. The gate is EXECUTE to `toi_control_plane` plus an in-body login
--- check. `provider_switch_state_v1` is the #199 server-path read for the gateway; it is not granted
--- to request roles and not to `toi_control_plane`.
+-- check (ADR-0012). `provider_switch_state_v1` is the #199 server-path read for the gateway; it is
+-- not granted to request roles and not to `toi_control_plane`.
 --
 -- A missing switch row means "not switched off". Role flow: writes as postgres (IN ROLE
 -- toi_control_plane); one write under `set local role toi_control_plane`; tenant-scope reads as

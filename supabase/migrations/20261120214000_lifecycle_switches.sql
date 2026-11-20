@@ -1,11 +1,8 @@
 -- T-304 — the lifecycle switch settings, their flip history, tenant suspend/resume, and
--- `provision_tenant_v1` (F05). Migration timestamp 20261116140000: newest **merged** is
--- 20261113010000_scoped_identity_reads.sql, and the newest sitting in an **open** PR is
--- 20261115060000_identity_methods.sql (#186) — also open are 20261113120000 (#179),
--- 20261113074600 (#143), 20261113020000 (#178), 20261111030000 (#160), 20261109235000 (#150),
--- 20261109230000 (#149) — so this sorts after all eight and no merge order inverts the `migrations`
--- job. The claim and this timestamp are recorded in the packet's Status line; COORDINATION §3 puts
--- them in the daily sync, and a different ruling is one filename away.
+-- `provision_tenant_v1` (F05). Control-plane credential: ADR-0012. Migration timestamp
+-- 20261120214000: newest **merged** on main is 20261120165000_brand_public_host_guard.sql
+-- (#211). COORDINATION §3: claim and timestamp live in the packet Status line; a different
+-- ruling is one filename away.
 --
 -- Acceptance tests: supabase/tests/database/100_lifecycle_switches.test.sql (slot 100), **written
 -- first**. There is no Docker on the authoring machine, so every assertion in that file executes only

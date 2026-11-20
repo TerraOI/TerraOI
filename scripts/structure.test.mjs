@@ -35,7 +35,7 @@ describe("checkStructure", () => {
     expect(checkStructure(ok, () => "no status")[0]).toMatch(/Status/));
   it("skips archived plans", () =>
     expect(checkStructure([...ok, "docs/plan/archive/old-notes.md"], read)).toEqual([]));
-  it("refuses CONTROL_PLANE_DB in wrangler.jsonc (ADR-0009)", () => {
+  it("refuses CONTROL_PLANE_DB in wrangler.jsonc (ADR-0012)", () => {
     const withBinding = [...ok, "wrangler.jsonc"];
     const clean = (p) => (/(^|\/)wrangler\.jsonc$/.test(p) ? '{ "vars": {} }\n' : "Status: ready");
     const dirty = (p) =>
