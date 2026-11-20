@@ -1,5 +1,5 @@
--- T-211 PR-1 — the job API, the artifact home and the reconciler
--- (supabase/migrations/20261116211000_ocr_job_leases.sql). Plan §7.2 (extraction executors), §7.5
+﻿-- T-211 PR-1 — the job API, the artifact home and the reconciler
+-- (supabase/migrations/20261120110000_ocr_job_leases.sql). Plan §7.2 (extraction executors), §7.5
 -- (bounded retries, dead letter, reconciler), §13 (the box is outbound-only), §12.4; F12, F32.
 -- Rulings pinned here: #99 (max_attempts, inline reclaim, `failed` as the dead letter, the reconciler,
 -- duplicate dispatch), #134 (the credential digest inside the same compare as tenant, version, stage,
@@ -26,11 +26,11 @@ create extension if not exists pgtap with schema extensions;
 
 -- Each pgTAP file is its own `begin; … rollback;`, and `supabase test db` runs the directory in file
 -- name order (000 → 045 → 050), so this file sees the seed and every earlier file's rollback.
--- `plan(139)` equals the number of assertions this file executes: 139 numbered messages, 1..139, each
+-- `plan(154)` equals the number of assertions this file executes: 154 numbered messages, 1..154, each
 -- one top-level assertion statement. Verified mechanically against the file before pushing; #143's
--- review was the plan-count trap, and `is(have, want)` is the argument order used here. The last six
--- (134-139) are the byte-path policy the supervisor ruled on #152 while this PR sat open.
-select plan(139);
+-- review was the plan-count trap, and `is(have, want)` is the argument order used here. 134-139 are
+-- the #152 byte-path policy; 140-154 are Round-1 B1–B3 / N1 on #149.
+select plan(154);
 
 -- ---------------------------------------------------------------- helpers
 create function pg_temp.syn_hash(p_seed text) returns text
@@ -1108,6 +1108,177 @@ select is((select outcome from t_done where case_name = 'complete_cc_cloud'), 'c
   || 'artifacts" for both executors, and complete_parse_job_v1 carries the matching clearance arm — a '
   || 'class that cleared the read but not the write would be a broken policy, and it is asserted '
   || 'together on purpose (#152)');
+
+-- ================================================================ 140-152 Round-1 B1–B3 / N1 (#149)
+-- B1: already_completed must not short-circuit the credential arm. a5 is succeeded (tests 64-68);
+-- company2's box digest, the revoked digest, and an unregistered digest each get 42501 — not
+-- already_completed and not an artifact count leak (#134).
+insert into t_out values
+  ('b1_c2_box', pg_temp.try_complete(pg_temp.syn_hash('box-c2'),
+    '95000000-0000-4000-8000-0000000000a5',
+    (select lease_token from t_lease where n = 5), (select fence from t_lease where n = 5),
+    '71000000-0000-4000-8000-000000000009', 'extract', 1,
+    '[{"artifact_index":0,"body_text":"foreign tenant probe"}]'::jsonb)),
+  ('b1_revoked', pg_temp.try_complete(pg_temp.syn_hash('box-revoked'),
+    '95000000-0000-4000-8000-0000000000a5',
+    (select lease_token from t_lease where n = 5), (select fence from t_lease where n = 5),
+    '71000000-0000-4000-8000-000000000009', 'extract', 1,
+    '[{"artifact_index":0,"body_text":"revoked credential probe"}]'::jsonb)),
+  ('b1_unknown', pg_temp.try_complete(pg_temp.syn_hash('never-issued-digest'),
+    '95000000-0000-4000-8000-0000000000a5',
+    (select lease_token from t_lease where n = 5), (select fence from t_lease where n = 5),
+    '71000000-0000-4000-8000-000000000009', 'extract', 1,
+    '[{"artifact_index":0,"body_text":"unregistered digest probe"}]'::jsonb));
+select is((select result from t_out where case_name = 'b1_c2_box'), '42501',
+  '140 Round-1 B1: company2''s box credential cannot already_complete company1''s succeeded job');
+select is((select result from t_out where case_name = 'b1_revoked'), '42501',
+  '141 Round-1 B1: a revoked credential gets the same 42501, not already_completed');
+select is((select result from t_out where case_name = 'b1_unknown'), '42501',
+  '142 Round-1 B1: an unregistered digest likewise — credential arm is in the FOR UPDATE select');
+-- N1: with the legitimate cloud credential, a NULL version must still 42501 via `is distinct from`
+-- rather than falling through to already_completed (Round-1 N1).
+select is(pg_temp.try_complete(pg_temp.syn_hash('cloud-c1'),
+         '95000000-0000-4000-8000-0000000000a5',
+         (select lease_token from t_lease where n = 5), (select fence from t_lease where n = 5),
+         null, 'extract', 1,
+         '[{"artifact_index":0,"body_text":"null version probe"}]'::jsonb), '42501',
+  '143 Round-1 N1: a NULL source_version_id is refused by is distinct from, not skipped into already_completed');
+
+-- B2: revoked / deleting source mid-job. Fresh cloud lease on a dedicated version, then flip state.
+insert into public.source_versions (
+  id, organisation_id, source_id, collection_id, version_number, uploaded_by, data_class,
+  content_hash, object_ref, state, parser_generation, body_text
+) values
+  ('71000000-0000-4000-8000-0000000000b2', '11111111-1111-4111-8111-111111111111',
+   '61000000-0000-4000-8000-000000000009', '51000000-0000-4000-8000-000000000001', 2,
+   '00000000-0000-4000-8000-0000000000a1', 'public', pg_temp.syn_hash('vb2'),
+   'knowledge/11111111-1111-4111-8111-111111111111/61000000-0000-4000-8000-000000000009/vb2.pdf',
+   'extracting', 'v1', null);
+insert into public.ingestion_jobs (
+  id, organisation_id, source_version_id, stage, executor, status, data_class, parser_generation,
+  index_generation, attempt, lease_token, lease_expires_at, lease_fence, created_at
+) values
+  ('95000000-0000-4000-8000-0000000000b2', '11111111-1111-4111-8111-111111111111',
+   '71000000-0000-4000-8000-0000000000b2', 'extract', 'cloud_worker', 'queued', 'public', 't211b2', 1,
+   1, null, null, 0, now() - interval '1 minute');
+insert into t_lease (n, found, job_id, organisation_id, source_version_id, stage, executor,
+         parser_generation, index_generation, data_class, lease_token, fence, attempt)
+  select 12, true, o_job_id, o_organisation_id, o_source_version_id, o_stage, o_executor,
+         o_parser_generation, o_index_generation, o_data_class, o_lease_token, o_fence, o_attempt
+    from job_api.lease_parse_job_v1(pg_temp.syn_hash('cloud-c1'), 'extract', 300);
+select is((select job_id::text from t_lease where n = 12), '95000000-0000-4000-8000-0000000000b2',
+  '144 Round-1 B2 setup: leased the dedicated cloud job for the revoked-source arms');
+update public.source_versions set state = 'revoked' where id = '71000000-0000-4000-8000-0000000000b2';
+insert into t_act
+  select 'b2_objref_revoked', null, null, null, null, null, o_found, null, null
+    from job_api.object_ref_for_lease_v1(pg_temp.syn_hash('cloud-c1'),
+         '95000000-0000-4000-8000-0000000000b2',
+         (select lease_token from t_lease where n = 12), (select fence from t_lease where n = 12));
+select is((select found::text from t_act where case_name = 'b2_objref_revoked'), 'false',
+  '145 Round-1 B2: object_ref returns found=false once the version is revoked');
+select is(pg_temp.try_complete(pg_temp.syn_hash('cloud-c1'), '95000000-0000-4000-8000-0000000000b2',
+         (select lease_token from t_lease where n = 12), (select fence from t_lease where n = 12),
+         '71000000-0000-4000-8000-0000000000b2', 'extract', 1,
+         '[{"artifact_index":0,"body_text":"must not write after revoke"}]'::jsonb), '42501',
+  '146 Round-1 B2: complete refuses a revoked parent — no artifact, no outbox');
+select is((select count(*)::text from public.extraction_artifacts
+            where job_id = '95000000-0000-4000-8000-0000000000b2'), '0',
+  '147 Round-1 B2: still zero artifacts for that job after the refused complete');
+select is((select count(*)::text from public.outbox_events
+            where aggregate_id = '95000000-0000-4000-8000-0000000000b2'), '0',
+  '148 Round-1 B2: and zero outbox events');
+select is(pg_temp.try_abort(pg_temp.syn_hash('cloud-c1'), '95000000-0000-4000-8000-0000000000b2',
+         (select lease_token from t_lease where n = 12), (select fence from t_lease where n = 12),
+         'source_revoked'), 'ok',
+  '149 Round-1 B2: abort with source_revoked still aborts the live lease');
+update public.source_versions set state = 'deleting' where id = '71000000-0000-4000-8000-0000000000b2';
+-- Re-lease is impossible after abort (status cancelled); pin deleting via a fresh job on same version.
+insert into public.ingestion_jobs (
+  id, organisation_id, source_version_id, stage, executor, status, data_class, parser_generation,
+  index_generation, attempt, lease_token, lease_expires_at, lease_fence, created_at
+) values
+  ('95000000-0000-4000-8000-0000000000b3', '11111111-1111-4111-8111-111111111111',
+   '71000000-0000-4000-8000-0000000000b2', 'extract', 'cloud_worker', 'queued', 'public', 't211b3', 1,
+   1, null, null, 0, now() - interval '30 seconds');
+insert into t_lease (n, found, job_id, organisation_id, source_version_id, stage, executor,
+         parser_generation, index_generation, data_class, lease_token, fence, attempt)
+  select 13, true, o_job_id, o_organisation_id, o_source_version_id, o_stage, o_executor,
+         o_parser_generation, o_index_generation, o_data_class, o_lease_token, o_fence, o_attempt
+    from job_api.lease_parse_job_v1(pg_temp.syn_hash('cloud-c1'), 'extract', 300);
+insert into t_act
+  select 'b2_objref_deleting', null, null, null, null, null, o_found, null, null
+    from job_api.object_ref_for_lease_v1(pg_temp.syn_hash('cloud-c1'),
+         '95000000-0000-4000-8000-0000000000b3',
+         (select lease_token from t_lease where n = 13), (select fence from t_lease where n = 13));
+select is((select found::text from t_act where case_name = 'b2_objref_deleting'), 'false',
+  '150 Round-1 B2: object_ref also refuses a deleting parent');
+
+-- B3: retarget lease/fence/tenant arms. Second cloud credential + company2 cloud job.
+insert into job_api.worker_credentials (label, token_hash, executor, organisations, revoked_at) values
+  ('syn-cloud-company2', pg_temp.syn_hash('cloud-c2'), 'cloud_worker',
+   array['22222222-2222-4222-8222-222222222222']::uuid[], null);
+insert into public.ingestion_jobs (
+  id, organisation_id, source_version_id, stage, executor, status, data_class, parser_generation,
+  index_generation, attempt, lease_token, lease_expires_at, lease_fence, created_at
+) values
+  ('95000000-0000-4000-8000-0000000000c2', '22222222-2222-4222-8222-222222222222',
+   '72000000-0000-4000-8000-000000000001', 'extract', 'cloud_worker', 'queued', 'client_confidential',
+   't211c2', 1, 1, null, null, 0, now() - interval '45 seconds'),
+  ('95000000-0000-4000-8000-0000000000c1', '11111111-1111-4111-8111-111111111111',
+   '71000000-0000-4000-8000-000000000010', 'extract', 'cloud_worker', 'queued', 'public', 't211c1', 1,
+   1, null, null, 0, now() - interval '40 seconds');
+insert into t_lease (n, found, job_id, organisation_id, source_version_id, stage, executor,
+         parser_generation, index_generation, data_class, lease_token, fence, attempt)
+  select 14, true, o_job_id, o_organisation_id, o_source_version_id, o_stage, o_executor,
+         o_parser_generation, o_index_generation, o_data_class, o_lease_token, o_fence, o_attempt
+    from job_api.lease_parse_job_v1(pg_temp.syn_hash('cloud-c1'), 'extract', 300);
+select is((select job_id::text from t_lease where n = 14), '95000000-0000-4000-8000-0000000000c1',
+  '151 Round-1 B3 setup: company1 cloud lease for fence/token arms');
+insert into t_act
+  select 'b3_stale_fence', o_outcome, null, null, null, null, null, null, null
+    from job_api.retarget_extract_job_v1(pg_temp.syn_hash('cloud-c1'),
+         '95000000-0000-4000-8000-0000000000c1',
+         (select lease_token from t_lease where n = 14),
+         (select fence from t_lease where n = 14) - 1, 'no_text_layer');
+insert into t_act
+  select 'b3_wrong_token', o_outcome, null, null, null, null, null, null, null
+    from job_api.retarget_extract_job_v1(pg_temp.syn_hash('cloud-c1'),
+         '95000000-0000-4000-8000-0000000000c1',
+         'wrong-token-aaaaaaaaaaaaaaaa', (select fence from t_lease where n = 14), 'no_text_layer');
+update public.ingestion_jobs
+   set lease_expires_at = now() - interval '1 minute'
+ where id = '95000000-0000-4000-8000-0000000000c1';
+insert into t_act
+  select 'b3_expired', o_outcome, null, null, null, null, null, null, null
+    from job_api.retarget_extract_job_v1(pg_temp.syn_hash('cloud-c1'),
+         '95000000-0000-4000-8000-0000000000c1',
+         (select lease_token from t_lease where n = 14), (select fence from t_lease where n = 14),
+         'no_text_layer');
+select is((select outcome || '/' || (select outcome from t_act where case_name = 'b3_wrong_token')
+             || '/' || (select outcome from t_act where case_name = 'b3_expired')
+             || '/' || (select status || '/' || lease_fence::text from public.ingestion_jobs
+                          where id = '95000000-0000-4000-8000-0000000000c1')
+             from t_act where case_name = 'b3_stale_fence'),
+  'refused/refused/refused/leased/' || (select fence::text from t_lease where n = 14),
+  '152 Round-1 B3: stale fence, wrong token, and expired lease each refuse; row stays leased at the original fence');
+insert into t_lease (n, found, job_id, organisation_id, source_version_id, stage, executor,
+         parser_generation, index_generation, data_class, lease_token, fence, attempt)
+  select 15, true, o_job_id, o_organisation_id, o_source_version_id, o_stage, o_executor,
+         o_parser_generation, o_index_generation, o_data_class, o_lease_token, o_fence, o_attempt
+    from job_api.lease_parse_job_v1(pg_temp.syn_hash('cloud-c2'), 'extract', 300);
+select is((select job_id::text from t_lease where n = 15), '95000000-0000-4000-8000-0000000000c2',
+  '153 Round-1 B3 setup: company2 cloud lease for the cross-tenant arm');
+insert into t_act
+  select 'b3_cross_tenant', o_outcome, null, null, null, null, null, null, null
+    from job_api.retarget_extract_job_v1(pg_temp.syn_hash('cloud-c1'),
+         '95000000-0000-4000-8000-0000000000c2',
+         (select lease_token from t_lease where n = 15), (select fence from t_lease where n = 15),
+         'no_text_layer');
+select is((select outcome || '/' || (select status || '/' || lease_fence::text from public.ingestion_jobs
+                                      where id = '95000000-0000-4000-8000-0000000000c2')
+             from t_act where case_name = 'b3_cross_tenant'),
+  'refused/leased/' || (select fence::text from t_lease where n = 15),
+  '154 Round-1 B3: company1 cloud credential presenting company2''s live token+fence is refused; c2 row unchanged');
 
 select * from finish();
 rollback;

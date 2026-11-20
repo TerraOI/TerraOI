@@ -8,12 +8,11 @@
 -- short-lived URL under ADR-0011), #51 (extracted text lives in `extraction_artifacts`, never in a
 -- version's `body_text`), #66 (retarget is an UPDATE, never a second job row).
 -- Design: docs/decisions/0005-ocr-job-api-and-artifact-home.md (accepted by this PR) and
--- docs/decisions/0011-object-bytes-for-the-pull-worker.md (new here).
+-- docs/decisions/0011-object-bytes-for-the-extraction-workers.md (new here).
 --
--- Timestamp claim (daily sync, COORDINATION §3): later than every merged migration
--- (`20261109160000_function_privileges.sql`) **and** later than the in-flight
--- `20261109203000_provider_configuration.sql` on PR #143, so a rebase stays in order. Exactly one
--- migration in this PR (`scripts/migrations.mjs:37`); merged migrations are never edited (`:22-24`).
+-- Timestamp claim (daily sync, COORDINATION §3): later than every migration on `main` at push time
+-- (was re-timed past `20261116213000_capture_scope.sql` as `20261120110000`). Exactly one
+-- migration in this PR (`scripts/migrations.mjs`); merged migrations are never edited.
 --
 -- Privilege discipline (#60 as merged, FAQ-0010): every function created here — in `public` and in
 -- `job_api` — is revoked by full signature in this same transaction, and `EXECUTE` goes back only to
@@ -298,8 +297,9 @@ revoke execute on function public.extraction_artifacts_guard()
 -- sweep, one poisoned extract job starves the tenant's queue forever: `attempt` is capped by a CHECK
 -- (`:373`), the lease bumps it, and the select is `order by created_at limit 1` over rows still in
 -- ('queued','leased','running') — so the first-in-line row raises 23514 on every later call
--- (ADR-0005 §5b). `attempt` is read as "trials performed so far": a row may be leased while
--- attempt <= max_attempts, which yields exactly max_attempts leases before the sweep dead-letters it.
+-- (ADR-0005 §5b). `attempt` starts at 1 on the first lease (the column default); the compare allows
+-- lease while attempt <= max_attempts, so a fresh row gets exactly max_attempts leases before the
+-- sweep dead-letters it. Round-1 N7: do not read the default as "trials already performed".
 create or replace function job_api.lease_parse_job_v1(
   p_token_hash text,
   p_stage text,
@@ -504,27 +504,35 @@ begin
     raise exception 'ocr confidence must be between 0 and 1' using errcode = '22023';
   end if;
 
-  -- Authoritative re-read, under a row lock, before anything is written.
+  -- Authoritative re-read under a row lock. Round-1 B1: the credential arm is *in* this select, so
+  -- an unknown / foreign / revoked digest never reaches the lock, the re-check, or already_completed
+  -- (#134; AGENTS §4.1; plan §20.4 item 8).
   select * into v_job from public.ingestion_jobs j
    where j.id = p_job_id
+     and exists (select 1 from job_api.worker_credentials c
+                  where c.token_hash = p_token_hash and c.revoked_at is null
+                    and c.executor = j.executor
+                    and j.organisation_id = any (c.organisations))
      for update;
   if not found then
-    -- Foreign == unknown == gone: one indistinguishable refusal (knowledge_uploads.sql:368-372).
+    -- Foreign == unknown == gone == wrong/revoked credential: one indistinguishable refusal.
     raise exception 'job not available to this worker' using errcode = '42501';
   end if;
-  if v_job.source_version_id <> p_source_version_id
-     or v_job.stage <> p_stage
-     or v_job.index_generation <> p_index_generation then
+  -- Round-1 N1: `is distinct from` so a NULL version/stage/generation cannot skip the re-check.
+  if v_job.source_version_id is distinct from p_source_version_id
+     or v_job.stage is distinct from p_stage
+     or v_job.index_generation is distinct from p_index_generation then
     -- A stale payload: the answer is a refusal, not a write into a generation that never ran.
     raise exception 'job not available to this worker' using errcode = '42501';
   end if;
+  -- Round-1 N4: same generic message as every other 42501 arm (no clearance detail leak).
   if not job_api.executor_clears_class(v_job.executor, v_job.data_class) then
-    raise exception 'executor does not clear this data class' using errcode = '42501';
+    raise exception 'job not available to this worker' using errcode = '42501';
   end if;
   select state into v_state from public.source_versions where id = v_job.source_version_id;
   if v_state is null or v_state in ('revoked', 'deleting', 'deleted') then
     -- Same filter as source_version_is_readable (knowledge_core.sql:471): a revoked source stops
-    -- producing output the moment its state changes (F14).
+    -- producing output the moment its state changes (F14). Round-1 B2 pins this in 045.
     raise exception 'job not available to this worker' using errcode = '42501';
   end if;
 
@@ -646,14 +654,10 @@ begin
     return;
   end if;
 
-  -- A deliberate exception to a merged convention, argued rather than slipped past
-  -- (knowledge_core.sql:900-901 keeps DELETE away from request roles because "hard deletion is a
-  -- retention job"). This is not retention: it removes the **partial output of a writer that no
-  -- longer holds the lease** — artifacts whose fence is not the one that just aborted — so a revoked
-  -- or abandoned run cannot leave located text that a later completion would silently duplicate or
-  -- contradict. It runs inside job_api only; no request role holds DELETE anywhere.
-  delete from public.extraction_artifacts
-   where job_id = p_job_id and organisation_id = v_org and fence <> p_fence;
+  -- Round-1 N2: abort never deletes artifacts. Artifacts exist only on succeeded jobs, and this
+  -- UPDATE matches leased/running only — so a DELETE here could never run. "The queued artifact is
+  -- deleted" for a revoked source is met by RLS via `source_version_is_readable` plus complete's
+  -- revoked-source 42501 (ADR-0005 §10c).
 
   o_outcome := 'aborted';
   return next;

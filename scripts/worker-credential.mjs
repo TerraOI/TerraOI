@@ -16,7 +16,9 @@
 //   node scripts/worker-credential.mjs issue --label syn-box-company1 --executor local_box \
 //        --org 11111111-1111-4111-8111-111111111111
 //   node scripts/worker-credential.mjs revoke --label syn-box-company1
-//   JOB_DB_URL=postgresql://… node scripts/worker-credential.mjs …   # connects; otherwise it prints
+//   OWNER_DB_URL=postgresql://… node scripts/worker-credential.mjs …  # owner connection (can INSERT
+//   into job_api.worker_credentials); otherwise it prints SQL for the owner to run. The revoke path
+//   ignores this URL and only prints SQL. (Round-1 N5: was JOB_DB_URL — that role cannot insert.)
 //                                                                    # the SQL for the owner to run
 // Connecting to a database from a development machine is an owner action on a documented server path
 // (AGENTS §6, "touching production resources … from a development machine"): the target is staging
@@ -107,15 +109,16 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const token = newToken();
   const digest = digestOf(token);
   const sql = insertSql({ ...spec });
-  if (!process.env.JOB_DB_URL) {
-    console.log("No JOB_DB_URL in the environment, so nothing was written. Run this as the owner:");
+  if (!process.env.OWNER_DB_URL) {
+    console.log("No OWNER_DB_URL in the environment, so nothing was written. Run this as the owner");
+    console.log("(a connection that can INSERT into job_api.worker_credentials — not toi_job_api):");
     console.log(`\n${sql.replace("<64-hex-sha256-of-the-token>", digest)}\n`);
     console.log(`Token for ${spec.label} (shown once, store it in the box's secret store):`);
     console.log(token);
     process.exit(0);
   }
   const { default: postgres } = await import("postgres");
-  const sqlClient = postgres(process.env.JOB_DB_URL, { max: 1, ssl: "require" });
+  const sqlClient = postgres(process.env.OWNER_DB_URL, { max: 1, ssl: "require" });
   try {
     await sqlClient`insert into job_api.worker_credentials
                       (label, token_hash, executor, organisations)
