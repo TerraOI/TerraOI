@@ -50,8 +50,9 @@ jobs:
         run: pnpm exec supabase start -x realtime,storage-api,imgproxy,mailpit,studio,edge-runtime,logflare,vector,supavisor
       - name: Apply all migrations from empty
         run: pnpm exec supabase db reset
+      # #180: --level only chooses what is printed; --fail-on makes a finding fail the step.
       - name: Lint SQL
-        run: pnpm exec supabase db lint --level error
+        run: pnpm exec supabase db lint --level error --fail-on error
       - name: pgTAP tests (RLS guardrails and tenancy)
         run: pnpm exec supabase test db
       - name: Generated types are up to date
@@ -62,13 +63,17 @@ jobs:
             git diff --exit-code -- src/contracts/database.types.ts \
               || { echo "::error::database.types.ts is stale. No Docker needed: download the regenerated file with 'gh run download ${{ github.run_id }} -n database-types -D src/contracts/', commit it and push (#122)."; exit 1; }
           else
-            echo "::notice::No generated types committed yet (first committed in T-003)."
+            # #176: bootstrap. Generate anyway so the supervisor can commit the first copy.
+            pnpm db:types
+            echo "bootstrap=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::database.types.ts is not tracked yet; generated it and uploaded the database-types artifact (#176)."
           fi
       # #122: builders have no Docker, so CI hands over the file it generated from this head's own
-      # migrations. Only when the check above ran and found it stale: a run whose pgTAP failed skips
-      # that step, so it never supplies types. CI never commits; the builder does.
+      # migrations. Only when the check above ran and found it stale, or (#176) when the file is not
+      # tracked yet: a run whose pgTAP failed skips that step, so it never supplies types.
+      # CI never commits; the builder (or, for the first copy, the supervisor) does.
       - name: Upload regenerated database types
-        if: always() && steps.types.outcome == 'failure'
+        if: always() && (steps.types.outcome == 'failure' || steps.types.outputs.bootstrap == 'true')
         uses: actions/upload-artifact@v7
         with:
           name: database-types
