@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { BRAND_FACT_MARKERS, BRAND_SURFACES, brandSurfaceContract, checkProductContent, type BrandSurface } from "./brand-modes";
+import { BRAND_FACT_MARKERS } from "@/contracts/tenant-brand";
+
+import { BRAND_SURFACES, brandSurfaceContract, checkProductContent, type BrandSurface } from "./brand-modes";
 import { platformBrand, platformBrandForHost } from "./kit-brand";
-import { parseTenantBrand, type BrandSource, type TenantBrand } from "./tenant-brand";
+import { parseTenantBrand, type BrandSource, type LoadedBrand } from "./tenant-brand";
 
 /**
  * T-204 acceptance, slice 1: the mode decides what each surface may show, and nothing else decides
@@ -47,7 +49,7 @@ function source(overrides: Partial<BrandSource> = {}): BrandSource {
 }
 
 /** A validated tenant brand for one host, or a thrown assertion - the fixture, not the product, fails. */
-function brandFor(host: string, overrides: Partial<BrandSource> = {}): TenantBrand {
+function brandFor(host: string, overrides: Partial<BrandSource> = {}): LoadedBrand {
   const parsed = parseTenantBrand(host, source(overrides));
   if (!parsed.ok) throw new Error(`fixture brand refused: ${parsed.reasons.join(", ")}`);
   return parsed.brand;

@@ -2,8 +2,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 
-import { BRAND_FACT_MARKERS, checkProductContent } from "@/platform/branding/brand-modes";
-import { parseTenantBrand, type BrandSource, type TenantBrand } from "@/platform/branding/tenant-brand";
+import { BRAND_FACT_MARKERS } from "@/contracts/tenant-brand";
+import { checkProductContent } from "@/platform/branding/brand-modes";
+import { parseTenantBrand, type BrandSource, type LoadedBrand } from "@/platform/branding/tenant-brand";
 import { BrandFact, brandFactMarker } from "./brand-fact";
 
 /**
@@ -16,7 +17,7 @@ afterEach(cleanup);
 
 const TENANT_HOST = "company1.terraoi.app";
 
-function customerBrand(): TenantBrand {
+function customerBrand(): LoadedBrand {
   const source: BrandSource = {
     mode: "customer",
     displayName: "Company1",
@@ -83,7 +84,7 @@ describe("the remove-then-scan pair #65 prescribes", () => {
    * outside the islands names the provider **and** a routing island shows the real host. Either half
    * alone is satisfiable by a mistake - or, as the ruling puts it, by hiding the host.
    */
-  function customerModePagePasses(brand: TenantBrand, container: HTMLElement): { ok: boolean; reasons: string[] } {
+  function customerModePagePasses(brand: LoadedBrand, container: HTMLElement): { ok: boolean; reasons: string[] } {
     const reasons: string[] = [];
     // Islands are read before they are removed: stripping first would make every page look like it
     // hides the host, and the failure would be about the helper rather than about the page.

@@ -1,11 +1,13 @@
 import type { ReactNode } from "react";
 
-import { BRAND_FACT_MARKERS, type BrandFactKind } from "@/platform/branding/brand-modes";
+import { BRAND_FACT_MARKERS } from "@/contracts/tenant-brand";
+import type { BrandFactKind } from "@/platform/branding/brand-modes";
 
 /**
  * Marked routing/legal islands for the #65 remove-then-scan pair (ruling cited in `brand-modes.ts`).
- * Marker values come from `BRAND_FACT_MARKERS` so a typo throws instead of silently escaping the
- * check. Not a styling component — only the marker and, for routing, the host as text.
+ * Marker values come from `src/contracts/tenant-brand.ts` (#65 / ADR-0004) so a typo throws instead
+ * of silently escaping the check. Not a styling component — only the marker and, for routing, the
+ * host as text.
  */
 
 type RoutingFacts = { kind: "routing"; host: string };

@@ -1,8 +1,12 @@
-import type { BrandMode } from "./brand-rules";
-import type { TenantBrand } from "./tenant-brand";
+import { BRAND_FACT_MARKERS, type BrandMode } from "@/contracts/tenant-brand";
+
+import type { LoadedBrand } from "./tenant-brand";
+
+/** Re-export so existing branding callers keep a single import path (Round-2 B2 / #65). */
+export { BRAND_FACT_MARKERS };
 
 /**
- * T-204's mode contract: for one validated `TenantBrand`, what each surface is allowed to show.
+ * T-204's mode contract: for one validated `LoadedBrand`, what each surface is allowed to show.
  *
  * Rules: plan §5.1 (mode table; customer presentation cannot hide the required host or override
  * necessary legal disclosures); WHITE-LABEL.md acceptance check; [#65](https://github.com/TerraOI/TerraOI/issues/65)
@@ -19,12 +23,8 @@ import type { TenantBrand } from "./tenant-brand";
  *   `branding-boundary.test.ts` fails the build if this directory mentions a query string, a cookie
  *   or a header, so a public brand selector has nowhere to enter (plan §5.1 line 261).
  *
- * It also does not decide where the contract type lives. #65 puts the two marker values in
- * `src/contracts/tenant-brand.ts`, and that file does not exist because [ADR-0004](../../../docs/decisions/0004-tenant-brand-contract.md)
- * is still `proposed`. Until it is accepted, `src/contracts/` is a protected path no builder may
- * create ([COORDINATION §2](../../../docs/COORDINATION.md)), so `BRAND_FACT_MARKERS` lives here — the
- * one module the brand contract already occupies — with the values fixed to the ruling's own words so
- * the ADR's PR is a move, not a redesign.
+ * The two island markers live in [`src/contracts/tenant-brand.ts`](../../contracts/tenant-brand.ts)
+ * (ADR-0004 / #216), as #65 names. This module re-exports them; it does not redefine them.
  */
 
 /**
@@ -47,14 +47,7 @@ const ATTRIBUTION_SURFACES: readonly BrandSurface[] = BRAND_SURFACES.filter((sur
  */
 const ROUTING_SURFACES: readonly BrandSurface[] = BRAND_SURFACES.filter((surface) => surface !== "metadata");
 
-/**
- * The two island markers #65's answer prescribes verbatim. Exporting the values, rather than letting
- * components type the attribute by hand, is what makes a typo a build error instead of a surface that
- * silently stops being checked. The remove-then-scan algorithm itself lives in the component tests;
- * this module only classifies plain text.
- */
-export const BRAND_FACT_MARKERS = { routing: "routing", legal: "legal" } as const;
-
+/** Key of a `data-brand-fact` marker; values come from the contract (#65 / ADR-0004). */
 export type BrandFactKind = keyof typeof BRAND_FACT_MARKERS;
 
 /** What a provider reference turned out to be, once classified: one of #65's three categories. */
@@ -77,7 +70,7 @@ export type BrandSurfaceContract = {
   providerNameRequired: boolean;
 };
 
-export function brandSurfaceContract(brand: TenantBrand, surface: BrandSurface): BrandSurfaceContract {
+export function brandSurfaceContract(brand: LoadedBrand, surface: BrandSurface): BrandSurfaceContract {
   return {
     surface,
     mode: brand.mode,
@@ -131,7 +124,7 @@ function findReferences(text: string): { index: number; text: string }[] {
  * tests, which strips marked islands first. On the `legal` surface the whole surface is a dedicated
  * legal element, so every reference there is a legal fact.
  */
-export function checkProductContent(brand: TenantBrand, surface: BrandSurface, text: string): ProductContentVerdict {
+export function checkProductContent(brand: LoadedBrand, surface: BrandSurface, text: string): ProductContentVerdict {
   const contract = brandSurfaceContract(brand, surface);
   const references: ProviderReference[] = findReferences(text).map((reference) => ({
     ...reference,
