@@ -57,3 +57,13 @@ Source: #10 · Date: 2026-11-05 · Applies to: all
 ### FAQ-0001: Can components import CSS, JS or values directly from `brand/`?
 **Answer:** No. `src/platform/branding/` reads `tokens.json` and `brand-config.json`, validates them against the `TenantBrand` contract, and the app uses that. **Why:** one validated choke point for white-label modes (plan §5.1, [brand/README.md](../brand/README.md)).
 Source: PR #1 · Date: 2026-11-05 · Applies to: Lane 1
+
+## Tenancy and access
+
+### FAQ-0014: Can a tenant remove its last admin?
+**Answer:** No. Every RPC that can demote, revoke or deactivate a member refuses a change that would leave zero active holders of `members.admin` in the tenant, with `23514`. The guard lives in the database, not only in the page. **Why:** a UI-only guard is not a guard, and recovery would need a service-role action by the supervisor ([T-202](tasks/T-202-tenant-admin.md) rulings).
+Source: #202 · Date: 2026-11-20 · Applies to: Lane 1, T-202
+
+### FAQ-0013: A platform-scope form template needs a default collection, but collections belong to a tenant. Which row holds it?
+**Answer:** A platform template is installed per tenant: one `form_templates` row per organisation, where `scope = 'platform'` means platform-authored and `organisation_id` means "installed in". `default_collection_id` is a collection of that same tenant, held by a composite foreign key to `knowledge_collections (id, organisation_id)`. The mapper drops `organisationId` for platform rows, so `src/contracts/form-template.ts` is unchanged. **Why:** plan §7.6 step 1 has a tenant admin (or the platform seed, in M1) publish the template, and RLS stays membership-based on every visible row (plan §4.3).
+Source: #195 · Date: 2026-11-20 · Applies to: Lane 1, T-301
