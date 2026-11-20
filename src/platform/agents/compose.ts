@@ -437,6 +437,9 @@ export async function composeAnswer(
       ? { key: "insufficient_support", summary: input.expert.refusalTemplates.insufficient_support }
       : null;
 
+  // On a refusal, unknowns and conflicts are platform-authored only (#210 / ADR-0009): composer
+  // prose on an all-dropped run is unverified and can describe the withheld claim (§9.3, #97).
+  // Partial answers still carry composed.parsed.unknowns/conflicts — that path is not this ruling.
   return {
     answer: Answer.parse({
       ...safeAnswerBase(input, dataClass),
@@ -444,8 +447,11 @@ export async function composeAnswer(
       ...(refusal === null ? {} : { refusalKey: refusal.key }),
       summary: refusal === null ? composed.parsed.summary : refusal.summary,
       claims,
-      unknowns: composed.parsed.unknowns,
-      conflicts: composed.parsed.conflicts,
+      unknowns:
+        refusal === null
+          ? composed.parsed.unknowns
+          : ["Related material was found but could not be verified into an answer."],
+      conflicts: refusal === null ? composed.parsed.conflicts : [],
       truncation,
     }),
     audit,

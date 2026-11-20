@@ -1,8 +1,8 @@
 # ADR-0009 A refusal names its sentence: four templates, and the key that records which one ran
 
-Status: **accepted** — this records the supervisor's decision on [#97](https://github.com/TerraOI/TerraOI/issues/97), restated on [#137](https://github.com/TerraOI/TerraOI/issues/137) (2026-11-09), with key↔status coherence ruled on [#151](https://github.com/TerraOI/TerraOI/pull/151) (2026-11-18). The implementation lands in the PR that carries this file: `src/contracts/expert-definition.ts`, `src/contracts/answer.ts`, `src/platform/agents/compose.ts` and their tests.
+Status: **accepted** — this records the supervisor's decision on [#97](https://github.com/TerraOI/TerraOI/issues/97), restated on [#137](https://github.com/TerraOI/TerraOI/issues/137) (2026-11-09), with key↔status coherence ruled on [#151](https://github.com/TerraOI/TerraOI/pull/151) (2026-11-18) and `insufficient_support` unknowns closed on [#210](https://github.com/TerraOI/TerraOI/issues/210) (2026-11-20). The implementation lands in the PR that carries this file: `src/contracts/expert-definition.ts`, `src/contracts/answer.ts`, `src/platform/agents/compose.ts` and their tests.
 Plan refs: §9.3 (nothing unverified reaches the employee), §12.1 (the answer contract, withheld `requirement` claims), §14.1 (eval scoring), F20/F22 (run audit)
-Deciders: supervisor (#97, #137, #151 B1) · Lane 2 (implementation) · Date: 2026-11-10
+Deciders: supervisor (#97, #137, #151 B1, #210) · Lane 2 (implementation) · Date: 2026-11-10
 
 ## Context
 
@@ -69,6 +69,6 @@ The key chooses the sentence, not the status. A pair outside this table can neve
 - **Leave key↔status coherence open in the contract** (former decision 4). Rejected on #151: #97 already pins the table; a future producer needing a new key already needs an ADR; fail at construction rather than ship a field nobody can trust.
 - **Add `insufficient_support` as optional** so existing expert definitions keep parsing. Rejected by the ruling: a template an expert never states is a refusal path with no honest sentence, and `strictObject` is what forces the copy to exist.
 
-## Open, on purpose
+## `insufficient_support` unknowns are platform-authored ([#210](https://github.com/TerraOI/TerraOI/issues/210))
 
-Whether `Answer.unknowns` on a refused run should be composer text at all (today it is) is a §9.3 wording question — tracked as [#210](https://github.com/TerraOI/TerraOI/issues/210) rather than decided here. Compose tests assert only that unknowns are present on an `insufficient_support` refusal, not the composer prose.
+On an `insufficient_support` refusal, `Answer.unknowns` is a closed, platform-authored set — the same pattern as the `no_evidence` and `unavailable` branches — and `conflicts` is empty. Composer prose does not pass: on an all-dropped run that text is unverified and can describe the withheld claim (plan §9.3, AGENTS.md §4.5, #97). At least one unknown entry must be present so the employee sees why there is no answer. Unknowns on a `partial` answer are not covered by this ruling and may still carry composer-emitted strings.

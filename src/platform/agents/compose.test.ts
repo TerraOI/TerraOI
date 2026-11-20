@@ -587,9 +587,37 @@ describe("the refusal vocabulary (ADR-0009, #97)", () => {
     expect(answer.summary).not.toBe(EXPERT.refusalTemplates.no_evidence);
     expect(answer.refusalKey).toBe("insufficient_support");
     assertNothingInternalLeaks(answer, "pass-1 refusal");
-    // Unknowns must be present on a refusal (§12.1); whether composer prose may reach the employee
-    // on an insufficient_support path is a §9.3 Question (ADR-0009 Open), not pinned here (#151 N1).
+    // Unknowns must be present on a refusal (§12.1); on this path they are platform-authored (#210).
     expect(answer.unknowns.length).toBeGreaterThan(0);
+  });
+
+  it("an insufficient_support refusal discards composer unknowns and conflicts (#210, #151 B5)", async () => {
+    const distinctiveUnknown = "COMPOSER_UNKNOWN_MARKER_7f3a9c";
+    const distinctiveConflict = "COMPOSER_CONFLICT_MARKER_9b2c1e";
+    const invented = claimOf("c1", "source_fact", "The antenna must be replaced yearly.", [
+      { kind: "chunk", sourceVersionId: VERSION_A, chunkId: "chk-9999", quotedText: "Calibrate the " },
+    ]);
+    const h = depsOf({
+      local_box: [
+        answered(
+          candidate([invented], {
+            unknowns: [distinctiveUnknown],
+            conflicts: [distinctiveConflict],
+          }),
+          "open-weights-alpha",
+        ),
+      ],
+    });
+    const { answer } = await composeAnswer(input(), h.deps);
+    expect(answer.status).toBe("refused");
+    expect(answer.refusalKey).toBe("insufficient_support");
+    expect(answer.claims).toEqual([]);
+    expect(answer.conflicts).toEqual([]);
+    expect(answer.unknowns.length).toBeGreaterThan(0);
+    const surface = JSON.stringify(answer);
+    expect(surface).not.toContain(distinctiveUnknown);
+    expect(surface).not.toContain(distinctiveConflict);
+    assertNothingInternalLeaks(answer, "composer unknowns discarded on refusal");
   });
 
   it("the verifier dropping every claim is an insufficient-support refusal", async () => {
