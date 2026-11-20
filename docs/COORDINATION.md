@@ -16,7 +16,7 @@ Humans decide; agents propose. An agent never closes another person's issue, app
 ## 1. Claiming a task (before writing code)
 
 1. Run `gh pr list --state open` and `gh issue list --label blocked`. If an open PR already references the packet, **stop**: it is taken.
-2. Check the packet's `Depends on:`. Every listed task must be **merged on `main`**, not merely open. If not, pick another packet or wait.
+2. Check the packet's `Depends on:`. Every listed task must be **merged on `main`**, not merely open. If not, pick another packet or wait. **Slice claims:** a slice of a packet may be claimed while a dependency is only partly merged, if every part the slice consumes is merged and the slice writes nothing the unmerged part owns. The draft PR body then carries a `Consumes:` line (the merged PRs it builds on) and a `Does not consume:` line (the unmerged halves it avoids). Acceptance boxes that need the unmerged half stay unticked. This is not `provisional` (§6.3), and if review finds the slice does consume an unmerged part, the PR waits for it ([FAQ-0012](FAQ.md), [#196](https://github.com/TerraOI/TerraOI/issues/196)).
 3. Claim it: create branch `t-xxx-short-name`, change the packet's line to `Status: in progress (<github-login>)`, commit, and **open a draft PR immediately** titled `T-xxx: <title>`. The draft PR is the claim, and the other lane can see it.
 4. Work, then mark the PR "Ready for review" only when `pnpm verify` passes and the template is filled in.
 5. If you abandon a task, set `Status: ready`, close the draft PR, and say why in a comment.
@@ -151,12 +151,6 @@ Two pgTAP traps that each cost [#149](https://github.com/TerraOI/TerraOI/pull/14
 - **`plan(N)` must equal the assertions that actually run**, and a rule must not assert over an empty set. Count numbered messages and top-level assertion statements in the file before pushing (`001`'s test 40 is the pin that keeps its own schema-wide rule honest); `is(have, want)` is the argument order used here, and seed rows and fixture inserts are not assertions.
 - **A statement that prints a value is a phantom test point.** A bare `select <helper>(…)` inside a pgTAP file sends its return value to stdout, and a value of `ok` is parsed by `prove` as a test point: `Tests out of sequence. Found (109) but expected (110)`, then `Bad plan`. Record a fixture outcome into a `pg_temp` scratch table (`INSERT 0 1` is not TAP) and read it back inside a real assertion.
 - **Catalog columns lie about their type sometimes.** `pg_policies.permissive` is **text** (`PERMISSIVE` / `RESTRICTIVE`), not boolean: `… and permissive` fails with `argument of AND must be type boolean, not type text` and aborts the file mid-run. Compare it explicitly.
-
-Two pgTAP traps that each cost [#149](https://github.com/TerraOI/TerraOI/pull/149) a full CI round, written down so they stop being tribal knowledge:
-
-- **Use the four-argument form.** In this pgTAP build `has_column` resolves its three-argument form as *(unqualified table, column, description)* and quotes the first argument as a single identifier, so `has_column('public.ingestion_jobs', 'lease_fence', …)` matches nothing and the assertion fails on a column that exists. Write `has_column(schema, table, column, description)` — the same shape the merged suites already use for `has_table(schema, table, description)`.
-- **Assertion helpers return a TAP line, so never wrap them.** `ok(has_table(…))` asks Postgres for `ok(text, unknown)`, which does not exist; psql stops at the first error, and the run reports `Bad plan. You planned 133 tests but ran 0` instead of the one real failure. Direct calls only; combine two columns into one catalog assertion (`ok((select count(*) = 2 from pg_attribute where …))`) rather than an `and` of helpers.
-- **`plan(N)` must equal the assertions that actually run**, and a rule must not assert over an empty set. Count numbered messages and top-level assertion statements in the file before pushing (`001`'s test 40 is the pin that keeps its own schema-wide rule honest); `is(have, want)` is the argument order used here, and seed rows and fixture inserts are not assertions.
 
 ## 7. Daily and weekly rhythm
 
