@@ -8,6 +8,7 @@ import { NoAccessPage } from "@/components/auth/no-access-page";
 import { SignInPage } from "@/components/auth/sign-in-page";
 import { UnknownAddressPage } from "@/components/auth/unknown-address-page";
 import type { SignInStatus } from "@/components/auth/types";
+import { brandSourceReader, type BrandSourceEnv } from "@/platform/branding/brand-source";
 import { loadTenantBrand } from "@/platform/branding/load-tenant-brand";
 import { toSignInBrand } from "@/platform/branding/sign-in-brand";
 import { buildIdentityPorts, type IdentityEnv } from "@/platform/identity/adapters";
@@ -26,6 +27,12 @@ function identityEnv(): Partial<IdentityEnv> {
   } catch {
     return {};
   }
+}
+
+/** Same Worker bindings the brand-assets route uses; publishable key only (brand-source.ts). */
+function brandEnv(): Partial<BrandSourceEnv> {
+  const env = identityEnv();
+  return { SUPABASE_URL: env.SUPABASE_URL, SUPABASE_ANON_KEY: env.SUPABASE_ANON_KEY };
 }
 
 function developmentHostOption(): string | undefined {
@@ -61,7 +68,12 @@ function statusFromOutcome(outcome: SigninOutcome | null, csrfToken: string | nu
 }
 
 async function brandForHost(host: string | null) {
-  const resolved = await loadTenantBrand({ host: host ?? "" });
+  // Wire F04's real reader (T-103). Missing bindings or a refused row fall closed to platform
+  // branding inside loadTenantBrand — never a blank shell, never another tenant's identity.
+  const resolved = await loadTenantBrand({
+    host: host ?? "",
+    readSource: brandSourceReader(brandEnv()),
+  });
   return toSignInBrand(resolved.brand);
 }
 

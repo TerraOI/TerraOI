@@ -26,8 +26,35 @@ export type LoginStateRejection =
   | "host_mismatch"
   | "state_mismatch";
 
+/**
+ * Which flow a login state belongs to. Only the non-default value is ever written into a token: an
+ * ordinary sign-in state carries no `flow` claim at all, so the absence of the claim means "sign-in"
+ * and there is no third state a client could invent.
+ *
+ * Why the carrier has to say anything: a password-recovery link lands on the same callback as a magic
+ * link and the provider's exchange looks identical from here. What the callback must do differently —
+ * revoke the user's other sessions before it mints the new one — is a fact about **this** browser's
+ * request, and the only thing binding this browser to that request is this signed, host-bound,
+ * single-use state (#37's carrier, T-201's reset item).
+ */
+export type LoginStateFlow = "recovery";
+
+/**
+ * Which provider **this host's** sign-in attempt went to. Like `flow`, only the non-default value is
+ * ever written, and only by this server.
+ *
+ * Why it is needed at all (T-201, Entra): the issuer allow-list is a rule about an attempt this server
+ * started, and the payload the provider hands back is not proof of that. Supabase can attach an Entra
+ * identity to an account that already exists as a mail one, and then the payload still says
+ * `provider: "email"`. Gating on that label alone would let the tenant's issuer policy go unconsulted
+ * for exactly the identity it exists to check. So the state this host set when it sent the browser to
+ * Entra carries the marker, and the callback consults the policy when **either** signal names Entra:
+ * the carrier can open the gate, a payload label can only keep it open, never close it.
+ */
+export type LoginStateProvider = "entra";
+
 export type LoginStateCheck =
-  | { ok: true; codeVerifier: string }
+  | { ok: true; codeVerifier: string; flow?: LoginStateFlow; provider?: LoginStateProvider }
   | { ok: false; reason: LoginStateRejection };
 
 export async function createLoginState(input: {
@@ -46,6 +73,17 @@ export async function createLoginState(input: {
    * keyed store and a retention story for something that lives ten minutes.
    */
   codeVerifier?: string;
+  /**
+   * `recovery` for the state a password-reset request hands its recovery link. Absent means an
+   * ordinary sign-in, and no other value is accepted — a client cannot ask for a flow.
+   */
+  flow?: LoginStateFlow;
+  /**
+   * `entra` for the state this host sets when it sends the browser to Entra. Absent means "this
+   * attempt went to the mail provider" (magic link, password). Like `flow` no other value is written,
+   * and a request cannot ask for one — the callback reads it from the verified carrier only.
+   */
+  provider?: LoginStateProvider;
 }): Promise<{ nonce: string; codeVerifier: string; cookie: CookieSpec }> {
   if (!NormalizedHost.safeParse(input.host).success) {
     throw new Error("login state host must be a normalized host");
@@ -62,6 +100,10 @@ export async function createLoginState(input: {
         jti: nonce,
         host: input.host,
         pkce: codeVerifier,
+        // Only a non-default flow or provider is written at all, so an ordinary sign-in token is
+        // byte-identical to one issued before T-201 and "no claim" cannot be confused with a claim.
+        ...(input.flow === "recovery" ? { flow: input.flow } : {}),
+        ...(input.provider === "entra" ? { provider: input.provider } : {}),
         iat: input.now,
         exp: input.now + LOGIN_STATE_TTL_SECONDS,
       },
@@ -111,10 +153,24 @@ export async function verifyLoginState(input: {
   if (typeof codeVerifier !== "string" || codeVerifier.length === 0) {
     return { ok: false, reason: "malformed" };
   }
+  // A `flow` or `provider` claim is only ever the one value each, and only ever written by
+  // `createLoginState` above. Anything else is a forged or stale token: refusing it is what stops a
+  // caller from asking the callback to run the recovery half of the flow, or from naming its own
+  // issuer policy by claiming a provider this host never sent it to.
+  const flow = claims.flow;
+  if (flow !== undefined && flow !== "recovery") return { ok: false, reason: "malformed" };
+  const provider = claims.provider;
+  if (provider !== undefined && provider !== "entra") return { ok: false, reason: "malformed" };
+
   if (host !== input.host) return { ok: false, reason: "host_mismatch" };
   if (input.now >= exp) return { ok: false, reason: "expired" };
   if (!safeEqualStrings(nonce, input.presentedState)) return { ok: false, reason: "state_mismatch" };
-  return { ok: true, codeVerifier };
+  return {
+    ok: true,
+    codeVerifier,
+    ...(flow === "recovery" ? { flow: "recovery" as const } : {}),
+    ...(provider === "entra" ? { provider: "entra" as const } : {}),
+  };
 }
 
 /** Consuming the state: the cookie goes away, so the same callback URL cannot be used twice. */

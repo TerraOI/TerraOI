@@ -1,6 +1,6 @@
 # T-301 TerraOI forms: two seeded templates, submissions become knowledge
 
-Lane: 1 · Week: 3 · Protected: yes (`supabase/migrations/`) · Depends on: T-111, T-112 (a merged as #32; b open as #54), T-102 (a–d open as #30/#50/#52/#57; only e's test-only pgTAP #59 is merged), T-103 (unclaimed), T-113 (unclaimed) · Status: ready
+Lane: 1 · Week: 3 · Protected: yes (`supabase/migrations/`) · Depends on: T-111 (merged), T-112 (a and b merged as #32/#54), T-102 (code halves a–d merged as #30/#50/#52/#57; staging evidence owed), T-103 (the brand validation half merged as #119; brand rows #150 and the shell #173 open), T-113 (the chunker and embedding gate merged as #80; publish is not on `main`) · Status: ready
 Gated by decisions: [#51](https://github.com/TerraOI/TerraOI/issues/51) (where extracted text is written), [#39](https://github.com/TerraOI/TerraOI/issues/39) (publish permission), [#64](https://github.com/TerraOI/TerraOI/issues/64) (no packet owns the outbound email transport a publish notification needs)
 Plan refs: §7.6, §6.1 (Forms group), §6.2, §16 (Forms/OCR row), §15.0 ("2–3 seeded forms"), §20.3; F33 over [T-112](./T-112-uploads-extract.md)/[T-113](./T-113-chunk-embed-publish.md)'s capture and publish path
 

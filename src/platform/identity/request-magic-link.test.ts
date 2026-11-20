@@ -12,7 +12,7 @@ const C1 = "11111111-1111-4111-8111-111111111111";
 interface Harness {
   ports: MagicLinkRequestPorts;
   sent: Array<{ email: string; redirectTo: string; codeVerifier: string }>;
-  limiterKeys: Array<{ host: string; email: string }>;
+  limiterKeys: Array<{ host: string; material: string }>;
   requestKeys: string[];
   allowed: boolean;
   sendFails: boolean;
@@ -34,7 +34,7 @@ function harness(): Harness {
     rateLimitKey: async (input) => {
       state.limiterKeys.push(input);
       // A real adapter returns an HMAC; a fixed marker keeps the assertions about *what reaches it*.
-      return `key-${input.host.length}-${input.email.length}`;
+      return `key-${input.host.length}-${input.material.length}`;
     },
     allowRequest: async (key) => {
       state.requestKeys.push(key);
@@ -276,7 +276,11 @@ describe("handleMagicLinkRequest (POST /auth/magic-link)", () => {
         ports: state.ports,
       });
     }
-    expect(state.limiterKeys.map((entry) => entry.email)).toEqual(["user@example.test", "user@example.test", "user@example.test"]);
+    expect(state.limiterKeys.map((entry) => entry.material)).toEqual([
+      "magic-link|user@example.test",
+      "magic-link|user@example.test",
+      "magic-link|user@example.test",
+    ]);
     expect(state.limiterKeys.every((entry) => entry.host === HOST)).toBe(true);
     expect(state.requestKeys.every((key) => !key.includes("@"))).toBe(true);
   });
@@ -336,7 +340,7 @@ describe("handleMagicLinkRequest (POST /auth/magic-link)", () => {
     const response = await handleMagicLinkRequest({ request, ports: state.ports });
 
     expect(response.status).toBe(303);
-    expect(state.limiterKeys).toEqual([{ host: HOST, email: "owner1@company1.test" }]);
+    expect(state.limiterKeys).toEqual([{ host: HOST, material: "magic-link|owner1@company1.test" }]);
     expect(state.sent[0]?.redirectTo.startsWith(`https://${HOST}/auth/callback`)).toBe(true);
     // The hostile headers are not echoed into any decision the handler makes or returns.
     expect(response.headers.get("location")).not.toContain("company2");

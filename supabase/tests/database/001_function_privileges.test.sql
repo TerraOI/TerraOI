@@ -16,7 +16,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(39);
+select plan(40);
 
 -- ---------------------------------------------------------------- 1-15 anon executes nothing here
 -- §12.4/§4.1: knowledge is behind sign-in. The tenancy host resolver is the only `public` function
@@ -134,6 +134,7 @@ $$, '31 no function in public is executable by anon except the named allow-list 
 --     by that migration and granted to no
 --     request role at all, so it must not appear here: 026_brand_config.test.sql test 9 pins that
 --     closed until the admin surface and its seeded permission arrive.
+--   retrieval (`search_corpus.sql`): search_corpus_v1, the reader-only hybrid RPC (#136)
 -- The session functions the ruling also lists live in `toi_identity`, not `public`
 -- (`20261107024000_session_store.sql:122-219`), and that migration grants them to **no role** at all
 -- pending #75 — so they cannot appear in a `public` allow-list; test 33 pins them closed instead.
@@ -170,22 +171,26 @@ select is_empty($$
            ('public.create_collection_v1(uuid, text, text, text, uuid, text)'::regprocedure),
            ('public.update_collection_v1(uuid, uuid, text)'::regprocedure),
            ('public.load_public_brand(text)'::regprocedure),
-           ('public.get_tenant_brand_v1(uuid)'::regprocedure)
+           ('public.get_tenant_brand_v1(uuid)'::regprocedure),
+           ('public.search_corpus_v1(uuid, text[], uuid, uuid[], text, extensions.vector, uuid, date, text[], integer)'::regprocedure)
          ) as allowed(proc)
      )
 $$, '32 no function in public is executable by authenticated beyond the named allow-list (§4.3, #60)');
 
 -- 33 the other schemas stay shut to both request roles: `toi_identity` (session functions, #75
--- pending) and `intake` (pilot inquiries, granted only to `inquiry_writer`).
+-- pending), `intake` (pilot inquiries, granted only to `inquiry_writer`) and `job_api` (the T-211 job
+-- API, granted only to `toi_job_api` — the extension #134 asked for, added here rather than asserted
+-- only inside 045 because this suite is the one that carries function privileges; 045 pins the
+-- behaviour and the worker role's own reach).
 select is_empty($$
   select n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' as function
     from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
-   where n.nspname in ('toi_identity', 'intake')
+   where n.nspname in ('toi_identity', 'intake', 'job_api')
      and p.prokind = 'f'
      and (has_function_privilege('anon', p.oid, 'EXECUTE')
           or has_function_privilege('authenticated', p.oid, 'EXECUTE'))
-$$, '33 neither anon nor authenticated can execute anything in toi_identity or intake (§4.3)');
+$$, '33 neither anon nor authenticated can execute anything in toi_identity, intake or job_api (§4.3, #134)');
 
 -- ---------------------------------------------------------------- 34-38 Addition 1: measured, not assumed
 -- The ruling asked for a source-level closure: `alter default privileges … revoke execute on
@@ -278,6 +283,15 @@ select ok((select count(*) = 2
   join pg_namespace n on n.oid = p.pronamespace
   where n.nspname = 'public' and p.proname in ('data_class_rank', 'data_class_is_valid')),
   '39 sanity: the two knowledge helpers this file names really exist, so 1-22 are not vacuous');
+
+-- 40 why 33 cannot go quiet: the job_api arm is an enumeration over the schema, not a hand-maintained
+-- name list, and this pin counts job_api's functions at query time so 33 cannot pass by matching
+-- nothing (§6b: a rule that asserts over an empty set is the trap #143's review was).
+select ok((select count(*) >= 11 from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'job_api'),
+  '40 job_api really holds the eleven functions #134 ruled for, so 33 matched live objects and a '
+  || 'twelfth added without its revoke fails 33 rather than being invisible to it');
 
 select * from finish();
 rollback;

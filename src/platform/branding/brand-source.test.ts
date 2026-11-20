@@ -87,6 +87,7 @@ describe("brandSourceReader: the port F04 was waiting for", () => {
     ["a legal_name the public projection must never return", { ...ROW, legal_name: "Company1 Pty Ltd" }],
     ["a path without its size", { ...ROW, logo_bytes: null }],
     ["an unversioned path", { ...ROW, logo_path: "logo.svg" }],
+    ["a stem longer than the SQL CHECK", { ...ROW, logo_path: "1/" + ("a" + "b".repeat(100) + ".svg") }],
     ["a disallowed extension", { ...ROW, logo_path: "1/logo.html" }],
     ["an over-64-KiB size", { ...ROW, logo_bytes: 65_537 }],
     ["a mode outside tenant configuration", { ...ROW, mode: "terraoi" }],

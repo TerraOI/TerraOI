@@ -1,6 +1,6 @@
 # T-311 UAV and GPR expert definitions v1, prompt registry, `routeExpert` (F29)
 
-Lane: 2 · Week: 3 · Protected: yes (`supabase/migrations/`; `src/platform/gateway/` only if chain config lands here) · Depends on: T-111 (merged), T-115 (a–g all on `main`: #31, #53, #76, #113, #133, #145), T-114 (open as #160/#162, not on `main`), T-104 (unclaimed — no `src/platform/chat/`, no `agent_runs` migration), T-312 (same week: F36 publication needs a passing run) · Status: ready — **not claimable yet**
+Lane: 2 · Week: 3 · Protected: yes (`supabase/migrations/`; `src/platform/gateway/` only if chain config lands here) · Depends on: T-111 (merged), T-115 (a–d merged as #31/#53/#56/#58), T-114 (open as draft #160 and #162), T-104 (open as #178), T-312 (same week: F36 publication needs a passing run; not started) · Status: ready
 Decided (rulings below): [#6](https://github.com/TerraOI/TerraOI/issues/6) (pin decided; Company1's `client_confidential` half open), [#45](https://github.com/TerraOI/TerraOI/issues/45), [#41](https://github.com/TerraOI/TerraOI/issues/41) (`create_collection_v1`, which binds a collection to a service)
 Plan refs: §5.2, §10.1 (M1 routing), §10.2, §10.3, §6.1 (Services + Prompt registry), §12.4 (per-task chains), §16; F29, F07 (F31/F36 boundary)
 
@@ -8,6 +8,7 @@ Plan refs: §5.2, §10.1 (M1 routing), §10.2, §10.3, §6.1 (Services + Prompt 
 These supersede anything below that disagrees.
 - **Keys** ([#83](https://github.com/TerraOI/TerraOI/issues/83)): `routeExpert` returns an **expert key** (`uav-expert`, `gpr-expert`) plus the **service key** that authorized it (`uav-compliance`, `gpr`); never suggest a service key as an expert.
 - **Refusals** ([#97](https://github.com/TerraOI/TerraOI/issues/97)): four `refusalTemplates` (`no_evidence`, `insufficient_support`, `out_of_scope`, `unavailable`) for both experts; the router's out-of-scope result selects `out_of_scope`, whose copy never names a service the tenant lacks.
+- **Services tables** ([#193 ruling](https://github.com/TerraOI/TerraOI/pull/193#issuecomment-6986200996), E3, 2026-11-18): confirmed — this packet owns `service_definitions`, `expert_definitions`, `tenant_services` and `tenant_experts` (plan §6.1), answering the "no owning packet" assumption below. It also ships one `security definer` function that entitles a tenant to a service and its experts, granted `EXECUTE` only to `toi_control_plane` (ADR-0012), which T-304's provisioning script calls; no request role writes these tables.
 
 ## Goal
 The pilot experts stop being configuration in somebody's head: a **UAV document expert** and a **GPR
