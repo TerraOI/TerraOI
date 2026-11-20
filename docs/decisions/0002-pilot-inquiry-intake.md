@@ -1,6 +1,6 @@
 # ADR-0002 Pilot inquiry intake on terraoi.app (T-130)
 
-Status: proposed (awaiting supervisor approval) · Date: 2026-11-05 · Deciders: supervisor (chose storage and the least-privilege role in the T-130 design review), Lane 1
+Status: **accepted** — the supervisor's decision, 2026-11-18, as built on `main` in [#26](https://github.com/TerraOI/TerraOI/pull/26) (`20261105080000_pilot_inquiries.sql`) and amended by [#36](https://github.com/TerraOI/TerraOI/pull/36) (`20261105210000_intake_service_role.sql`) · Date: 2026-11-05 · Amended: 2026-11-18 (`service_role`, §2) · Deciders: wyu610 (chose storage and the least-privilege role in the T-130 design review; acceptance 2026-11-18), Lane 1 authored
 Plan refs: §4.1 step 3, §4.3, §6.2, §20.8; TOI-ADR-15
 
 ## Context
@@ -18,7 +18,7 @@ The tenant tables are protected by RLS on `public`. Nothing on this path may wea
 1. **Store inquiries in the database instead of emailing them.** They go into `intake.pilot_inquiries`, and the supervisor reads them in the Supabase dashboard during M1. There's no admin UI yet.
 2. **There is no anonymous database path.**
    - The `intake` schema is not in the Supabase API's exposed schemas (`supabase/config.toml` `[api] schemas = ["public", "graphql_public"]`, pinned by `src/platform/site/supabase-config.test.ts`).
-   - `public`, `anon` and `authenticated` get no privileges on the schema, the table or the functions. RLS is on, with no policies.
+   - `public`, `anon`, `authenticated` and `service_role` get no privileges on the schema, the table or the functions. RLS is on, with no policies. `service_role` was added by [#36](https://github.com/TerraOI/TerraOI/pull/36), because it is a Data API role that bypasses RLS; pgTAP `030` pins the ACLs.
 3. **A least-privilege writer reaches the database over Hyperdrive.**
    - The web Worker connects through the `INQUIRY_DB` Hyperdrive binding as a login user that is `IN ROLE inquiry_writer`.
    - `inquiry_writer` is `NOLOGIN`. Its only grants are `usage` on `intake` and `execute` on `intake.submit_pilot_inquiry_v1`, which is an insert-only `SECURITY DEFINER` function with `search_path = intake, pg_temp`.

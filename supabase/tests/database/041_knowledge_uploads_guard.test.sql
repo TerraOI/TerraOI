@@ -136,6 +136,10 @@ $fn$;
 
 -- Owner-run mutations: the only way to reach a fixture state no member can produce (a removed project
 -- membership, a closed session state), and the surface the guard trigger exists to constrain (§4.3).
+-- Returns sqlstate|sqlerrm (same shape as try_begin_err) so 47 and 50-53 can pin the guard's own
+-- message: a SQLSTATE alone cannot tell the guard apart from knowledge_upload_sessions_open_marker
+-- (20261106100000_knowledge_uploads.sql:112-113), which also raises 23514 when a quarantined row
+-- is forced back to awaiting_upload while reason_code stays set (#96 clause 2, Round-1 B1).
 create function pg_temp.try_owner_sql(p_sql text) returns text
 language plpgsql set search_path = public, pg_temp as $fn$
 begin
@@ -143,7 +147,7 @@ begin
     execute p_sql;
     return 'ok';
   exception when others then
-    return sqlstate::text;
+    return sqlstate::text || '|' || sqlerrm;
   end;
 end;
 $fn$;
@@ -592,16 +596,21 @@ insert into t_out values ('expired_to_completed', pg_temp.try_owner_sql(
   'update public.knowledge_upload_sessions set state = ''completed'', source_version_id = '
   || '(select source_version_id from t_versions where case_name = ''capture'') '
   || 'where id = (select id from t_sessions where case_name = ''guard_open'')'));
-insert into t_out values ('quarantined_back_to_open', pg_temp.try_owner_sql(
-  'update public.knowledge_upload_sessions set state = ''awaiting_upload'' '
+-- quarantined → expired (not → awaiting_upload): open_marker only fires when state becomes
+-- awaiting_upload while reason_code stays set, so this move has no CHECK that can raise 23514.
+-- The sqlerrm pin below is what proves the guard for 47 and 50-53 either way.
+insert into t_out values ('quarantined_to_expired', pg_temp.try_owner_sql(
+  'update public.knowledge_upload_sessions set state = ''expired'' '
   || 'where id = (select id from t_sessions where case_name = ''guard_quar'')'));
 insert into t_out values ('failed_to_completed', pg_temp.try_owner_sql(
   'update public.knowledge_upload_sessions set state = ''completed'', source_version_id = '
   || '(select source_version_id from t_versions where case_name = ''capture'') '
   || 'where id = (select id from t_sessions where case_name = ''guard_fail'')'));
-select is((select result from t_out where case_name = 'owner_expiry'), '23514',
+select ok((select result from t_out where case_name = 'owner_expiry')
+            like '23514|upload session % keeps its expiry%',
   '47 expires_at cannot be moved at all, not even by the owner role the RPCs run as: extending a grant that '
-  || 'already went out to a client is how a stale object key becomes a live one (#96 clause 2)');
+  || 'already went out to a client is how a stale object key becomes a live one — and the message is the '
+  || 'guard''s, not a CHECK (#96 clause 2)');
 select is((select result from t_out where case_name = 'member_state_update'), '42501',
   '48 a member still has no write path to a session row at all — the guard is the second net, not the first: '
   || 'the 42501 here is the table grant (`revoke all on public.knowledge_upload_sessions from anon, '
@@ -609,15 +618,21 @@ select is((select result from t_out where case_name = 'member_state_update'), '4
 select is((select result from t_out where case_name = 'expire_open'), 'ok',
   '49 awaiting_upload → expired is the one move the future expiry sweep needs, and the guard allows it: the '
   || 'ruling closes the machine, it does not freeze the table (#96 clause 2)');
-select is((select result from t_out where case_name = 'expired_back_to_open'), '23514',
-  '50 expired is final: a re-opened upload issues a **new** session with a new key, it does not revive this one');
-select is((select result from t_out where case_name = 'expired_to_completed'), '23514',
+select ok((select result from t_out where case_name = 'expired_back_to_open')
+            like '23514|upload session % is expired: only awaiting_upload may change state%',
+  '50 expired is final: a re-opened upload issues a **new** session with a new key, it does not revive this one '
+  || '(guard message, not a CHECK)');
+select ok((select result from t_out where case_name = 'expired_to_completed')
+            like '23514|upload session % is expired: only awaiting_upload may change state%',
   '51 and an expired session cannot be completed after the fact, so "the grant had lapsed" stays the '
   || 'recorded truth even for a privileged writer (§7.2, §4.3)');
-select is((select result from t_out where case_name = 'quarantined_back_to_open'), '23514',
+select ok((select result from t_out where case_name = 'quarantined_to_expired')
+            like '23514|upload session % is quarantined: only awaiting_upload may change state%',
   '52 quarantined is final: the reason an object was kept out of the corpus is audit information, and the '
-  || 'constraint now guarantees "first refusal wins" for every writer instead of one function''s early return');
-select is((select result from t_out where case_name = 'failed_to_completed'), '23514',
+  || 'guard refuses quarantined → expired (a move no CHECK rejects) so "first refusal wins" is a table '
+  || 'property, not one function''s early return (#96 clause 2)');
+select ok((select result from t_out where case_name = 'failed_to_completed')
+            like '23514|upload session % is failed: only awaiting_upload may change state%',
   '53 and failed cannot become completed: a refused capture that later arrives is a new session, which is '
   || 'also what the #40 delete-on-quarantine path assumes when it removes the stored object');
 

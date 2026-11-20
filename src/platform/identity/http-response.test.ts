@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { BROWSER_TOKEN_SHAPE, containsTokenMaterial, redirectSameHost, statusOnly } from "./http-response";
+import { BROWSER_TOKEN_SHAPE, containsTokenMaterial, providerRedirect, redirectSameHost, statusOnly } from "./http-response";
 import { clearedCookie, serializeSetCookie } from "./cookie";
 import { createLoginState } from "./login-state";
 import { SESSION_COOKIE_BASE, issueSession } from "./session";
@@ -85,6 +85,34 @@ describe("http-response — the sign-in responses cannot carry a Supabase token"
 
   it("refuses a redirect target that carries token material in its path or query", () => {
     expect(() => redirectSameHost(HOST, `/login?next=${encodeURIComponent(fakeJwt("access"))}`, [])).toThrow(/token/i);
+  });
+
+  // The same refusals on the *external* hand-off shape (T-201's Entra start). Both redirect shapes
+  // share one guard, and an untested copy is exactly how a line gets dropped from one of them.
+  it("refuses a provider hand-off whose target URL carries token material", () => {
+    expect(() =>
+      providerRedirect(`https://synthetic-project.supabase.co/auth/v1/authorize?state=${encodeURIComponent(fakeJwt("access"))}`, []),
+    ).toThrow(/token/i);
+  });
+
+  it("refuses a provider hand-off that would set a cookie holding an access token", () => {
+    expect(() =>
+      providerRedirect("https://synthetic-project.supabase.co/auth/v1/authorize", [
+        { name: "toi_session", value: fakeJwt("access"), maxAge: 100, secure: true, httpOnly: true, sameSite: "Lax" },
+      ]),
+    ).toThrow(/token/i);
+  });
+
+  it("sends a clean provider hand-off as 302 with no-store and the login-state cookie attached", async () => {
+    const loginState = await createLoginState({ host: HOST, secret: SECRET, now: NOW, secureTransport: true });
+    const response = providerRedirect("https://synthetic-project.supabase.co/auth/v1/authorize?code_challenge=synthetic", [loginState.cookie]);
+    expect(response.status).toBe(302);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("location")).toBe("https://synthetic-project.supabase.co/auth/v1/authorize?code_challenge=synthetic");
+    const cookies = response.headers.getSetCookie();
+    expect(cookies).toHaveLength(1);
+    expect(cookies[0]).toMatch(/HttpOnly.*Secure.*SameSite=Lax/);
+    expect(cookies.join("\n")).not.toMatch(/eyJ[A-Za-z0-9_-]{4,}\.eyJ/);
   });
 
   it("lets our own opaque session cookie and login-state cookie through", async () => {

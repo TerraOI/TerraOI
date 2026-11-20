@@ -1,4 +1,5 @@
-import type { TenantBrand } from "./tenant-brand";
+import { brandAssetUrl } from "./brand-source";
+import type { LoadedBrand } from "./tenant-brand";
 
 /**
  * Structural twin of `SignInBrand` in `src/components/auth/types.ts` (ADR-0004 §3).
@@ -16,14 +17,18 @@ export type SignInBrandFields = {
 };
 
 /**
- * Projects the validated `TenantBrand` onto the presentational sign-in props shape
+ * Projects the validated `LoadedBrand` onto the presentational sign-in props shape
  * (ADR-0004 §3). One place only — pages and T-204 must not hand-write the mapping.
+ *
+ * Tenant logos arrive as versioned paths (`{configVersion}/{name}`); those become
+ * `/brand-assets/...` via `brandAssetUrl`. Platform fallback has a null logo path.
  */
-export function toSignInBrand(brand: TenantBrand): SignInBrandFields {
+export function toSignInBrand(brand: LoadedBrand): SignInBrandFields {
   return {
     name: brand.displayName,
     tagline: brand.tagline,
-    logoUrl: brand.logoPath ?? "",
+    // Only a versioned FAQ-0008 path becomes a URL; anything else is empty (never a raw path in <img>).
+    logoUrl: brandAssetUrl(brand.logoPath) ?? "",
     primary: brand.primary,
     onPrimary: brand.onPrimary,
     accent: brand.accent,
