@@ -22,9 +22,11 @@ picker) driven by one validated `TenantBrand`, and the `terraoi` platform mode f
 - `src/platform/branding/`, `src/components/tenant-shell/`, `src/app/(tenant)/layout.tsx`,
   `src/app/layout.tsx`, `public/`
 - `src/platform/branding/*.test.ts`
+- `src/contracts/tenant-brand.ts` and `docs/decisions/0004-tenant-brand-contract.md`, in one ADR PR (COORDINATION §2) that moves ADR-0004 to accepted, landing before the migration ([#62](https://github.com/TerraOI/TerraOI/issues/62), [#188](https://github.com/TerraOI/TerraOI/issues/188))
+- one migration for `tenant_brands` and `tenant_brand_assets` under `supabase/migrations/`, with its pgTAP file (slot `026`)
 
 ## Must not edit
-`brand/` (read-only design source), `src/contracts/`, `src/platform/{tenancy,identity}/`, Lane 2 paths
+`brand/` (read-only design source), any other file in `src/contracts/`, `src/platform/{tenancy,identity}/`, Lane 2 paths
 
 ## Contract
 `TenantBrand` contract lands with this packet in `src/contracts/tenant-brand.ts` — **needs an ADR**

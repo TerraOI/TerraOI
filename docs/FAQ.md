@@ -34,6 +34,10 @@ Source: PR #1 · Date: 2026-11-04 · Applies to: Lane 1
 
 ## Repository and assets
 
+### FAQ-0012: Can I claim a slice of a packet when one of its dependencies is only partly merged?
+**Answer:** Yes, if every part your slice consumes is merged and the slice writes nothing the unmerged part owns. Put a `Consumes:` line (the merged PRs you build on) and a `Does not consume:` line (the unmerged halves you avoid) in the draft PR body, and leave unticked any acceptance box that needs the unmerged half. No `provisional` label: that is for building on an assumption from an open question. If review finds the slice consumes an unmerged part, the PR waits. **Why:** COORDINATION §1.2 exists so nobody builds on work that is not on `main`. The precedent is T-111b ([#157](https://github.com/TerraOI/TerraOI/pull/157)), merged while T-104 and T-113 were only partly merged ([#196](https://github.com/TerraOI/TerraOI/issues/196)).
+Source: #196 · Date: 2026-11-18 · Applies to: all claims
+
 ### FAQ-0008: How are brand assets (logos, symbols) served?
 **Answer:** Platform assets from `brand/` are copied at build time into `public/brand/v<kit version>/` (generated, git-ignored, never committed). Customer assets are served by `GET /brand-assets/{configVersion}/{name}`, resolved from the request host and stored in `tenant_brand_assets`. Both send `Cache-Control: public, max-age=31536000, immutable`, because the version is in the path. **Why:** the kit stays the single source, and a host can never be asked for another tenant's asset ([#118](https://github.com/TerraOI/TerraOI/issues/118), T-103).
 Source: #118 · Date: 2026-11-09 · Applies to: Lane 1

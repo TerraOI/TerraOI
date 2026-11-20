@@ -9,12 +9,15 @@ These supersede anything below that disagrees.
 - **Server path** ([#134](https://github.com/TerraOI/TerraOI/issues/134)): the gateway reads provider configuration through `security definer` read functions (pinned `search_path`) in a **non-exposed** schema, executed by its own `NOLOGIN` role `toi_gateway_config` over a `CONFIG_DB` Hyperdrive binding, with **no table grants**. T-314's health writes go through one named function on the same role. One role per server path, never shared with `toi_job_api`. The human steps are in T-004.
 - **Function privileges** ([#142](https://github.com/TerraOI/TerraOI/issues/142), FAQ-0010): any function this packet leaves in `public` (the trigger functions) is revoked from `public, anon, authenticated` by full signature in the creating transaction; a request-role grant is added to `001`'s allow-list in the same PR.
 
+- **Production gateway bundle** ([#178 ruling](https://github.com/TerraOI/TerraOI/pull/178#issuecomment-6985784215), [#199](https://github.com/TerraOI/TerraOI/issues/199), 2026-11-18): this packet also owns the one production builder of `GatewayDeps` (`call.ts`), which no packet owned. It lives in `src/platform/gateway/` (the only place the provider factories may be named, per `provider-boundary.test.ts`) and assembles the parsed configuration from this packet's repository, the provider adapters from Worker bindings, the health reader/writer over `provider_health`, and the meter. Consumers (T-104's `chatGatewayBundle()` today) receive it through injection and never build one. If any part is missing or fails to load (binding absent, configuration malformed, read error), the builder returns no bundle and the caller answers `unavailable`, never a default chain (AGENTS.md §4.3). The Owns and Acceptance entries below carry it.
+
 ## Goal
 The model-chain configuration that the gateway receives today as reviewed, injected configuration (`parseGatewayConfiguration`) can be loaded from Postgres: `model_providers`, `provider_routes`, `tenant_provider_policy` and `provider_health` (§6.1). The gateway's chain and clearance behaviour does not change. Only the source of its configuration does, behind the existing injection seam.
 
 ## Owns (may edit)
 - One new migration in `supabase/migrations/` (timestamp later than every merged one) and its pgTAP file in `supabase/tests/database/`
 - A typed repository in `src/platform/gateway/` that produces the same parsed configuration type the gateway already consumes
+- The production `GatewayDeps` builder in `src/platform/gateway/` and its test (#178 ruling)
 - `src/contracts/database.types.ts` only through `pnpm db:types`
 
 ## Must not edit
@@ -33,6 +36,8 @@ The model-chain configuration that the gateway receives today as reviewed, injec
 - [ ] negative: `authenticated` cannot insert or update any of the four tables; `has_function_privilege` is false for `anon` on every new function
 - [ ] negative: a policy row permitting a data class the platform route does not clear is refused (the tenant can narrow, never widen, §12.4)
 - [ ] failure: a malformed or missing configuration row makes the gateway fail closed (no provider selected), never fall back to a default chain
+- [ ] positive: in a configured environment the builder yields a `GatewayDeps` the existing gateway tests accept
+- [ ] failure: a missing binding, a malformed configuration or a failed read each make the builder yield no bundle, and the consumer answers `unavailable`
 
 ## Done evidence
 CI `database` job output (assertion count), `pnpm verify` output, `supabase db lint --level error`.
