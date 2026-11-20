@@ -167,6 +167,24 @@ describe("workers/object-signing.ts (ADR-0011 Decision 1, 3)", () => {
     expect(outcome).toEqual({ status: "ok", url: `${baseUrl}/storage/v1/${signedPath}` });
   });
 
+  it("joins Supabase's leading-slash signedURL onto /storage/v1 (real response shape)", async () => {
+    // Real Storage returns `/object/sign/<bucket>/<key>?token=…`, not a project-root path and not
+    // already prefixed with `/storage/v1`. A join that stops at the origin produces a 404 URL.
+    seen.length = 0;
+    const realSignedPath = `/object/sign/hidden-bucket/${SYNTHETIC_KEY_NAME}?token=${SYNTHETIC_URL_TOKEN}`;
+    respondWith = { status: 200, body: JSON.stringify({ signedURL: realSignedPath }) };
+    const outcome = await createSignedUrl({
+      baseUrl,
+      bucket: "hidden-bucket",
+      objectRef: SYNTHETIC_KEY_NAME,
+      serviceRoleKey: SYNTHETIC_SERVICE_KEY,
+    });
+    expect(outcome.status).toBe("ok");
+    if (outcome.status !== "ok") return;
+    expect(outcome.url).toContain("/storage/v1/object/sign/");
+    expect(outcome.url).toBe(`${baseUrl}/storage/v1${realSignedPath}`);
+  });
+
   it("takes the key only in the shape SQL issues it in, and refuses everything else", () => {
     // The CHECK that merged in 20261105070000_knowledge_core.sql:176-180, restated as a client guard:
     // the value this function accepts is the one `object_ref_for_lease_v1` returned, and a

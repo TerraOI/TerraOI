@@ -185,10 +185,18 @@ export async function createSignedUrl(request: SignedUrlRequest): Promise<Signed
     if (!sameOrigin(signedPath, baseUrl)) return { status: "unavailable", reason: "bad_response" };
     return { status: "ok", url: signedPath };
   }
+  // Real Supabase returns `{"signedURL":"/object/sign/<bucket>/<key>?token=…"}` — a path relative to
+  // `/storage/v1`, not to the project root. Join onto `${base}/storage/v1` unless the path already
+  // carries that prefix (some clients echo `/storage/v1/object/sign/...`).
+  const projectBase = `${base.origin}${base.pathname.replace(/\/+$/, "")}`;
+  const storageRoot = `${projectBase}/storage/v1`;
   if (signedPath.startsWith("/")) {
-    return { status: "ok", url: `${base.origin}${signedPath}` };
+    if (signedPath.startsWith("/storage/v1/")) {
+      return { status: "ok", url: `${projectBase}${signedPath}` };
+    }
+    return { status: "ok", url: `${storageRoot}${signedPath}` };
   }
-  return { status: "ok", url: `${base.origin}${base.pathname.replace(/\/+$/, "")}/storage/v1/${signedPath}` };
+  return { status: "ok", url: `${storageRoot}/${signedPath}` };
 }
 
 /**

@@ -2,6 +2,7 @@ import { IngestionJobPayload } from "@/contracts/ingestion-job";
 import type { IngestionStage, JobExecutor } from "@/contracts/ingestion-job";
 import type { DataClass } from "@/contracts/data-class";
 import type { FetchImpl } from "@/platform/gateway/adapters";
+import { MAX_UPLOAD_BYTES } from "@/platform/knowledge/object-validator";
 
 /**
  * The tenant box's OCR worker (plan §13 "OCR/parsing worker", F32; #134, #135, ADR-0011 Decision 5).
@@ -47,8 +48,8 @@ export const DEFAULT_LEASE_SECONDS = 900;
 /** A box polls; it is never woken. Slow enough that an offline platform is not a denial of service. */
 export const DEFAULT_POLL_INTERVAL_MS = 15_000;
 
-/** The same ceiling capture enforced (plan §7.5's 20 MB document); the box must not be the exception. */
-export const MAX_OBJECT_BYTES = 20 * 1024 * 1024;
+/** The same ceiling capture enforced (`MAX_UPLOAD_BYTES`); the box must not be the exception. */
+export const MAX_OBJECT_BYTES = MAX_UPLOAD_BYTES;
 
 /** A download that hangs must not hold the box's one job open indefinitely. */
 export const OBJECT_DOWNLOAD_TIMEOUT_MS = 120_000;

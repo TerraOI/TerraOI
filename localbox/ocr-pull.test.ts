@@ -4,6 +4,8 @@ import type { AddressInfo } from "node:net";
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { MAX_UPLOAD_BYTES } from "@/platform/knowledge/object-validator";
+
 import {
   createBoxWorkerDeps,
   JobApiTransportError,
@@ -346,7 +348,7 @@ describe("localbox/ocr-pull.ts — the tenant box (plan §13, F32, ADR-0011)", (
     const outcome = await runBoxPullIteration(depsOf({ maxObjectBytes: 1024 }));
     expect(outcome).toEqual({ action: "aborted", reason: "unsupported_document" });
     expect(seenJobApiCalls.some((call) => call.path === "/api/jobs/complete")).toBe(false);
-    expect(MAX_OBJECT_BYTES).toBe(20 * 1024 * 1024);
+    expect(MAX_OBJECT_BYTES).toBe(MAX_UPLOAD_BYTES);
   });
 
   it("a Storage outage waits for the next poll instead of cancelling the job", async () => {
