@@ -1302,20 +1302,22 @@ select is(pg_temp.try_dispatch(pg_temp.syn_hash('box-revoked'), 32), '42501',
 select is(pg_temp.try_dispatch(pg_temp.syn_hash('unknown-worker'), 32), '42501',
   '157 and an unknown digest matches nothing either');
 
+-- Three company1 extract completions write pending extract_succeeded rows earlier in this file
+-- (a5 / complete_cloud, complete_cc, complete_cc_cloud). The dispatcher drains all of them.
 select is((select o_processed::text || '/' || o_enqueued::text || '/' || o_skipped::text
              from job_api.dispatch_outbox_v1(pg_temp.syn_hash('cloud-c1'), 32)),
-  '1/1/0',
-  '158 cloud-c1 drains the pending extract_succeeded for a5 and enqueues one index job');
+  '3/3/0',
+  '158 cloud-c1 drains every pending extract_succeeded for its tenants and enqueues index jobs');
 select is((select count(*)::text from public.ingestion_jobs
             where organisation_id = '11111111-1111-4111-8111-111111111111'
               and source_version_id = '71000000-0000-4000-8000-000000000009'
               and stage = 'index' and parser_generation = 't211e' and index_generation = 1
               and executor = 'cloud_worker' and status = 'queued'), '1',
-  '159 the index row carries generations copied from the extract job, never from the outbox payload');
+  '159 the a5 index row carries generations copied from the extract job, never from the outbox payload');
 select ok((select processed_at is not null from public.outbox_events
             where aggregate_id = '95000000-0000-4000-8000-0000000000a5'
               and event_type = 'knowledge.ingestion_job.extract_succeeded'),
-  '160 and the outbox row is marked processed_at in the same call');
+  '160 and a5''s outbox row is marked processed_at in the same call');
 
 select is((select o_processed::text || '/' || o_enqueued::text || '/' || o_skipped::text
              from job_api.dispatch_outbox_v1(pg_temp.syn_hash('cloud-c1'), 32)),
