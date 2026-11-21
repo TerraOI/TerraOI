@@ -786,6 +786,11 @@ isOneToOne: false
 "data_class_rank":
 { Args: { "p_data_class": string }; Returns: number
                            },
+"find_upload_session_v1":
+{ Args: { "p_organisation_id": string,"p_upload_session_id": string }; Returns: {
+              "o_collection_id": string,"o_created_at": string,"o_created_by": string,"o_expires_at": string,"o_idempotency_key": string,"o_max_size_bytes": number,"o_object_ref": string,"o_organisation_id": string,"o_reason_code": string,"o_session_id": string,"o_source_id": string,"o_source_version_id": string,"o_state": string
+            }[]
+                           },
 "form_submission_body_text":
 { Args: { "p_ui_hints": Json,"p_values": Json }; Returns: string
                            },
@@ -866,6 +871,9 @@ isOneToOne: false
                            },
 "update_collection_v1":
 { Args: { "p_collection_id": string,"p_name": string,"p_organisation_id": string }; Returns: undefined
+                           },
+"user_may_access_knowledge_object":
+{ Args: { "p_object_name": string }; Returns: boolean
                            },
 "user_may_publish_into":
 { Args: { "p_collection_id": string }; Returns: boolean
