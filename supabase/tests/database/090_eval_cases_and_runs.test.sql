@@ -3,7 +3,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(28);
+select plan(26);
 
 -- ---------------------------------------------------------------- fixture helpers
 -- Prefer `set local` (same pattern as 010/013) so auth.uid() and role stick for the transaction.
@@ -57,7 +57,7 @@ select ok(
   and not has_function_privilege('anon', 'public.review_eval_case_v1(uuid, uuid, text, jsonb)', 'execute'),
   '8 scoped eval RPCs are granted to authenticated only');
 
--- ---------------------------------------------------------------- 9–12 seed: evals.review area + eval_reviewer
+-- ---------------------------------------------------------------- 9–10 seed: evals.review area + eval_reviewer
 select ok(
   exists (
     select 1 from public.organisation_roles
@@ -72,7 +72,7 @@ select ok(
   ),
   '10 company1 eval_reviewer holds evals.review write (#82)');
 
--- ---------------------------------------------------------------- 13–18 draft + approve happy path (non-author)
+-- ---------------------------------------------------------------- 11–17 draft + approve happy path (non-author)
 -- Create as a1 (author); a2 (eval_reviewer, non-author) approves.
 select pg_temp.set_jwt('00000000-0000-4000-8000-0000000000a1');
 
@@ -92,12 +92,12 @@ create temporary table t_draft on commit drop as
     )
   ) as case_id;
 
-select ok((select case_id from t_draft) is not null, '13 create_eval_case_draft_v1 returns a case id');
+select ok((select case_id from t_draft) is not null, '11 create_eval_case_draft_v1 returns a case id');
 
 select is(
   (select status from public.eval_cases where id = (select case_id from t_draft)),
   'drafted',
-  '14 new case is drafted with approved_by null');
+  '12 new case is drafted with approved_by null');
 
 -- Author cannot approve their own draft (#82)
 select is(
@@ -106,7 +106,7 @@ select is(
     (select case_id from t_draft)
   )),
   '42501',
-  '15 author cannot approve their own draft');
+  '13 author cannot approve their own draft');
 
 -- Non-reviewer (a4) cannot approve
 select pg_temp.set_jwt('00000000-0000-4000-8000-0000000000a4');
@@ -116,7 +116,7 @@ select is(
     (select case_id from t_draft)
   )),
   '42501',
-  '16 member without evals.review cannot approve');
+  '14 member without evals.review cannot approve');
 
 -- a2 is also a reviewer in seed — approve as non-author
 select pg_temp.set_jwt('00000000-0000-4000-8000-0000000000a2');
@@ -125,25 +125,25 @@ select lives_ok(
     $$ select public.review_eval_case_v1('11111111-1111-4111-8111-111111111111', %L::uuid, 'approve', '{}'::jsonb) $$,
     (select case_id from t_draft)
   ),
-  '17 non-author with evals.review write can approve');
+  '15 non-author with evals.review write can approve');
 
 select is(
   (select status from public.eval_cases where id = (select case_id from t_draft)),
   'approved',
-  '18 approved case status flips to approved');
+  '16 approved case status flips to approved');
 select ok(
   (select approved_by from public.eval_cases where id = (select case_id from t_draft))
     = '00000000-0000-4000-8000-0000000000a2'
   and (select approved_at from public.eval_cases where id = (select case_id from t_draft)) is not null,
-  '19 approval records reviewer and time (§14.1 step 3)');
+  '17 approval records reviewer and time (§14.1 step 3)');
 
--- ---------------------------------------------------------------- 20–23 cross-tenant isolation
+-- ---------------------------------------------------------------- 18–19 cross-tenant isolation
 select pg_temp.set_jwt('00000000-0000-4000-8000-0000000000b1');
 select is(
   (select count(*)::int from public.list_eval_cases_v1('22222222-2222-4222-8222-222222222222', null)
     where id = (select case_id from t_draft)),
   0,
-  '20 company2 list does not see company1 case id');
+  '18 company2 list does not see company1 case id');
 
 select is(
   pg_temp.try_sql(format(
@@ -151,9 +151,9 @@ select is(
     (select case_id from t_draft)
   )),
   '42501',
-  '21 company2 cannot approve a company1 case');
+  '19 company2 cannot approve a company1 case');
 
--- ---------------------------------------------------------------- 22–24 pilot export refusal
+-- ---------------------------------------------------------------- 20–22 pilot export refusal
 select pg_temp.set_jwt('00000000-0000-4000-8000-0000000000a1');
 create temporary table t_pilot on commit drop as
   select public.create_eval_case_draft_v1(
@@ -177,7 +177,7 @@ select lives_ok(
     $$ select public.review_eval_case_v1('11111111-1111-4111-8111-111111111111', %L::uuid, 'approve', '{}'::jsonb) $$,
     (select case_id from t_pilot)
   ),
-  '22 pilot origin can still be approved as a row');
+  '20 pilot origin can still be approved as a row');
 
 select pg_temp.set_jwt('00000000-0000-4000-8000-0000000000a1');
 select ok(
@@ -185,33 +185,33 @@ select ok(
     select 1 from public.export_approved_eval_cases_v1('11111111-1111-4111-8111-111111111111')
      where id = (select case_id from t_pilot)
   ),
-  '23 export_approved_eval_cases_v1 omits origin=pilot (#102)');
+  '21 export_approved_eval_cases_v1 omits origin=pilot (#102)');
 
 select ok(
   exists (
     select 1 from public.export_approved_eval_cases_v1('11111111-1111-4111-8111-111111111111')
      where id = (select case_id from t_draft)
   ),
-  '24 export includes non-pilot approved cases');
+  '22 export includes non-pilot approved cases');
 
--- ---------------------------------------------------------------- 25–28 runs/results shape + privileges
+-- ---------------------------------------------------------------- 23–26 runs/results shape + privileges
 reset role;
 select ok(
   not has_table_privilege('authenticated', 'public.eval_runs', 'insert')
   and not has_table_privilege('authenticated', 'public.eval_results', 'insert'),
-  '25 authenticated has no direct insert on eval_runs/results');
+  '23 authenticated has no direct insert on eval_runs/results');
 
 select ok(
   (select count(*)::int from information_schema.columns
     where table_schema = 'public' and table_name = 'eval_runs'
       and column_name in ('expert_key', 'expert_version', 'chain_config', 'corpus_generation')) = 4,
-  '26 eval_runs carries expert version, chain and corpus generation');
+  '24 eval_runs carries expert version, chain and corpus generation');
 
 select ok(
   (select count(*)::int from information_schema.columns
     where table_schema = 'public' and table_name = 'eval_results'
       and column_name in ('run_id', 'case_id', 'failure_class', 'score')) = 4,
-  '27 eval_results carries per-case score and failure class');
+  '25 eval_results carries per-case score and failure class');
 
 select ok(
   exists (
@@ -219,7 +219,7 @@ select ok(
      where organisation_id = '11111111-1111-4111-8111-111111111111'
        and area = 'evals.review' and level = 'admin'
   ),
-  '28 company1 admin role holds evals.review admin for export (#82)');
+  '26 company1 admin role holds evals.review admin for export (#82)');
 
 select * from finish();
 rollback;
