@@ -32,8 +32,10 @@ as $$
   );
 $$;
 comment on function public.member_has_evals_review(uuid, text) is
-  'True when the signed-in active member holds evals.review at or above p_min_level (#82).';
+  'True when the signed-in active member holds evals.review at or above p_min_level (#82). '
+  'Granted to authenticated because RLS policies call it (same shape as is_active_member / collection_is_readable).';
 revoke all on function public.member_has_evals_review(uuid, text) from public, anon, authenticated, service_role;
+grant execute on function public.member_has_evals_review(uuid, text) to authenticated;
 
 -- ---------------------------------------------------------------- eval_cases
 create table public.eval_cases (
