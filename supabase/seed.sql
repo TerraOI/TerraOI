@@ -125,6 +125,54 @@ insert into public.knowledge_collections (id, organisation_id, key, service_key,
    'X-ray site data (synthetic)', 'client_confidential')
 on conflict (id) do nothing;
 
+-- Three seeded form templates (plan §15.0 "2-3 seeded forms", §7.6): the UAV pre-flight checklist and
+-- the GPR field log §7.6 names, plus a Site A observation form so the project-audience path has a
+-- template of its own. All values are synthetic (AGENTS.md §4.7); the schemas are the small JSON
+-- Schema subset save_form_draft_v1 validates, and every template points at a collection of the same
+-- tenant and the same or narrower project audience. No seeded *submissions*: other pgTAP slots count
+-- seed rows, and a submission is what the tests create.
+insert into public.form_templates (
+  id, organisation_id, scope, service_key, name, description, version,
+  json_schema, ui_hints, default_collection_id, project_id, data_class, status, published_at
+) values
+  ('80000000-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111', 'platform',
+   'uav-compliance', 'UAV pre-flight check (synthetic)',
+   'Before-flight airframe, battery and weather check, captured as a knowledge record.', 'v1',
+   '{"type": "object", "additionalProperties": false,
+     "required": ["airframe_check", "battery_pct", "weather_notes"],
+     "properties": {
+       "airframe_check": {"type": "string", "maxLength": 500},
+       "battery_pct": {"type": "number"},
+       "weather_notes": {"type": "string", "maxLength": 2000}}}'::jsonb,
+   '{"airframe_check": {"order": 1, "helpText": "Tether, props and battery latches"},
+     "battery_pct": {"order": 2, "unit": "percent"},
+     "weather_notes": {"order": 3, "helpText": "Wind, visibility, precipitation"}}'::jsonb,
+   '51000000-0000-4000-8000-000000000001', null, 'public', 'published', '2026-11-01T00:00:00Z'),
+  ('80000000-0000-4000-8000-000000000002', '11111111-1111-4111-8111-111111111111', 'platform',
+   'uav-compliance', 'Site A field observation (synthetic)',
+   'What a crew saw on Site A; confidential, so it stays inside the project audience.', 'v1',
+   '{"type": "object", "additionalProperties": false,
+     "required": ["location", "observation"],
+     "properties": {
+       "location": {"type": "string", "maxLength": 200},
+       "observation": {"type": "string", "maxLength": 4000}}}'::jsonb,
+   '{"location": {"order": 1, "placeholder": "grid or station"},
+     "observation": {"order": 2, "helpText": "One sentence per thing seen"}}'::jsonb,
+   '51000000-0000-4000-8000-000000000002', '41000000-0000-4000-8000-000000000001',
+   'client_confidential', 'published', '2026-11-01T00:00:00Z'),
+  ('80000000-0000-4000-8000-000000000003', '22222222-2222-4222-8222-222222222222', 'platform',
+   'gpr', 'GPR field log (synthetic)',
+   'One line of a ground-penetrating radar survey: line id and pass count.', 'v1',
+   '{"type": "object", "additionalProperties": false,
+     "required": ["line_id", "passes"],
+     "properties": {
+       "line_id": {"type": "string", "maxLength": 100},
+       "passes": {"type": "integer"}}}'::jsonb,
+   '{"line_id": {"order": 1, "placeholder": "L-01"},
+     "passes": {"order": 2, "helpText": "Number of passes over the line"}}'::jsonb,
+   '52000000-0000-4000-8000-000000000001', null, 'public', 'published', '2026-11-01T00:00:00Z')
+on conflict (id) do nothing;
+
 -- A published upload per tenant plus a confidential note for company1, so the project-audience
 -- assertions have a chunk to hide and a chunk to show (AGENTS.md §4.2: another project).
 insert into public.knowledge_sources (id, organisation_id, collection_id, kind, external_id, owner_user_id) values

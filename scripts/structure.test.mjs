@@ -35,4 +35,15 @@ describe("checkStructure", () => {
     expect(checkStructure(ok, () => "no status")[0]).toMatch(/Status/));
   it("skips archived plans", () =>
     expect(checkStructure([...ok, "docs/plan/archive/old-notes.md"], read)).toEqual([]));
+  it("refuses CONTROL_PLANE_DB in wrangler.jsonc (ADR-0012)", () => {
+    const withBinding = [...ok, "wrangler.jsonc"];
+    const clean = (p) => (/(^|\/)wrangler\.jsonc$/.test(p) ? '{ "vars": {} }\n' : "Status: ready");
+    const dirty = (p) =>
+      /(^|\/)wrangler\.jsonc$/.test(p)
+        ? '{ "hyperdrive": [{ "binding": "CONTROL_PLANE_DB", "id": "x" }] }\n'
+        : "Status: ready";
+    expect(checkStructure(withBinding, clean)).toEqual([]);
+    expect(checkStructure(withBinding, dirty)[0]).toMatch(/CONTROL_PLANE_DB/);
+    expect(checkStructure([...ok, "workers/wrangler.jsonc"], dirty)[0]).toMatch(/CONTROL_PLANE_DB/);
+  });
 });

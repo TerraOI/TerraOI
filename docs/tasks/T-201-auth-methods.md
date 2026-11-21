@@ -1,7 +1,11 @@
 # T-201 Password sign-in, Microsoft SSO, invites and identity linking
 
-Lane: 1 · Week: 2 · Protected: yes (`src/platform/identity/`) · Depends on: T-002, T-003, T-101, T-102 · Status: ready
+Lane: 1 · Week: 2 · Protected: yes (`src/platform/identity/`) · Depends on: T-002, T-003, T-101, T-102; the invite claim also on T-202 PR-1b (`tenant_invitations`, [#179 ruling](https://github.com/TerraOI/TerraOI/pull/179#issuecomment-6985900913)) · Status: in progress (wyuinline) — code complete; staging evidence owed (T-004 §20.8; staging deploys blocked while [#177](https://github.com/TerraOI/TerraOI/issues/177) is open). **PR-1** [#181](https://github.com/TerraOI/TerraOI/pull/181); **PR-2** [#186](https://github.com/TerraOI/TerraOI/pull/186) open. Note for T-004 staging: password grants leave from the Worker egress IPs, so GoTrue per-IP sign-in limits apply across tenants at once (#181 N5).
 Plan refs: §4.2 (TOI-ADR-15), §4.1 step 6, §16 (host/session row); F02, F05 (callback registration)
+
+## Supervisor rulings to apply (2026-11-18)
+These supersede anything below that disagrees.
+- **Invite claim** ([#179 ruling](https://github.com/TerraOI/TerraOI/pull/179#issuecomment-6985900913), [#186 note](https://github.com/TerraOI/TerraOI/pull/186#issuecomment-6985928849)): `redeem_invitation_v1` reads a pending, unexpired `tenant_invitations` row (T-202 PR-1b) for the routed tenant, matches the caller's **provider-verified** email (`auth.users.email` with `email_confirmed_at` set, read in the definer function, no `p_email` argument), and in one transaction inserts the membership as `active` with the invited role and marks the invitation `accepted`. Answers stay `redeemed | not_found | email_mismatch`; an expired or revoked invitation answers `not_found`. A suspended or removed membership is never resurrected by a claim. It is the only function that makes a membership active.
 
 ## Goal
 The three M1 sign-in methods — magic link, email + password, Microsoft Entra SSO — all work on the
@@ -36,7 +40,7 @@ edited); additive `supabase/seed.sql` fixtures only in the same PR as a new migr
       in with a password on `company1.terraoi.app` and gets a session whose cookie is host-only,
       `Secure`, `HttpOnly`, `SameSite=Lax`
 - [ ] positive: `src/platform/identity/entra-linking.test.ts` — Entra sign-in with a
-      **provider-verified** email matching an invited membership links to the existing profile: one
+      **provider-verified** email matching a pending invitation links to the existing profile: one
       profile row, one membership, no duplicate identity
 - [ ] negative: same file — an unverified provider email is never auto-linked; a Microsoft account
       with no membership row sees only the no-access page; a tenant allow-listed to one Entra tenant
@@ -58,3 +62,5 @@ show `left@company1.test` (suspended) gets only the no-access page.
 ## Out of scope
 Central SSO, the multi-tenant switcher, custom customer domains and a provisioning UI (plan §15.0
 "Deferred after M1"); admin invite/role/project pages are T-202; reset **email branding** is T-204.
+Brand chrome on `/account/set-password` is T-103/T-131 — this packet ships the functional form and
+GoTrue update only.

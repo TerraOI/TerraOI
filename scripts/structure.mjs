@@ -69,6 +69,11 @@ export function checkStructure(paths, read) {
     if (/^docs\/tasks\/T-\d{3}[a-z]?-/.test(p) && !PACKET_STATUS.test(read(p))) {
       problems.push(`${p}: packet needs a 'Status: ready|in progress|in review|blocked|done' line`);
     }
+    // ADR-0012 (#193 E1): CONTROL_PLANE_DB is an operator-machine DSN only — never a Worker /
+    // Hyperdrive binding. Refuse the literal name anywhere in wrangler.jsonc (root or workers/).
+    if (/(^|\/)wrangler\.jsonc$/.test(p) && /\bCONTROL_PLANE_DB\b/.test(read(p))) {
+      problems.push(`${p}: CONTROL_PLANE_DB must not appear in wrangler config (ADR-0012: operator script only, no Worker binding)`);
+    }
   }
   return problems;
 }

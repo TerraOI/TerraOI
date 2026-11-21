@@ -2,16 +2,21 @@ import { z } from "zod";
 
 import type { TenancyStore } from "@/platform/tenancy/resolve-tenant-context";
 
-import type { IdentityExchange, MagicLinkCallbackPorts } from "./complete-magic-link";
+import type { MagicLinkCallbackPorts } from "./complete-magic-link";
+import type { EntraStartPorts } from "./entra-linking";
 import type { LoginViewPorts } from "./login-view";
+import type { PasswordResetPorts } from "./password-reset";
+import type { PasswordSignInPorts } from "./password-signin";
 import type { MagicLinkRequestPorts } from "./request-magic-link";
+import type { SetPasswordPorts } from "./set-password";
 import type { SignOutPorts } from "./sign-out";
 import { createSessionStore } from "./session-db";
 import type { SessionStore } from "./session-store";
 import { createTokenCipher } from "./session-store";
 import type { TokenCipher } from "./session-store";
+import type { IdentityExchange } from "./signin-completion";
 import { createTenancyDataApi } from "./tenancy-data-api";
-import { bytesToBase64Url, hasUsableSecret, hmacBytes } from "./signed-token";
+import { bytesToBase64Url, hasUsableSecret, hmacBytes, sha256Base64Url } from "./signed-token";
 
 /**
  * Deployment wiring for the sign-in endpoints (the `src/platform/site/adapters.ts` pattern: real
@@ -52,6 +57,10 @@ export type IdentityEnv = {
 export interface IdentityPorts
   extends MagicLinkRequestPorts,
     MagicLinkCallbackPorts,
+    PasswordSignInPorts,
+    PasswordResetPorts,
+    SetPasswordPorts,
+    EntraStartPorts,
     LoginViewPorts,
     SignOutPorts {}
 
@@ -69,6 +78,15 @@ export type FetchImpl = (
 
 const SUPABASE_SIGNUP_PATH = "/auth/v1/signup";
 const SUPABASE_TOKEN_PATH = "/auth/v1/token?grant_type=pkce";
+/**
+ * GoTrue's own credential endpoint. The password grant is the reason this repo needs no password
+ * hashing of its own: the credential is checked where it is stored, and a T-201 PR that added a hashing
+ * dependency would be adding a second credential authority to argue with (AGENTS.md §6).
+ */
+const SUPABASE_PASSWORD_PATH = "/auth/v1/token?grant_type=password";
+const SUPABASE_RECOVER_PATH = "/auth/v1/recover";
+/** GoTrue user update — the set-password half of recovery (plan §4.2). Bearer is the session access token. */
+const SUPABASE_USER_PATH = "/auth/v1/user";
 
 /**
  * Kept for tests that assert the refuse-closed seam. Production wiring uses `createTenancyDataApi`.
@@ -121,8 +139,85 @@ function sessionTokenCipher(env: Partial<IdentityEnv>): TokenCipher | null {
   }
 }
 
-function sha256Base64Url(verifier: string): Promise<string> {
-  return crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)).then((digest) => bytesToBase64Url(new Uint8Array(digest)));
+/**
+ * What GoTrue hands back for a completed credential. One reader for both grants, because the password
+ * response and the PKCE response have the same shape and a second reader is where a second grant would
+ * quietly stop checking something the first one checks: the id being a uuid, the address being present,
+ * the pair being present and unexpired.
+ */
+function readAuthPayload(payload: unknown, now: number): IdentityExchange {
+  const user = (payload as { user?: unknown } | null)?.user as
+    | { id?: unknown; email?: unknown; email_confirmed_at?: unknown; app_metadata?: unknown; identities?: unknown }
+    | undefined;
+  if (!user || typeof user.id !== "string" || !z.uuid().safeParse(user.id).success) {
+    return { ok: false, reason: "invalid_or_expired" };
+  }
+  if (typeof user.email !== "string") return { ok: false, reason: "invalid_or_expired" };
+  const accessToken = (payload as { access_token?: unknown } | null)?.access_token;
+  const refreshToken = (payload as { refresh_token?: unknown } | null)?.refresh_token;
+  const expiresIn = (payload as { expires_in?: unknown } | null)?.expires_in;
+  if (typeof accessToken !== "string" || accessToken.length === 0) return { ok: false, reason: "invalid_or_expired" };
+  if (typeof refreshToken !== "string" || refreshToken.length === 0) return { ok: false, reason: "invalid_or_expired" };
+  if (typeof expiresIn !== "number" || !Number.isSafeInteger(expiresIn) || expiresIn <= 0) {
+    return { ok: false, reason: "invalid_or_expired" };
+  }
+  return {
+    ok: true,
+    userId: user.id,
+    email: user.email,
+    emailVerified: typeof user.email_confirmed_at === "string",
+    accessToken,
+    refreshToken,
+    tokenExpiresAt: now + expiresIn,
+    // Which provider the identity came from, and (for Entra) which tenant issued it. Both are read
+    // defensively: an identity that names no provider is treated as the mail one, and an identity with
+    // no readable issuer is refused by the Entra gate rather than waved through.
+    provider: readStringField(user.app_metadata, "provider"),
+    issuerTenantId: issuerTenantIdOf(user),
+  };
+}
+
+function readStringField(container: unknown, key: string): string | undefined {
+  if (typeof container !== "object" || container === null) return undefined;
+  const value = (container as Record<string, unknown>)[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/**
+ * The issuing Entra tenant id. Supabase keeps the IdP's claims in `identity_data` on the linked
+ * identity and copies a few onto `app_metadata`, and which of the two carries `tid` for the `azure`
+ * provider is a provider detail not yet seen on staging — so both places are read, in a fixed order,
+ * and an unreadable issuer is a refusal. When several linked identities carry a `tid`, the most
+ * recently signed-in `azure` one wins (`last_sign_in_at`); anything else is a last-resort scan so a
+ * payload that only labels the provider elsewhere still surfaces a value. Confirm `tid` and
+ * `email_confirmed_at` / `xms_edov` on the T-004 staging run (N3 on #181).
+ */
+function issuerTenantIdOf(user: { app_metadata?: unknown; identities?: unknown }): string | null {
+  const direct = readStringField(user.app_metadata, "tid");
+  if (direct !== undefined) return direct;
+  const identities = Array.isArray(user.identities) ? user.identities : [];
+
+  type IdentityRow = { provider?: unknown; identity_data?: unknown; last_sign_in_at?: unknown };
+  const azureWithTid: Array<{ tid: string; lastSignIn: number }> = [];
+  for (const raw of identities) {
+    if (typeof raw !== "object" || raw === null) continue;
+    const identity = raw as IdentityRow;
+    if (identity.provider !== "azure" && identity.provider !== "microsoft") continue;
+    const tid = readStringField(identity.identity_data, "tid");
+    if (tid === undefined) continue;
+    const stamp = typeof identity.last_sign_in_at === "string" ? Date.parse(identity.last_sign_in_at) : Number.NaN;
+    azureWithTid.push({ tid, lastSignIn: Number.isFinite(stamp) ? stamp : 0 });
+  }
+  if (azureWithTid.length > 0) {
+    azureWithTid.sort((a, b) => b.lastSignIn - a.lastSignIn);
+    return azureWithTid[0]?.tid ?? null;
+  }
+
+  for (const identity of identities) {
+    const fromIdentity = readStringField((identity as { identity_data?: unknown } | null)?.identity_data, "tid");
+    if (fromIdentity !== undefined) return fromIdentity;
+  }
+  return null;
 }
 
 export function buildIdentityPorts(env: Partial<IdentityEnv>, options: { fetchImpl?: FetchImpl } = {}): IdentityPorts {
@@ -181,7 +276,7 @@ export function buildIdentityPorts(env: Partial<IdentityEnv>, options: { fetchIm
     now: () => Math.floor(Date.now() / 1000),
     signingSecret: () => env.IDENTITY_SESSION_KEY ?? null,
 
-    rateLimitKey: async ({ host, email }) => bytesToBase64Url(await hmacBytes(env.IDENTITY_SESSION_KEY ?? "", `${host}|${email}`)),
+    rateLimitKey: async ({ host, material }) => bytesToBase64Url(await hmacBytes(env.IDENTITY_SESSION_KEY ?? "", `${host}|${material}`)),
 
     allowRequest: async (key) => {
       const limiter = env.IDENTITY_RATE_LIMITER;
@@ -223,30 +318,81 @@ export function buildIdentityPorts(env: Partial<IdentityEnv>, options: { fetchIm
       } catch {
         return { ok: false, reason: "invalid_or_expired" };
       }
-      const user = (payload as { user?: unknown } | null)?.user as
-        | { id?: unknown; email?: unknown; email_confirmed_at?: unknown }
-        | undefined;
-      if (!user || typeof user.id !== "string" || !z.uuid().safeParse(user.id).success) {
-        return { ok: false, reason: "invalid_or_expired" };
-      }
-      if (typeof user.email !== "string") return { ok: false, reason: "invalid_or_expired" };
-      const accessToken = (payload as { access_token?: unknown } | null)?.access_token;
-      const refreshToken = (payload as { refresh_token?: unknown } | null)?.refresh_token;
-      const expiresIn = (payload as { expires_in?: unknown } | null)?.expires_in;
-      if (typeof accessToken !== "string" || accessToken.length === 0) return { ok: false, reason: "invalid_or_expired" };
-      if (typeof refreshToken !== "string" || refreshToken.length === 0) return { ok: false, reason: "invalid_or_expired" };
-      if (typeof expiresIn !== "number" || !Number.isSafeInteger(expiresIn) || expiresIn <= 0) {
-        return { ok: false, reason: "invalid_or_expired" };
-      }
-      return {
-        ok: true,
-        userId: user.id,
-        email: user.email,
-        emailVerified: typeof user.email_confirmed_at === "string",
-        accessToken,
-        refreshToken,
-        tokenExpiresAt: Math.floor(Date.now() / 1000) + expiresIn,
-      };
+      return readAuthPayload(payload, Math.floor(Date.now() / 1000));
     },
+
+    async exchangePasswordCredentials({ email, password }): Promise<IdentityExchange> {
+      const headers = authHeaders();
+      // The credential is posted to the provider that stores it, over the anon key like every other
+      // Auth call here, and it appears in no log line this module writes.
+      const response = await fetchImpl(`${baseUrl}${SUPABASE_PASSWORD_PATH}`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ email, password }),
+      });
+      // GoTrue answers a wrong password and an unknown address the same way (400 "Invalid login
+      // credentials"), which is exactly the indistinguishability the handler wants; anything else that
+      // is not a well-formed session is the same closed reason too.
+      if (!response.ok) return { ok: false, reason: "invalid_or_expired" };
+      let payload: unknown;
+      try {
+        payload = await response.json();
+      } catch {
+        return { ok: false, reason: "invalid_or_expired" };
+      }
+      return readAuthPayload(payload, Math.floor(Date.now() / 1000));
+    },
+
+    async sendPasswordRecovery({ email, redirectTo, codeVerifier }) {
+      const headers = authHeaders();
+      const challenge = await sha256Base64Url(codeVerifier);
+      // GoTrue wire (#201): redirect_to is the query; PKCE fields sit at the top of the body. Nesting
+      // them under `options` is the supabase-js client shape and is ignored on the wire, so the email
+      // would carry no challenge and the default redirect.
+      const recoverUrl = new URL(`${baseUrl}${SUPABASE_RECOVER_PATH}`);
+      recoverUrl.searchParams.set("redirect_to", redirectTo);
+      const response = await fetchImpl(recoverUrl.toString(), {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          email,
+          code_challenge: challenge,
+          code_challenge_method: "s256",
+        }),
+      });
+      if (!response.ok) throw new Error(`auth recover refused with status ${response.status}`);
+    },
+
+    async updatePassword({ accessToken, password }) {
+      if (baseUrl.length === 0 || anonKey.length === 0) {
+        throw new Error("SUPABASE_URL and SUPABASE_ANON_KEY bindings are required");
+      }
+      // The user's own access token authorizes the change; the anon key is only the project binding.
+      // The password itself never appears in a log line this module writes.
+      const response = await fetchImpl(`${baseUrl}${SUPABASE_USER_PATH}`, {
+        method: "PUT",
+        headers: {
+          apikey: anonKey,
+          authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ password }),
+      });
+      if (response.status === 400 || response.status === 422) return "rejected";
+      if (!response.ok) throw new Error(`auth user update refused with status ${response.status}`);
+      return "updated";
+    },
+
+    supabaseBaseUrl: () => (baseUrl.length > 0 ? baseUrl : null),
+
+    // ---- the two ports whose SQL has not landed are **absent**, not stubbed (T-201 PR-2) ----------
+    // `allowedEntraIssuers` and `revokeUserSessions` are deliberately not implemented here. A port that
+    // exists and throws would let the *front* halves of those endpoints do real work first: `POST
+    // /auth/entra` would hand the browser to Microsoft, and `POST /auth/password-reset` would send a
+    // real recovery email whose link is certain to end at a refusal. Absence is the honest shape of
+    // "the SQL is not there", and the handlers check it **before** they dial a provider
+    // (`entra-linking.ts`, `password-reset.ts`), so both endpoints are inert until PR-2's
+    // `identity_methods` migration — which also brings their pgTAP half and the `001` allow-list
+    // entries. Nothing here falls back to "unrestricted".
   };
 }
