@@ -20,7 +20,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(91);
+select plan(92);
 
 -- ---------------------------------------------------------------- helpers (pg_temp, security invoker)
 create function pg_temp.try_switch(p_scope_kind text, p_organisation_id uuid, p_scope_key text,
@@ -253,13 +253,19 @@ select is((select result from t_user where case_name = 'provider_read_as_authent
   '34 authenticated cannot execute provider_switch_state_v1 either');
 
 -- ---------------------------------------------------------------- 35-47 suspend and resume
+-- Capture the stamp before suspend: seed and this suite's setup already write membership/
+-- role/project/org rows that fire bump_policy_revision, so the absolute value is not 1
+-- (Round-6 B10). Assert the delta from suspend, and that a same-state replay moves nothing (N14).
+create temp table t_rev as
+  select policy_revision as before from public.organisations
+   where id = '11111111-1111-4111-8111-111111111111';
 select is(pg_temp.try_suspend('11111111-1111-4111-8111-111111111111'), 'ok',
   '35 suspend_tenant_v1 accepts a seeded tenant with a reason');
 select is(status, 'suspended',
   '36 and it moves organisations.status, the one status resolve_tenant_host and is_active_member read')
   from public.organisations where id = '11111111-1111-4111-8111-111111111111';
-select is(policy_revision::text, '1',
-  '37 #98 / N8: this migration does not bump policy_revision; the assertion turns red when #179 merges')
+select is(policy_revision, (select before from t_rev) + 1,
+  '37 #98 / #179: suspend_tenant_v1 changes organisations.status, so the stamp moves by exactly one')
   from public.organisations where id = '11111111-1111-4111-8111-111111111111';
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
@@ -272,6 +278,9 @@ select is(pg_temp.try_suspend('11111111-1111-4111-8111-111111111111'), 'ok',
 select is((select count(*) from toi_control.lifecycle_switch_flips
             where scope_kind = 'tenant' and organisation_id = '11111111-1111-4111-8111-111111111111')::text, '1',
   '40 and the no-op recorded no second flip');
+select is(policy_revision, (select before from t_rev) + 1,
+  '40b #98 / #179 N14: a same-state suspend is a no-op write, so bump_policy_revision moves nothing')
+  from public.organisations where id = '11111111-1111-4111-8111-111111111111';
 select is(pg_temp.try_suspend('00000000-0000-4000-8000-00000000000f'), '23503',
   '41 suspending an unknown organisation is refused, not answered with silence');
 select is((select status from public.organisations
