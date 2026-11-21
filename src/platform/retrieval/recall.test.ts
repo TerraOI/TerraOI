@@ -93,6 +93,19 @@ describe("Recall@k arithmetic", () => {
     expect(score.missingRuns).toEqual(["Q2"]);
     expect(score.meanRecall).toBeCloseTo(0.5);
   });
+
+  it("counts distinct expected ids so a duplicated hit cannot inflate recall (Round-1 B1)", () => {
+    // Expects {C1, C2}; a run that only returns C1 twice must score 1/2, not 2/2.
+    const score = scoreLane(cases, { Q1: ["C1", "C1"], Q2: ["C3"] }, "hybrid");
+    expect(score.cases[0]).toMatchObject({ foundInTopK: 1, recall: 0.5, hit: true });
+    expect(score.cases[1]).toMatchObject({ foundInTopK: 1, recall: 1 });
+  });
+
+  it("counts distinct bait ids the same way", () => {
+    const score = scoreLane(cases, { Q1: ["B1", "B1", "C1", "C2"], Q2: ["C3"] }, "hybrid");
+    expect(score.cases[0]).toMatchObject({ recall: 1, forbiddenRetrieved: 1 });
+    expect(score.baitReturned).toBe(1);
+  });
 });
 
 describe("the degraded-lane comparison", () => {

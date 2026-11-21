@@ -118,15 +118,18 @@ export function scoreLane(
     if (rows === undefined) missing.push(item.queryId);
     const topK = (rows ?? []).slice(0, cutoff);
     const expected = new Set(item.expectedChunkIds);
-    const found = topK.filter((id) => expected.has(id)).length;
+    // Distinct expected ids only — duplicate rows must not inflate recall (Round-1 B1).
+    const found = new Set(topK.filter((id) => expected.has(id))).size;
     const bait = new Set(item.forbiddenChunkIds);
+    // Distinct forbidden ids too: a duplicated bait row is one leak, not two.
+    const forbiddenRetrieved = new Set(topK.filter((id) => bait.has(id))).size;
     scored.push({
       queryId: item.queryId,
       expected: expected.size,
-      foundInTopK: Math.min(found, expected.size),
-      recall: Math.min(found, expected.size) / expected.size,
+      foundInTopK: found,
+      recall: found / expected.size,
       hit: found > 0,
-      forbiddenRetrieved: topK.filter((id) => bait.has(id)).length,
+      forbiddenRetrieved,
       runMissing: rows === undefined,
     });
   }
