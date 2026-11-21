@@ -364,16 +364,13 @@ describe("the same question asked twice", () => {
     if (outcome.kind !== "delivered") return;
     expect(outcome.status).toBe("refused");
     const frame = answerFrame(h.frames);
-    expect(frame.persisted).toBe(true);
+    expect(frame.persisted).toBe(false);
     expect(frame.answer.status).toBe("refused");
     expect(frame.answer.refusalKey).toBe("no_evidence");
     expect(frame.answer.claims).toEqual([]);
     expect(frame.answer.summary).toContain("Nothing in the documents you are allowed to read");
-    // N13 / B11: refusalKey is on the Answer completeRun persists into answer_json, not only the frame.
-    expect(h.store.completed).toHaveLength(1);
-    expect(h.store.completed[0]?.status).toBe("refused");
-    expect(h.store.completed[0]?.refusalKey).toBe("no_evidence");
-    expect(h.store.completed[0]?.claims).toEqual([]);
+    // Round-6 B13: withheld resume must not call completeRun (run already completed).
+    expect(h.store.completed).toHaveLength(0);
     expect(JSON.stringify(h.frames)).not.toContain(COMPOSED_PHRASE);
     expect(h.searches).toHaveLength(0);
     expect(h.adapterCalls()).toBe(0);

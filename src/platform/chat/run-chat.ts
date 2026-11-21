@@ -194,12 +194,11 @@ export async function runChat(
       existing.value.corpusGenerations,
       iso(now),
     );
-    // B11 / N13: persist the claim-free refusal so answer_json carries refusalKey when the run is
-    // still `running` (write-gate withhold). A completed run cannot be rewritten — ignore that
-    // refusal and still emit the template so the employee never sees withheld quotes.
-    await deps.store.completeRun(context, { runId: run, answer: withheld });
-    deps.emit({ kind: "answer", answer: withheld, persisted: true });
-    return { kind: "delivered", runId: run, status: "refused", persisted: true, audit: null };
+    // Round-6 B13: a withheld resume is always already completed (evidence rows exist only after
+    // completeRun), so chat_complete_run_v1 would raise 42501. Emit the claim-free template on each
+    // read; do not call completeRun. N13 is withdrawn.
+    deps.emit({ kind: "answer", answer: withheld, persisted: false });
+    return { kind: "delivered", runId: run, status: "refused", persisted: false, audit: null };
   }
   if (existing.value.answer !== null) {
     // Duplicate submit or a reload after a disconnect: the stored answer is the answer. Zero retrieval

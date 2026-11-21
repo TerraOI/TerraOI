@@ -542,6 +542,11 @@ select is((select role from public.messages
   || 'assistant/system/tool turn cannot arrive this way (F17, §9.1)');
 
 -- 21-25 the run: started once, then submitted again with the same idempotency key.
+-- Capture the stamp before start_run: seed and prior membership/setup writes already fire
+-- bump_policy_revision (#179 B10 / Round-6 B12), so the absolute value is not 1.
+create temp table t_chat_rev as
+  select policy_revision as before from public.organisations
+   where id = '11111111-1111-4111-8111-111111111111';
 select ok(not pg_temp.is_error(pg_temp.start_run(
             '11111111-1111-4111-8111-111111111111', '4b000000-0000-4000-8000-000000000001',
             '4a000000-0000-4000-8000-000000000001', 'idem-0001', 'uav-doc-expert',
@@ -564,10 +569,10 @@ select is(pg_temp.start_run(
 select is((select count(*)::text from public.agent_runs where idempotency_key = 'idem-0001'), '1',
   '23 only one run row exists for that key');
 
--- 24 the policy revision travels with the run (§9.4: "the run record stores the policy_revision it
--- was authorized under"); seed.sql leaves company1 at revision 1.
-select is((select policy_revision::text from public.agent_runs
-            where id = '4b000000-0000-4000-8000-000000000001'), '1',
+-- 24 the policy revision travels with the run (§9.4): the stamp at start_run time, not a hard-coded 1.
+select is((select policy_revision from public.agent_runs
+            where id = '4b000000-0000-4000-8000-000000000001'),
+  (select before from t_chat_rev),
   '24 the run stores the policy_revision it was authorized under, so a later revocation can be '
   || 're-checked against the state that admitted it (§9.4)');
 
