@@ -19,7 +19,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(62);
+select plan(78);
 
 -- ---------------------------------------------------------------- helpers
 create function pg_temp.syn_hash(p_seed text) returns text
@@ -148,11 +148,14 @@ end;
 $fn$;
 
 -- ---------------------------------------------------------------- fixtures
--- Three dedicated sources for Company1 so seed fixtures remain clean:
---   s3601: public source with v1 published and v2 indexing (happy path write -> publish -> search)
+-- Dedicated sources for Company1 so seed fixtures remain clean:
+--   s3601: public source with v1 published and v2 indexing (happy path write -> publish -> search; B1 superseded target)
 --   s3602: public source with v1 published and v2 indexing (embedding-route-down abort -> no publish)
---   s3603: client_confidential source on Site A (class propagation, cleared_for guard, lexical-only)
+--   s3603: client_confidential source on Site A (class propagation, cleared_for guard, lexical-only & public-only index)
 --   s3604: public source whose v1 is revoked mid-flight (F14 no-resurrection on write & publish)
+--   s3605: public source with pre-seeded chunk 0 (B2 ON CONFLICT body_text / raised-class refusal & valid re-index)
+--   s3606: public source for B3 3-of-10 partial embedding refusal and publish half-embedded backstop
+--   s3607: public source with v1/v2 indexing and v3 failed (B1 older-after-newer & failed-target refusal)
 insert into public.knowledge_sources (id, organisation_id, collection_id, kind, external_id, owner_user_id) values
   ('61000000-0000-4000-8000-000000003601', '11111111-1111-4111-8111-111111111111',
    '51000000-0000-4000-8000-000000000001', 'upload', 'syn-t113-s1', '00000000-0000-4000-8000-0000000000a1'),
@@ -161,7 +164,13 @@ insert into public.knowledge_sources (id, organisation_id, collection_id, kind, 
   ('61000000-0000-4000-8000-000000003603', '11111111-1111-4111-8111-111111111111',
    '51000000-0000-4000-8000-000000000002', 'upload', 'syn-t113-s3', '00000000-0000-4000-8000-0000000000a1'),
   ('61000000-0000-4000-8000-000000003604', '11111111-1111-4111-8111-111111111111',
-   '51000000-0000-4000-8000-000000000001', 'upload', 'syn-t113-s4', '00000000-0000-4000-8000-0000000000a1');
+   '51000000-0000-4000-8000-000000000001', 'upload', 'syn-t113-s4', '00000000-0000-4000-8000-0000000000a1'),
+  ('61000000-0000-4000-8000-000000003605', '11111111-1111-4111-8111-111111111111',
+   '51000000-0000-4000-8000-000000000001', 'upload', 'syn-t113-s5', '00000000-0000-4000-8000-0000000000a1'),
+  ('61000000-0000-4000-8000-000000003606', '11111111-1111-4111-8111-111111111111',
+   '51000000-0000-4000-8000-000000000001', 'upload', 'syn-t113-s6', '00000000-0000-4000-8000-0000000000a1'),
+  ('61000000-0000-4000-8000-000000003607', '11111111-1111-4111-8111-111111111111',
+   '51000000-0000-4000-8000-000000000001', 'upload', 'syn-t113-s7', '00000000-0000-4000-8000-0000000000a1');
 
 insert into public.source_versions (
   id, organisation_id, source_id, collection_id, version_number, uploaded_by, data_class,
@@ -189,18 +198,51 @@ insert into public.source_versions (
    '00000000-0000-4000-8000-0000000000a1', 'public', pg_temp.syn_hash('s2v2'),
    'knowledge/11111111-1111-4111-8111-111111111111/61000000-0000-4000-8000-000000003602/v2.pdf',
    'indexing', 'v1', null, null),
-  -- s3603 v1 (client_confidential, indexing)
+  -- s3603 v1 & v2 (client_confidential, indexing)
   ('71000000-0000-4000-8000-000000003631', '11111111-1111-4111-8111-111111111111',
    '61000000-0000-4000-8000-000000003603', '51000000-0000-4000-8000-000000000002', 1,
    '00000000-0000-4000-8000-0000000000a1', 'client_confidential', pg_temp.syn_hash('s3v1'),
    'knowledge/11111111-1111-4111-8111-111111111111/61000000-0000-4000-8000-000000003603/v1.pdf',
+   'indexing', 'v1', null, null),
+  ('71000000-0000-4000-8000-000000003632', '11111111-1111-4111-8111-111111111111',
+   '61000000-0000-4000-8000-000000003603', '51000000-0000-4000-8000-000000000002', 2,
+   '00000000-0000-4000-8000-0000000000a1', 'client_confidential', pg_temp.syn_hash('s3v2'),
+   'knowledge/11111111-1111-4111-8111-111111111111/61000000-0000-4000-8000-000000003603/v2.pdf',
    'indexing', 'v1', null, null),
   -- s3604 v1 (revoked mid-flight)
   ('71000000-0000-4000-8000-000000003641', '11111111-1111-4111-8111-111111111111',
    '61000000-0000-4000-8000-000000003604', '51000000-0000-4000-8000-000000000001', 1,
    '00000000-0000-4000-8000-0000000000a1', 'public', pg_temp.syn_hash('s4v1'),
    'knowledge/11111111-1111-4111-8111-111111111111/61000000-0000-4000-8000-000000003604/v1.pdf',
-   'revoked', 'v1', null, null);
+   'revoked', 'v1', null, null),
+  -- s3605 v1 (B2 conflict verification)
+  ('71000000-0000-4000-8000-000000003651', '11111111-1111-4111-8111-111111111111',
+   '61000000-0000-4000-8000-000000003605', '51000000-0000-4000-8000-000000000001', 1,
+   '00000000-0000-4000-8000-0000000000a1', 'public', pg_temp.syn_hash('s5v1'),
+   'knowledge/11111111-1111-4111-8111-111111111111/61000000-0000-4000-8000-000000003605/v1.pdf',
+   'indexing', 'v1', null, null),
+  -- s3606 v1 (B3 3-of-10 partial embedding refusal)
+  ('71000000-0000-4000-8000-000000003661', '11111111-1111-4111-8111-111111111111',
+   '61000000-0000-4000-8000-000000003606', '51000000-0000-4000-8000-000000000001', 1,
+   '00000000-0000-4000-8000-0000000000a1', 'public', pg_temp.syn_hash('s6v1'),
+   'knowledge/11111111-1111-4111-8111-111111111111/61000000-0000-4000-8000-000000003606/v1.pdf',
+   'indexing', 'v1', null, null),
+  -- s3607 v1/v2 (indexing) and v3 (failed) for B1 older-after-newer & non-forward-state tests
+  ('71000000-0000-4000-8000-000000003671', '11111111-1111-4111-8111-111111111111',
+   '61000000-0000-4000-8000-000000003607', '51000000-0000-4000-8000-000000000001', 1,
+   '00000000-0000-4000-8000-0000000000a1', 'public', pg_temp.syn_hash('s7v1'),
+   'knowledge/11111111-1111-4111-8111-111111111111/61000000-0000-4000-8000-000000003607/v1.pdf',
+   'indexing', 'v1', null, null),
+  ('71000000-0000-4000-8000-000000003672', '11111111-1111-4111-8111-111111111111',
+   '61000000-0000-4000-8000-000000003607', '51000000-0000-4000-8000-000000000001', 2,
+   '00000000-0000-4000-8000-0000000000a1', 'public', pg_temp.syn_hash('s7v2'),
+   'knowledge/11111111-1111-4111-8111-111111111111/61000000-0000-4000-8000-000000003607/v2.pdf',
+   'indexing', 'v1', null, null),
+  ('71000000-0000-4000-8000-000000003673', '11111111-1111-4111-8111-111111111111',
+   '61000000-0000-4000-8000-000000003607', '51000000-0000-4000-8000-000000000001', 3,
+   '00000000-0000-4000-8000-0000000000a1', 'public', pg_temp.syn_hash('s7v3'),
+   'knowledge/11111111-1111-4111-8111-111111111111/61000000-0000-4000-8000-000000003607/v3.pdf',
+   'failed', 'v1', null, null);
 
 update public.knowledge_sources
    set current_version_id = '71000000-0000-4000-8000-000000003611'
@@ -210,14 +252,26 @@ update public.knowledge_sources
    set current_version_id = '71000000-0000-4000-8000-000000003621'
  where id = '61000000-0000-4000-8000-000000003602';
 
--- Prior published chunk on s3601 v1 so search_corpus_v1 can prove v1 disappears once v2 publishes.
+-- Pre-seeded chunks: s3601 v1 (proves v1 disappears once v2 publishes), s3605 v1 (B2 conflict
+-- checks), and s3607 v1/v2/v3 (B1 older-after-newer and non-forward-state publish checks).
 insert into public.knowledge_chunks (
   id, organisation_id, source_version_id, chunk_index, locator, body_text, data_class, token_count
-) values (
-  '81000000-0000-4000-8000-000000003611', '11111111-1111-4111-8111-111111111111',
-  '71000000-0000-4000-8000-000000003611', 0, '{"page": 1, "section": "Old SOP"}'::jsonb,
-  'Synthetic predecessor SOP: token-t113-old-v1-only calibration note.', 'public', 10
-);
+) values
+  ('81000000-0000-4000-8000-000000003611', '11111111-1111-4111-8111-111111111111',
+   '71000000-0000-4000-8000-000000003611', 0, '{"page": 1, "section": "Old SOP"}'::jsonb,
+   'Synthetic predecessor SOP: token-t113-old-v1-only calibration note.', 'public', 10),
+  ('81000000-0000-4000-8000-000000003651', '11111111-1111-4111-8111-111111111111',
+   '71000000-0000-4000-8000-000000003651', 0, '{"page": 1}'::jsonb,
+   'Synthetic B2 original chunk text.', 'public', 6),
+  ('81000000-0000-4000-8000-000000003671', '11111111-1111-4111-8111-111111111111',
+   '71000000-0000-4000-8000-000000003671', 0, '{"page": 1}'::jsonb,
+   'Synthetic B1 s7 v1 chunk text.', 'public', 6),
+  ('81000000-0000-4000-8000-000000003672', '11111111-1111-4111-8111-111111111111',
+   '71000000-0000-4000-8000-000000003672', 0, '{"page": 1}'::jsonb,
+   'Synthetic B1 s7 v2 chunk text.', 'public', 6),
+  ('81000000-0000-4000-8000-000000003673', '11111111-1111-4111-8111-111111111111',
+   '71000000-0000-4000-8000-000000003673', 0, '{"page": 1}'::jsonb,
+   'Synthetic B1 s7 v3 failed chunk text.', 'public', 7);
 
 -- A public-only embedding index for Company1 so we can prove cleared_for refuses client_confidential.
 insert into public.embedding_indexes (
@@ -287,7 +341,48 @@ insert into public.ingestion_jobs (
   -- j3652: expired lease on publish
   ('96000000-0000-4000-8000-000000003652', '11111111-1111-4111-8111-111111111111',
    '71000000-0000-4000-8000-000000003612', 'publish', 'cloud_worker', 'leased', 'public',
-   'v1-exp', 1, 1, 't113-lease-pub-exp-jjjj', now() - interval '1 minute', 1);
+   'v1-exp', 1, 1, 't113-lease-pub-exp-jjjj', now() - interval '1 minute', 1),
+  -- j3615/j3616: s3601 v1 index (succeeded) + publish (leased) for B1 superseded-target check
+  ('96000000-0000-4000-8000-000000003615', '11111111-1111-4111-8111-111111111111',
+   '71000000-0000-4000-8000-000000003611', 'index', 'cloud_worker', 'succeeded', 'public',
+   'v1', 1, 1, null, null, 1),
+  ('96000000-0000-4000-8000-000000003616', '11111111-1111-4000-8000-000000003611',
+   '71000000-0000-4000-8000-000000003611', 'publish', 'cloud_worker', 'leased', 'public',
+   'v1', 1, 1, 't113-lease-pub-s1v1-sup1', now() + interval '10 minutes', 1),
+  -- j3632: s3603 v2 client_confidential index job (B3 public-only-index lexical-only pass)
+  ('96000000-0000-4000-8000-000000003632', '11111111-1111-4111-8111-111111111111',
+   '71000000-0000-4000-8000-000000003632', 'index', 'cloud_worker', 'leased', 'client_confidential',
+   'v1', 1, 1, 't113-lease-idx-s3v2-pubo', now() + interval '10 minutes', 1),
+  -- j3661: s3605 v1 index job under parser_generation='v2' (B2 conflict refusal & valid re-index)
+  ('96000000-0000-4000-8000-000000003661', '11111111-1111-4111-8111-111111111111',
+   '71000000-0000-4000-8000-000000003651', 'index', 'cloud_worker', 'leased', 'public',
+   'v2', 1, 1, 't113-lease-idx-s5v1-b201', now() + interval '10 minutes', 1),
+  -- j3671/j3672: s3606 v1 index + publish jobs (B3 3-of-10 partial embedding refusal)
+  ('96000000-0000-4000-8000-000000003671', '11111111-1111-4111-8111-111111111111',
+   '71000000-0000-4000-8000-000000003661', 'index', 'cloud_worker', 'leased', 'public',
+   'v1', 1, 1, 't113-lease-idx-s6v1-b301', now() + interval '10 minutes', 1),
+  ('96000000-0000-4000-8000-000000003672', '11111111-1111-4111-8111-111111111111',
+   '71000000-0000-4000-8000-000000003661', 'publish', 'cloud_worker', 'leased', 'public',
+   'v1', 1, 1, 't113-lease-pub-s6v1-b302', now() + interval '10 minutes', 1),
+  -- j3681..j3686: s3607 v1/v2/v3 jobs (B1 older-after-newer & failed-target publish checks)
+  ('96000000-0000-4000-8000-000000003681', '11111111-1111-4111-8111-111111111111',
+   '71000000-0000-4000-8000-000000003671', 'index', 'cloud_worker', 'succeeded', 'public',
+   'v1', 1, 1, null, null, 1),
+  ('96000000-0000-4000-8000-000000003682', '11111111-1111-4111-8111-111111111111',
+   '71000000-0000-4000-8000-000000003671', 'publish', 'cloud_worker', 'leased', 'public',
+   'v1', 1, 1, 't113-lease-pub-s7v1-b101', now() + interval '10 minutes', 1),
+  ('96000000-0000-4000-8000-000000003683', '11111111-1111-4111-8111-111111111111',
+   '71000000-0000-4000-8000-000000003672', 'index', 'cloud_worker', 'succeeded', 'public',
+   'v1', 1, 1, null, null, 1),
+  ('96000000-0000-4000-8000-000000003684', '11111111-1111-4111-8111-111111111111',
+   '71000000-0000-4000-8000-000000003672', 'publish', 'cloud_worker', 'leased', 'public',
+   'v1', 1, 1, 't113-lease-pub-s7v2-b102', now() + interval '10 minutes', 1),
+  ('96000000-0000-4000-8000-000000003685', '11111111-1111-4111-8111-111111111111',
+   '71000000-0000-4000-8000-000000003673', 'index', 'cloud_worker', 'succeeded', 'public',
+   'v1', 1, 1, null, null, 1),
+  ('96000000-0000-4000-8000-000000003686', '11111111-1111-4111-8111-111111111111',
+   '71000000-0000-4000-8000-000000003673', 'publish', 'cloud_worker', 'leased', 'public',
+   'v1', 1, 1, 't113-lease-pub-s7v3-b103', now() + interval '10 minutes', 1);
 
 -- Scratch tables for collecting results while running under `toi_job_api`, `authenticated`, or `anon`.
 create temp table t_out (case_name text, result text);
@@ -968,6 +1063,245 @@ select is((select result_status from t_search where case_name = 'c1_old'),
 select is((select result_status from t_search where case_name = 'c2_new'),
   'no_accessible_evidence',
   '62 Company2 member never retrieves Company1''s newly published chunk');
+
+-- ================================================================ 63-67 Round-1 B2: ON CONFLICT
+-- ================================================================ body_text & raised-class checks
+-- Failure mode 1: conflicting chunk_index with different body_text (re-parse under parser='v2').
+set local role toi_job_api;
+insert into t_out values
+  ('b2_diff_text', pg_temp.try_write_chunks(
+    pg_temp.syn_hash('cloud-c1'), '96000000-0000-4000-8000-000000003661',
+    't113-lease-idx-s5v1-b201', 1, '71000000-0000-4000-8000-000000003651', 1,
+    '91000000-0000-4000-8000-000000000001',
+    jsonb_build_array(
+      jsonb_build_object(
+        'chunk_index', 0,
+        'body_text', 'Synthetic B2 re-parsed DIFFERENT text.',
+        'embedding', pg_temp.spike_json(5)
+      )
+    )
+  ));
+reset role;
+
+select is((select result from t_out where case_name = 'b2_diff_text'), '23514',
+  '63 write_chunks_v1 refuses conflicting chunk_index with different body_text (23514, B2)');
+select is((select count(*)::text from public.chunk_embeddings
+            where chunk_id = '81000000-0000-4000-8000-000000003651')
+          || '/' || (select status from public.ingestion_jobs
+                      where id = '96000000-0000-4000-8000-000000003661'),
+  '0/leased',
+  '64 rejected body_text conflict rolls back atomically: 0 vectors attached and job remains leased');
+
+-- Failure mode 2: reviewer raises version class to client_confidential while stored chunk stays public.
+update public.source_versions
+   set data_class = 'client_confidential'
+ where id = '71000000-0000-4000-8000-000000003651';
+
+set local role toi_job_api;
+insert into t_out values
+  ('b2_lower_stored_class', pg_temp.try_write_chunks(
+    pg_temp.syn_hash('cloud-c1'), '96000000-0000-4000-8000-000000003661',
+    't113-lease-idx-s5v1-b201', 1, '71000000-0000-4000-8000-000000003651', 1,
+    '91000000-0000-4000-8000-000000000001',
+    jsonb_build_array(
+      jsonb_build_object(
+        'chunk_index', 0,
+        'body_text', 'Synthetic B2 original chunk text.',
+        'embedding', pg_temp.spike_json(5)
+      )
+    )
+  ));
+reset role;
+
+select is((select result from t_out where case_name = 'b2_lower_stored_class'), '23514',
+  '65 write_chunks_v1 refuses conflicting chunk whose stored class is below raised version class (23514, B2)');
+select is((select count(*)::text from public.chunk_embeddings
+            where chunk_id = '81000000-0000-4000-8000-000000003651')
+          || '/' || (select status from public.ingestion_jobs
+                      where id = '96000000-0000-4000-8000-000000003661'),
+  '0/leased',
+  '66 rejected class conflict rolls back atomically: 0 vectors attached and job remains leased');
+
+-- Once stored chunk is raised to match effective class and body_text is identical, re-index succeeds.
+update public.knowledge_chunks
+   set data_class = 'client_confidential'
+ where id = '81000000-0000-4000-8000-000000003651';
+
+set local role toi_job_api;
+insert into t_write
+  select 'b2_identical_ok', o_outcome, o_chunk_count, o_vector_count, o_event_id
+    from job_api.write_chunks_v1(
+      pg_temp.syn_hash('cloud-c1'), '96000000-0000-4000-8000-000000003661',
+      't113-lease-idx-s5v1-b201', 1, '71000000-0000-4000-8000-000000003651', 1,
+      '91000000-0000-4000-8000-000000000001',
+      jsonb_build_array(
+        jsonb_build_object(
+          'chunk_index', 0,
+          'body_text', 'Synthetic B2 original chunk text.',
+          'embedding', pg_temp.spike_json(5)
+        )
+      )
+    );
+reset role;
+
+select is((select outcome || '/' || chunk_count::text || '/' || vector_count::text
+             from t_write where case_name = 'b2_identical_ok'),
+  'completed/0/1',
+  '67 identical body_text with stored class >= effective class succeeds on conflict (shadow re-index)');
+
+-- ================================================================ 68-72 Round-1 B3: half-embedded
+-- ================================================================ 3-of-10 refusal & public-only lexical pass
+set local role toi_job_api;
+insert into t_out values
+  ('b3_partial_3of10', pg_temp.try_write_chunks(
+    pg_temp.syn_hash('cloud-c1'), '96000000-0000-4000-8000-000000003671',
+    't113-lease-idx-s6v1-b301', 1, '71000000-0000-4000-8000-000000003661', 1,
+    '91000000-0000-4000-8000-000000000001',
+    (
+      select jsonb_agg(
+        case
+          when n < 3 then jsonb_build_object(
+            'chunk_index', n,
+            'body_text', 'Synthetic B3 chunk ' || n::text,
+            'embedding', pg_temp.spike_json(n + 1)
+          )
+          else jsonb_build_object(
+            'chunk_index', n,
+            'body_text', 'Synthetic B3 chunk ' || n::text
+          )
+        end
+        order by n
+      )
+      from generate_series(0, 9) n
+    )
+  )),
+  ('b3_pub_after_rollback', pg_temp.try_publish_version(
+    pg_temp.syn_hash('cloud-c1'), '96000000-0000-4000-8000-000000003672',
+    't113-lease-pub-s6v1-b302', 1, '71000000-0000-4000-8000-000000003661', 1
+  ));
+insert into t_write
+  select 'b3_pubonly_lexical', o_outcome, o_chunk_count, o_vector_count, o_event_id
+    from job_api.write_chunks_v1(
+      pg_temp.syn_hash('cloud-c1'), '96000000-0000-4000-8000-000000003632',
+      't113-lease-idx-s3v2-pubo', 1, '71000000-0000-4000-8000-000000003632', 1,
+      '91000000-0000-4000-8000-000000003601',
+      '[{"chunk_index":0,"body_text":"Synthetic B3 confidential lexical chunk 0."},
+        {"chunk_index":1,"body_text":"Synthetic B3 confidential lexical chunk 1."}]'::jsonb
+    );
+reset role;
+
+select is((select result from t_out where case_name = 'b3_partial_3of10'), '23514',
+  '68 write_chunks_v1 refuses 3-of-10 partial embedding when index clears the chunks (23514, B3)');
+select is((select count(*)::text from public.knowledge_chunks
+            where source_version_id = '71000000-0000-4000-8000-000000003661')
+          || '/' || (select count(*)::text from public.chunk_embeddings ce
+                      join public.knowledge_chunks kc on kc.id = ce.chunk_id
+                     where kc.source_version_id = '71000000-0000-4000-8000-000000003661')
+          || '/' || (select status from public.ingestion_jobs
+                      where id = '96000000-0000-4000-8000-000000003671'),
+  '0/0/leased',
+  '69 rejected 3-of-10 batch rolls back atomically: 0 chunks, 0 vectors, job remains leased');
+select is((select result from t_out where case_name = 'b3_pub_after_rollback')
+          || '/' || (select (current_version_id is null)::text from public.knowledge_sources
+                      where id = '61000000-0000-4000-8000-000000003606'),
+  '55000/true',
+  '70 publish_version_v1 refuses after rolled-back partial write (55000, pointer stays null)');
+select is((select outcome || '/' || chunk_count::text || '/' || vector_count::text
+             from t_write where case_name = 'b3_pubonly_lexical'),
+  'completed/2/0',
+  '71 public-only index with client_confidential chunks stays lexical-only and succeeds (B3)');
+
+-- Defense-in-depth: even if 10 chunks with only 3 vectors + succeeded index job exist in DB,
+-- publish_version_v1 still refuses 55000 and leaves the source pointer null.
+insert into public.knowledge_chunks (
+  organisation_id, source_version_id, chunk_index, locator, body_text, data_class
+)
+select '11111111-1111-4111-8111-111111111111', '71000000-0000-4000-8000-000000003661',
+       n, jsonb_build_object('page', 1), 'Synthetic B3 db-partial chunk ' || n::text, 'public'
+  from generate_series(0, 9) n;
+
+insert into public.chunk_embeddings (
+  organisation_id, chunk_id, index_id, index_generation, embedding
+)
+select kc.organisation_id, kc.id, '91000000-0000-4000-8000-000000000001', 1,
+       pg_temp.spike_vec(kc.chunk_index + 1)::extensions.vector
+  from public.knowledge_chunks kc
+ where kc.source_version_id = '71000000-0000-4000-8000-000000003661'
+   and kc.chunk_index < 3;
+
+update public.ingestion_jobs
+   set status = 'succeeded', lease_token = null, lease_expires_at = null, completed_at = now()
+ where id = '96000000-0000-4000-8000-000000003671';
+
+set local role toi_job_api;
+insert into t_out values
+  ('b3_pub_half_db', pg_temp.try_publish_version(
+    pg_temp.syn_hash('cloud-c1'), '96000000-0000-4000-8000-000000003672',
+    't113-lease-pub-s6v1-b302', 1, '71000000-0000-4000-8000-000000003661', 1
+  ));
+reset role;
+
+select is((select result from t_out where case_name = 'b3_pub_half_db')
+          || '/' || (select (current_version_id is null)::text from public.knowledge_sources
+                      where id = '61000000-0000-4000-8000-000000003606'),
+  '55000/true',
+  '72 publish_version_v1 refuses half-embedded version in DB (55000, pointer stays null)');
+
+-- ================================================================ 73-78 Round-1 B1: older-after-newer,
+-- ================================================================ superseded target, and failed target
+set local role toi_job_api;
+insert into t_pub
+  select 'b1_pub_v2_first', o_outcome, o_source_id, o_source_version_id,
+         o_previous_version_id, o_published_at, o_event_id
+    from job_api.publish_version_v1(
+      pg_temp.syn_hash('cloud-c1'), '96000000-0000-4000-8000-000000003684',
+      't113-lease-pub-s7v2-b102', 1, '71000000-0000-4000-8000-000000003672', 1
+    );
+insert into t_out values
+  ('b1_older_after_newer', pg_temp.try_publish_version(
+    pg_temp.syn_hash('cloud-c1'), '96000000-0000-4000-8000-000000003682',
+    't113-lease-pub-s7v1-b101', 1, '71000000-0000-4000-8000-000000003671', 1
+  )),
+  ('b1_superseded_target', pg_temp.try_publish_version(
+    pg_temp.syn_hash('cloud-c1'), '96000000-0000-4000-8000-000000003616',
+    't113-lease-pub-s1v1-sup1', 1, '71000000-0000-4000-8000-000000003611', 1
+  )),
+  ('b1_failed_target', pg_temp.try_publish_version(
+    pg_temp.syn_hash('cloud-c1'), '96000000-0000-4000-8000-000000003686',
+    't113-lease-pub-s7v3-b103', 1, '71000000-0000-4000-8000-000000003673', 1
+  ));
+reset role;
+
+select is((select outcome || '/' || source_version_id::text from t_pub where case_name = 'b1_pub_v2_first'),
+  'published/71000000-0000-4000-8000-000000003672',
+  '73 newer version v2 publishes first on s3607 while v1 is still in indexing');
+select is((select result from t_out where case_name = 'b1_older_after_newer'), '55000',
+  '74 publish_version_v1 refuses older v1 after newer v2 is already active (55000, B1)');
+select is((select current_version_id::text from public.knowledge_sources
+            where id = '61000000-0000-4000-8000-000000003607')
+          || '/' || (select state from public.source_versions
+                      where id = '71000000-0000-4000-8000-000000003672')
+          || '/' || (select state from public.source_versions
+                      where id = '71000000-0000-4000-8000-000000003671')
+          || '/' || (select status from public.ingestion_jobs
+                      where id = '96000000-0000-4000-8000-000000003682'),
+  '71000000-0000-4000-8000-000000003672/published/indexing/leased',
+  '75 older-after-newer refusal leaves pointer on v2, v2 published, v1 indexing, and v1 job leased');
+select is((select result from t_out where case_name = 'b1_superseded_target'), '55000',
+  '76 publish_version_v1 refuses superseded target v1 on s3601 (55000, B1)');
+select is((select current_version_id::text from public.knowledge_sources
+            where id = '61000000-0000-4000-8000-000000003601')
+          || '/' || (select state from public.source_versions
+                      where id = '71000000-0000-4000-8000-000000003612')
+          || '/' || (select state from public.source_versions
+                      where id = '71000000-0000-4000-8000-000000003611'),
+  '71000000-0000-4000-8000-000000003612/published/superseded',
+  '77 superseded refusal leaves s3601 pointer on v2, v2 published, and v1 superseded');
+select is((select result from t_out where case_name = 'b1_failed_target')
+          || '/' || (select current_version_id::text from public.knowledge_sources
+                      where id = '61000000-0000-4000-8000-000000003607'),
+  '55000/71000000-0000-4000-8000-000000003672',
+  '78 publish_version_v1 refuses failed target v3 even with higher version_number (55000, pointer stays v2)');
 
 select * from finish();
 rollback;

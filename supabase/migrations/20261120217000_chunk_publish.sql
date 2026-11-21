@@ -14,8 +14,8 @@
 --     signature and granted to `toi_job_api` only; nothing added to `public`.
 --
 -- Timestamp claim (COORDINATION §3): `20261120217000`, after `main`'s latest
--- (`20261120214000_lifecycle_switches.sql`) and after in-flight #179 (`20261120215000`) and
--- #178 (`20261120216000`). Exactly one migration in this PR; merged migrations are untouched.
+-- (`20261120215000_tenant_admin_rpc.sql`) and after in-flight #178 (`20261120216000`).
+-- Exactly one migration in this PR; merged migrations are untouched.
 
 begin;
 
@@ -71,6 +71,8 @@ declare
   v_chunk_class text;
   v_chunk_locator jsonb;
   v_token_count integer;
+  v_existing_body text;
+  v_existing_class text;
   v_chunks_written integer := 0;
   v_vectors_written integer := 0;
 begin
@@ -209,6 +211,10 @@ begin
     if not found then
       raise exception 'job not available to this worker' using errcode = '42501';
     end if;
+    if v_index.status = 'retired' or v_index.generation <> v_job.index_generation then
+      raise exception 'embedding index % is retired or does not match index_generation %',
+        v_index.id, v_job.index_generation using errcode = '23514';
+    end if;
   end if;
 
   -- Guarded lease compare: token, fence, active lease state, expiry, and credential arm together.
@@ -287,8 +293,11 @@ begin
       else gen_random_uuid()
     end;
 
-    -- ON CONFLICT on the tenant+version+ordinal key makes shadow re-index idempotent for chunks
-    -- while still raising 23505 if a caller's chunk_id collides with another tenant's PK.
+    -- ON CONFLICT on (org, version, ordinal) supports shadow re-index of identical chunks while
+    -- still raising 23505 on a cross-tenant chunk_id PK collision. On conflict, verify the stored
+    -- row has identical body_text and data_class >= v_effective_class (and >= v_chunk_class) so a
+    -- re-parse or a reviewer class raise can never pair a new vector with stale text or a lower
+    -- class (§6.2, §12.4).
     insert into public.knowledge_chunks (
       id, organisation_id, source_version_id, chunk_index, locator, body_text, data_class, token_count
     ) values (
@@ -305,13 +314,25 @@ begin
 
     if found then
       v_chunks_written := v_chunks_written + 1;
-    end if;
+    else
+      select id, body_text, data_class
+        into v_chunk_id, v_existing_body, v_existing_class
+        from public.knowledge_chunks
+       where organisation_id = v_job.organisation_id
+         and source_version_id = v_job.source_version_id
+         and chunk_index = v_chunk_index;
 
-    select id into v_chunk_id
-      from public.knowledge_chunks
-     where organisation_id = v_job.organisation_id
-       and source_version_id = v_job.source_version_id
-       and chunk_index = v_chunk_index;
+      if v_existing_body is distinct from (v_elem ->> 'body_text') then
+        raise exception 'existing chunk % at chunk_index % has different body_text; refusing silent reuse',
+          v_chunk_id, v_chunk_index using errcode = '23514';
+      end if;
+
+      if public.data_class_rank(v_existing_class) < public.data_class_rank(v_effective_class)
+         or public.data_class_rank(v_existing_class) < public.data_class_rank(v_chunk_class) then
+        raise exception 'existing chunk % at chunk_index % has data_class % below required class %',
+          v_chunk_id, v_chunk_index, v_existing_class, v_chunk_class using errcode = '23514';
+      end if;
+    end if;
 
     if (v_elem -> 'embedding') is not null and jsonb_typeof(v_elem -> 'embedding') <> 'null' then
       insert into public.chunk_embeddings (
@@ -330,6 +351,30 @@ begin
       end if;
     end if;
   end loop;
+
+  -- Reject half-embedded batches when an index is pinned (§7.2 step 8, #136): every chunk of this
+  -- version whose data_class is covered by v_index.cleared_for must have a vector in that index
+  -- and generation. Chunks outside cleared_for legitimately remain lexical-only.
+  if p_embedding_index_id is not null then
+    if exists (
+      select 1
+        from public.knowledge_chunks kc
+       where kc.organisation_id = v_job.organisation_id
+         and kc.source_version_id = v_job.source_version_id
+         and v_index.cleared_for @> array[kc.data_class]
+         and not exists (
+           select 1
+             from public.chunk_embeddings ce
+            where ce.organisation_id = kc.organisation_id
+              and ce.chunk_id = kc.id
+              and ce.index_id = v_index.id
+              and ce.index_generation = v_job.index_generation
+         )
+    ) then
+      raise exception 'source version % has cleared chunks missing vectors in index % generation %; refusing partial embedding',
+        v_job.source_version_id, v_index.id, v_job.index_generation using errcode = '23514';
+    end if;
+  end if;
 
   if v_version.state in ('received', 'validating', 'extracting') then
     update public.source_versions
@@ -387,7 +432,9 @@ declare
   v_job public.ingestion_jobs;
   v_version public.source_versions;
   v_source public.knowledge_sources;
+  v_effective_class text;
   v_prior_version_id uuid;
+  v_prior_version_number integer;
   v_published_at timestamptz;
 begin
   if p_token_hash is null or p_token_hash !~ '^[0-9a-f]{64}$' then
@@ -416,10 +463,6 @@ begin
     raise exception 'job not available to this worker' using errcode = '42501';
   end if;
 
-  if not job_api.executor_clears_class(v_job.executor, v_job.data_class) then
-    raise exception 'job not available to this worker' using errcode = '42501';
-  end if;
-
   select * into v_version
     from public.source_versions
    where id = v_job.source_version_id
@@ -444,6 +487,17 @@ begin
      and organisation_id = v_job.organisation_id
      for update;
   if v_version.state in ('revoked', 'deleting', 'deleted', 'quarantined') then
+    raise exception 'job not available to this worker' using errcode = '42501';
+  end if;
+
+  -- Same higher-of-job-and-version clearance rule as write_chunks_v1.
+  v_effective_class := case
+    when public.data_class_rank(v_version.data_class) >= public.data_class_rank(v_job.data_class)
+      then v_version.data_class
+    else v_job.data_class
+  end;
+
+  if not job_api.executor_clears_class(v_job.executor, v_effective_class) then
     raise exception 'job not available to this worker' using errcode = '42501';
   end if;
 
@@ -499,8 +553,32 @@ begin
       from public.knowledge_chunks kc
      where kc.organisation_id = v_job.organisation_id
        and kc.source_version_id = v_job.source_version_id
+  ) or exists (
+    select 1
+      from public.chunk_embeddings ce_any
+      join public.knowledge_chunks kc_any
+        on kc_any.id = ce_any.chunk_id
+       and kc_any.organisation_id = ce_any.organisation_id
+      join public.embedding_indexes ei
+        on ei.id = ce_any.index_id
+       and ei.organisation_id = ce_any.organisation_id
+      join public.knowledge_chunks kc_miss
+        on kc_miss.organisation_id = v_job.organisation_id
+       and kc_miss.source_version_id = v_job.source_version_id
+     where ce_any.organisation_id = v_job.organisation_id
+       and kc_any.source_version_id = v_job.source_version_id
+       and ce_any.index_generation = v_job.index_generation
+       and ei.cleared_for @> array[kc_miss.data_class]
+       and not exists (
+         select 1
+           from public.chunk_embeddings ce_ok
+          where ce_ok.organisation_id = kc_miss.organisation_id
+            and ce_ok.chunk_id = kc_miss.id
+            and ce_ok.index_id = ei.id
+            and ce_ok.index_generation = v_job.index_generation
+       )
   ) then
-    raise exception 'source version % is not indexed for generation %; refusing partial publication',
+    raise exception 'source version % is not completely indexed for generation %; refusing partial publication',
       v_job.source_version_id, v_job.index_generation using errcode = '55000';
   end if;
 
@@ -516,7 +594,26 @@ begin
     return;
   end if;
 
+  -- Only forward states may publish, and a version may never replace an equal or newer active
+  -- version (prevents out-of-order v1-after-v2 rollback or superseded/failed resurrection).
+  if v_version.state not in ('indexing', 'awaiting_review') then
+    raise exception 'source version % in state % is not eligible for publication',
+      v_job.source_version_id, v_version.state using errcode = '55000';
+  end if;
+
   v_prior_version_id := v_source.current_version_id;
+  if v_prior_version_id is not null then
+    select version_number into v_prior_version_number
+      from public.source_versions
+     where id = v_prior_version_id
+       and organisation_id = v_job.organisation_id
+       for update;
+    if not found or v_version.version_number <= v_prior_version_number then
+      raise exception 'source version % (v%) cannot replace active version % (v%)',
+        v_job.source_version_id, v_version.version_number,
+        v_prior_version_id, v_prior_version_number using errcode = '55000';
+    end if;
+  end if;
 
   -- Single-statement atomic pointer switch (#136, F13): target -> published, prior -> superseded,
   -- source.current_version_id -> target.
@@ -526,7 +623,7 @@ begin
            published_at = coalesce(published_at, now())
      where id = v_job.source_version_id
        and organisation_id = v_job.organisation_id
-       and state not in ('revoked', 'deleting', 'deleted', 'quarantined')
+       and state in ('indexing', 'awaiting_review')
      returning id, source_id, published_at
   ), mark_prior as (
     update public.source_versions
