@@ -19,7 +19,7 @@ export class ObjectUrlMint extends WorkerEntrypoint<MintObjectUrlEnv> {
 }
 
 /** Default export answers no public traffic — the deployment has no routes. */
-export default class extends WorkerEntrypoint {
+export default class ExtractionWorker extends WorkerEntrypoint {
   fetch(): Response {
     return new Response("not found", { status: 404 });
   }
