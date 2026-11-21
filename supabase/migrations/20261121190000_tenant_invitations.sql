@@ -40,8 +40,8 @@ alter table public.tenant_invitations enable row level security;
 create policy tenant_invitations_admin_read on public.tenant_invitations
   for select to authenticated
   using (
-    public.is_active_member(organisation_id)
-    and organisation_id = public.current_organisation_id()
+    public.is_active_member(tenant_invitations.organisation_id)
+    and tenant_invitations.organisation_id = public.current_organisation_id()
     and exists (
       select 1
         from public.organisation_memberships m
@@ -51,7 +51,7 @@ create policy tenant_invitations_admin_read on public.tenant_invitations
          and rp.organisation_id = m.organisation_id
          and rp.area = 'members.admin'
          and rp.level = 'admin'
-       where m.organisation_id = organisation_id
+       where m.organisation_id = tenant_invitations.organisation_id
          and m.user_id = auth.uid()
          and m.status = 'active'
     )
