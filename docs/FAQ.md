@@ -21,8 +21,8 @@ Source: #163, #169 · Date: 2026-11-12 · Applies to: all scoped RPCs and their 
 Source: #142 · Date: 2026-11-09 · Applies to: Lane 2, `supabase/migrations/`
 
 ### FAQ-0009: How do I update `database.types.ts` without Docker?
-**Answer:** Push the migration with its pgTAP. If the types are stale, CI's `database` job fails only on that step and uploads the regenerated file as the `database-types` artifact; run `gh run download <run id> -n database-types -D src/contracts/`, commit it and push. Never hand-edit the file, and never take types from a run whose pgTAP failed (that run uploads none). **Why:** no builder machine has Docker, and CI is the only place the generator runs ([#122](https://github.com/TerraOI/TerraOI/issues/122)).
-Source: #122 · Date: 2026-11-09 · Applies to: all (migration PRs)
+**Answer:** Push the migration with its pgTAP. If the types are stale, CI's `database` job fails only on that step and uploads the regenerated file as the `database-types` artifact; run `gh run download <run id> -n database-types -D src/contracts/`, commit it and push. Never hand-edit the file, and never take types from a run whose pgTAP failed (that run uploads none). Until the file is first committed, every passing `database` run uploads the artifact; the supervisor commits that first copy, and builders do not ([#176](https://github.com/TerraOI/TerraOI/issues/176)). **Why:** no builder machine has Docker, and CI is the only place the generator runs ([#122](https://github.com/TerraOI/TerraOI/issues/122)).
+Source: #122, #176 · Date: 2026-11-09, amended 2026-11-20 · Applies to: all (migration PRs)
 
 ### FAQ-0003: Can I upgrade TypeScript to 7?
 **Answer:** Not yet. TypeScript is pinned to 6.x. **Why:** `typescript-eslint` does not support TS 7, and lint crashes with it (plan §3.1: pin a tested compatibility set). Upgrade in a dedicated PR once typescript-eslint supports TS 7 and `pnpm verify` passes.
@@ -33,6 +33,10 @@ Source: PR #1 · Date: 2026-11-04 · Applies to: all
 Source: PR #1 · Date: 2026-11-04 · Applies to: Lane 1
 
 ## Repository and assets
+
+### FAQ-0012: Can I claim a slice of a packet when one of its dependencies is only partly merged?
+**Answer:** Yes, if every part your slice consumes is merged and the slice writes nothing the unmerged part owns. Put a `Consumes:` line (the merged PRs you build on) and a `Does not consume:` line (the unmerged halves you avoid) in the draft PR body, and leave unticked any acceptance box that needs the unmerged half. No `provisional` label: that is for building on an assumption from an open question. If review finds the slice consumes an unmerged part, the PR waits. **Why:** COORDINATION §1.2 exists so nobody builds on work that is not on `main`. The precedent is T-111b ([#157](https://github.com/TerraOI/TerraOI/pull/157)), merged while T-104 and T-113 were only partly merged ([#196](https://github.com/TerraOI/TerraOI/issues/196)).
+Source: #196 · Date: 2026-11-18 · Applies to: all claims
 
 ### FAQ-0008: How are brand assets (logos, symbols) served?
 **Answer:** Platform assets from `brand/` are copied at build time into `public/brand/v<kit version>/` (generated, git-ignored, never committed). Customer assets are served by `GET /brand-assets/{configVersion}/{name}`, resolved from the request host and stored in `tenant_brand_assets`. Both send `Cache-Control: public, max-age=31536000, immutable`, because the version is in the path. **Why:** the kit stays the single source, and a host can never be asked for another tenant's asset ([#118](https://github.com/TerraOI/TerraOI/issues/118), T-103).
@@ -57,3 +61,13 @@ Source: #10 · Date: 2026-11-05 · Applies to: all
 ### FAQ-0001: Can components import CSS, JS or values directly from `brand/`?
 **Answer:** No. `src/platform/branding/` reads `tokens.json` and `brand-config.json`, validates them against the `TenantBrand` contract, and the app uses that. **Why:** one validated choke point for white-label modes (plan §5.1, [brand/README.md](../brand/README.md)).
 Source: PR #1 · Date: 2026-11-05 · Applies to: Lane 1
+
+## Tenancy and access
+
+### FAQ-0014: Can a tenant remove its last admin?
+**Answer:** No. Every RPC that can demote, revoke or deactivate a member refuses a change that would leave zero active holders of `members.admin` in the tenant, with `23514`. The guard lives in the database, not only in the page. **Why:** a UI-only guard is not a guard, and recovery would need a service-role action by the supervisor ([T-202](tasks/T-202-tenant-admin.md) rulings).
+Source: #202 · Date: 2026-11-20 · Applies to: Lane 1, T-202
+
+### FAQ-0013: A platform-scope form template needs a default collection, but collections belong to a tenant. Which row holds it?
+**Answer:** A platform template is installed per tenant: one `form_templates` row per organisation, where `scope = 'platform'` means platform-authored and `organisation_id` means "installed in". `default_collection_id` is a collection of that same tenant, held by a composite foreign key to `knowledge_collections (id, organisation_id)`. The mapper drops `organisationId` for platform rows, so `src/contracts/form-template.ts` is unchanged. **Why:** plan §7.6 step 1 has a tenant admin (or the platform seed, in M1) publish the template, and RLS stays membership-based on every visible row (plan §4.3).
+Source: #195 · Date: 2026-11-20 · Applies to: Lane 1, T-301

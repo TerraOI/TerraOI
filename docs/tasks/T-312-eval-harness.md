@@ -1,6 +1,6 @@
 # T-312 Eval harness (F34–F36): CI subset on PRs, full set nightly on staging
 
-Lane: 2 · Week: 3 · Protected: yes (`supabase/migrations/`, `.github/` is not this packet's) · Depends on: T-111 (merged), T-113 (unclaimed — unblocked on the pin by the #6 engineering decision), T-114 (unclaimed), T-104 (unclaimed), T-311 (same week: an expert version to run) · Status: ready
+Lane: 2 · Week: 3 · Protected: yes (`supabase/migrations/`, `.github/` is not this packet's) · Depends on: T-111 (merged), T-113 (the chunker and embedding gate merged as #80; publish is not on `main`; the pin is decided by the #6 engineering decision), T-114 (open as draft #160 and #162), T-104 (open as #178), T-311 (same week: an expert version to run; not started) · Status: ready
 Plan refs: §14.1 (workflow + pilot-entry thresholds), §14 (measure table), §6.1 (Evaluation group), §15.2 (M1-PILOT gate), §16 (Retrieval/Model chain rows), §20.3; F34, F35, F36 (TOI-ADR-17)
 
 ## Supervisor rulings to apply (2026-11-09)

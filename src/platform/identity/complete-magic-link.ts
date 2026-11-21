@@ -1,52 +1,35 @@
-import { z } from "zod";
-
 import { parseHost, requestHost, type HostAdapterOptions } from "@/platform/tenancy/host";
-import type { HostRecord, MembershipRecord } from "@/platform/tenancy/resolve-tenant-context";
 
 import { isDevelopmentRuntime, isHttpsUrl, type CookieSpec } from "./cookie";
+import { checkEntraIdentity, isEntraIdentity } from "./entra-linking";
+import { loginRedirect, statusOnly } from "./http-response";
 import { consumeLoginState, verifyLoginState } from "./login-state";
-import { canonicalEmail } from "./email";
-import { statusOnly, redirectSameHost, LOGIN_PATH } from "./http-response";
-import { issueSession } from "./session";
-import { isUsableTokenPair, type SessionStore, type TokenCipher } from "./session-store";
+import { completeSignIn, type IdentityExchange, type SignInCompletionPorts } from "./signin-completion";
+import type { HostLookupPorts } from "./signin-request";
 import { hasUsableSecret } from "./signed-token";
 
 /**
  * `GET /auth/callback` — the provider hands the browser a URL, and a URL is not a credential.
  *
- * The order is the whole design: the host is resolved from the routed URL, the single-use login
- * state (cookie + `state` parameter, host-bound, 10 minutes) is verified **before the provider is
- * contacted**, and only a verified identity may reach the membership question. So a forwarded link,
- * an expired link, an already-used code and a tenant-A link opened on tenant B's host all stop at a
- * step that touches no tenant data and sets no session.
+ * The order is the whole design: the host is resolved from the routed URL, the single-use login state
+ * (cookie + `state` parameter, host-bound, 10 minutes) is verified **before the provider is
+ * contacted**, and only a verified identity may reach the membership question. So a forwarded link, an
+ * expired link, an already-used code and a tenant-A link opened on tenant B's host all stop at a step
+ * that touches no tenant data and sets no session.
  *
- * A verified identity always gets a host-only session, because that is what it is: proof of a
- * sign-in on this host. It is the current `organisation_memberships` row that decides access, so a
- * stranger, a suspended member and an unclaimed invite all land on the no-access surface.
+ * T-201 widened what can arrive here without changing any of that. Supabase's Entra provider completes
+ * through this same callback, so an Entra identity is put through the issuer and verified-email gate
+ * (`entra-linking.ts`) before it can touch tenant data; and a callback whose login state was marked
+ * `recovery` completes as a password reset, which revokes the user's other sessions first. Everything
+ * past those two gates is the shared completion tail in `signin-completion.ts` — the tail this file
+ * used to hold inline, and whose 25 tests are unmodified.
  */
 
-export type IdentityExchange =
-  /**
-   * The provider's PKCE exchange result. #37 option (b) needs the **token pair**, not just the
-   * identity: the Worker is the only holder of the user's Supabase tokens, and it stores them (sealed)
-   * in the session row. An adapter that drops them cannot mint a session, which is why they are part
-   * of the type rather than an optional extra.
-   */
-  | { ok: true; userId: string; email: string; emailVerified: boolean; accessToken: string; refreshToken: string; tokenExpiresAt: number }
-  | { ok: false; reason: "invalid_or_expired" };
+export type { IdentityExchange };
 
-export interface MagicLinkCallbackPorts {
-  now(): number;
+export interface MagicLinkCallbackPorts extends SignInCompletionPorts, HostLookupPorts {
+  /** The HMAC key behind the login state and CSRF tokens; unusable or absent means nobody is signed in. */
   signingSecret(): string | null;
-  /**
-   * The server-side session row (#37 option b). Null where the row is not reachable yet — the state of
-   * every deployment until #75 settles the carrier — and the honest answer then is "sign-in is
-   * unavailable", never a self-contained cookie issued in its place.
-   */
-  sessionStore(): SessionStore | null;
-  /** The `SESSION_TOKEN_KEY` cipher. Null means the token pair cannot be sealed, so no session. */
-  tokenCipher(): TokenCipher | null;
-  findHost(host: string): Promise<HostRecord | null>;
   /**
    * The provider half (Supabase PKCE code exchange in the real adapter). `invalid_or_expired` covers
    * an expired link and a code that has already been used; the reason detail stays here.
@@ -63,17 +46,11 @@ export interface MagicLinkCallbackPorts {
     codeVerifier: string;
   }): Promise<IdentityExchange>;
   /**
-   * The caller's own membership in the host-resolved organization, read as `current_membership_v1`
-   * with the user's access token: the database takes the user from `auth.uid()`, so this port has no
-   * user argument to get wrong (#171 review B2, ADR-0003 §3b).
+   * The tenant's permitted Entra tenant ids, read from the organization the **host** resolved (never
+   * from the request). Optional because the SQL behind it is T-201 PR-2's migration: no implementation
+   * means no permitted issuer, which refuses an Entra sign-in (see `entra-linking.ts`).
    */
-  findMembership(organisationId: string, accessToken: string): Promise<MembershipRecord | null>;
-  /**
-   * The invite half of F05: claim the invited membership that exists for **this** organization.
-   * `organisationId` is always the host-resolved one, and `email` is always canonical — a raw
-   * address reaching this port is the bypass the packet's acceptance item is about.
-   */
-  redeemInvitation(input: { organisationId: string; userId: string; email: string }): Promise<"redeemed" | "not_found" | "email_mismatch">;
+  allowedEntraIssuers?(organisationId: string): Promise<readonly string[] | null>;
 }
 
 export interface MagicLinkCallbackInput {
@@ -124,7 +101,7 @@ export async function completeMagicLink(input: MagicLinkCallbackInput): Promise<
     return loginRedirect(parsed.host, "unavailable", consumedState);
   }
 
-  let identity: Awaited<ReturnType<MagicLinkCallbackPorts["exchangeLoginCode"]>>;
+  let identity: IdentityExchange;
   try {
     identity = await ports.exchangeLoginCode({
       code,
@@ -138,71 +115,44 @@ export async function completeMagicLink(input: MagicLinkCallbackInput): Promise<
   }
   if (!identity.ok) return loginRedirect(parsed.host, "unavailable", consumedState);
 
-  // An invite binds to a provider-verified address (plan §4.2 "do not auto-link unverified emails"),
-  // and only its canonical form goes anywhere: nothing downstream may compare or store a raw address.
-  if (!identity.emailVerified) return loginRedirect(parsed.host, "unavailable", consumedState);
-  const email = canonicalEmail(identity.email);
-  if (email === null || !z.uuid().safeParse(identity.userId).success) {
-    return loginRedirect(parsed.host, "unavailable", consumedState);
-  }
-
-  // An exchange that returns an identity but no usable pair cannot produce a session: the row would
-  // hold a credential the server cannot use, and every later call would fail obscurely instead of
-  // here. Checked before any tenant lookup, so a broken exchange never reads membership.
-  const tokens = {
-    accessToken: identity.accessToken,
-    refreshToken: identity.refreshToken,
-    expiresAt: identity.tokenExpiresAt,
-  };
-  if (!isUsableTokenPair(tokens, ports.now())) {
-    console.error("magic-link callback failed", { host: parsed.host, step: "token_pair" });
-    return loginRedirect(parsed.host, "unavailable", consumedState);
-  }
-
-  try {
-    let membership = await ports.findMembership(organisation.organisationId, identity.accessToken);
-    if (membership !== null && membership.status === "invited") {
-      const claim = await ports.redeemInvitation({
-        organisationId: organisation.organisationId,
-        userId: identity.userId,
-        email,
-      });
-      // "redeemed" is not taken on trust: access follows the row as it is now.
-      if (claim === "redeemed") {
-        membership = await ports.findMembership(organisation.organisationId, identity.accessToken);
-      }
-    }
-
-    let session: Awaited<ReturnType<typeof issueSession>>;
-    try {
-      session = await issueSession({
-        userId: identity.userId,
+  // An Entra identity carries an issuer the tenant may or may not have allowed, and a link it asserts
+  // to a profile that has to be a verified one. Checked before the membership read, so a refused
+  // identity never touches tenant data.
+  //
+  // Two signals decide, and they are not interchangeable. The **carrier** says this host sent this
+  // browser to Entra — that is the fact the issuer policy exists to govern, and it opens the gate even
+  // if the payload arrives labelled as mail (Supabase attaches an Entra identity to an account that
+  // already exists as a mail one and leaves `app_metadata.provider` as `"email"`). The **payload
+  // label** can only keep the gate open, never close it: an identity the provider itself calls `azure`
+  // is gated whatever the carrier said. A magic-link attempt has neither, and skips the gate — the
+  // email provider has no issuer to allow-list.
+  const entraAttempt = stateCheck.provider === "entra";
+  if (entraAttempt || isEntraIdentity(identity.provider)) {
+    const gate = await checkEntraIdentity({
+      identity,
+      organisationId: organisation.organisationId,
+      ports,
+    });
+    if (!gate.ok) {
+      console.error("entra callback refused", {
         host: parsed.host,
-        tokens,
-        store: sessionStore,
-        cipher: tokenCipher,
-        now: ports.now(),
-        secureTransport,
+        step: "entra_policy",
+        reason: gate.reason,
+        // Which signal opened the gate: recorded for the operator, never sent to the browser.
+        keyed_on: entraAttempt ? "attempt" : "payload",
       });
-    } catch {
-      // The row could not be written, or the pair could not be sealed: no cookie is set, and the
-      // visitor gets the same generic outcome as any other backend failure. A half-written session is
-      // worse than none, so nothing is emitted on this path.
-      console.error("magic-link callback failed", { host: parsed.host, step: "session_store" });
       return loginRedirect(parsed.host, "unavailable", consumedState);
     }
-    const cookies: CookieSpec[] = [session.cookie, ...consumedState];
-
-    if (membership !== null && membership.status === "active") {
-      return redirectSameHost(parsed.host, "/", cookies);
-    }
-    return loginRedirect(parsed.host, "not_a_member", cookies);
-  } catch {
-    console.error("magic-link callback failed", { host: parsed.host, step: "membership" });
-    return loginRedirect(parsed.host, "unavailable", consumedState);
   }
-}
 
-function loginRedirect(host: string, outcome: "unavailable" | "not_a_member", cookies: readonly CookieSpec[]): Response {
-  return redirectSameHost(host, `${LOGIN_PATH}?outcome=${outcome}`, cookies);
+  return completeSignIn({
+    host: parsed.host,
+    organisationId: organisation.organisationId,
+    identity,
+    ports,
+    secureTransport,
+    attach: consumedState,
+    recovery: stateCheck.flow === "recovery",
+    logContext: "magic-link callback",
+  });
 }

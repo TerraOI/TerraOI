@@ -1,6 +1,6 @@
 # T-304 Kill-switch settings and the tenant provisioning script (F05)
 
-Lane: 1 · Week: 3 · Protected: yes (`supabase/migrations/`, `src/platform/tenancy/`; `scripts/` is shared) · Depends on: T-003, T-101 (both merged), T-102 (a–d open as #30/#50/#52/#57; only e's test-only pgTAP #59 is merged), T-115 (a merged as #31; b/c/d open as #53/#56/#58, for the provider switch), T-311 (same week, for the expert switch) · Status: ready
+Lane: 1 · Week: 3 · Protected: yes (`supabase/migrations/`, `src/platform/tenancy/`; `scripts/` is shared) · Depends on: T-003, T-101 (both merged), T-102 (code halves a–d merged as #30/#50/#52/#57; staging evidence owed), T-115 (a–d merged as #31/#53/#56/#58, for the provider switch), T-311 (same week, for the expert switch; not started) · Status: in progress (wyuinline) — claimed 2026-11-16 by `t-304-lifecycle-switches` / [#193](https://github.com/TerraOI/TerraOI/pull/193). Round 1 B1–B4 + #199 SQL half + N3/N5/N8; E1–E3: ADR-0012 (`docs/decisions/0012-control-plane-role.md`) + `check:structure` refuses `CONTROL_PLANE_DB` in wrangler; E2 one host per call; E3 entitlements deferred to T-311. Migration `20261120214000_lifecycle_switches.sql` (after `20261120165000` on main). pgTAP slot `100` / plan(91). N8: #179 may turn the `policy_revision` pin red.
 Decided (rulings below): [#45](https://github.com/TerraOI/TerraOI/issues/45), [#62](https://github.com/TerraOI/TerraOI/issues/62) (no tenant brand configuration exists), [#67](https://github.com/TerraOI/TerraOI/issues/67) (`organisations.locale` rejects `en-GB`)
 Plan refs: §17.1 (kill switches as settings), §15.0 ("Tenant provisioning by script (F05), not an admin UI"; "Kill switches (tenant, expert, provider) as settings"), §15.2 (M1-PILOT: kill switches verified), §16 (Operations row), §13, §4.1–§4.2; F05, F28 (F06 for the expert switch)
 
@@ -8,6 +8,9 @@ Plan refs: §17.1 (kill switches as settings), §15.0 ("Tenant provisioning by s
 These supersede anything below that disagrees.
 - **Kill switches** ([#74](https://github.com/TerraOI/TerraOI/issues/74)): M1 delivers tenant, expert and provider; add an expert-switch acceptance line in `100_lifecycle_switches.test.sql` (a switched-off expert is not selectable and its routes are refused at the gateway).
 - **Tenant switch** ([#98](https://github.com/TerraOI/TerraOI/issues/98)): relies on the `organisations.status` trigger from T-202 to move `policy_revision`.
+- **Control-plane credential** ([#193 ruling](https://github.com/TerraOI/TerraOI/pull/193#issuecomment-6986200996), E1, 2026-11-18): `toi_control_plane` is recorded in ADR-0012, written in this packet's PR. NOLOGIN; `USAGE` on the non-exposed `toi_control` schema and `EXECUTE` on the lifecycle and provisioning functions only, no table grants. Only the operator-run `scripts/provision-tenant.mjs` connects, from the owner's machine: no Worker binding, no Hyperdrive config, no `wrangler.jsonc` entry and no CI secret, and a check refuses a `CONTROL_PLANE_DB` binding in `wrangler.jsonc`. One login per environment, kept in the owner's password manager, rotated after each provisioning session in the pilot.
+- **One host per call** ([#193 ruling](https://github.com/TerraOI/TerraOI/pull/193#issuecomment-6986200996), E2): plan §4.1 (line 212) gives the staging origin its own database, so the script runs once per environment with that environment's host and `kind`; a second host is a second resumable call.
+- **Entitlements** ([#193 ruling](https://github.com/TerraOI/TerraOI/pull/193#issuecomment-6986200996), E3): `tenant_services` / `tenant_experts` are T-311's. Until they merge, provisioning creates no entitlement and asserts the absence. A follow-up slice of this packet then calls a T-311 definer function granted to `toi_control_plane`, never writing T-311's tables directly.
 
 ## Goal
 Two operations surfaces, both as settings rather than UI: a **script** that provisions a tenant —
@@ -23,6 +26,7 @@ system. §15.2 makes "kill switches verified" an M1-PILOT gate item, so the evid
 - `src/platform/tenancy/` (lifecycle calls and the switch read the request pipeline uses),
   `scripts/provision-tenant.mjs` — `scripts/` is shared ([scripts/README.md](../../scripts/README.md)),
   so the daily sync confirms no other PR is in it
+- `docs/decisions/0012-control-plane-role.md` (new, accepted in the same PR; #193 E1)
 - `supabase/tests/database/100_lifecycle_switches.test.sql`, `src/platform/tenancy/*.test.ts`,
   `scripts/provision-tenant.test.mjs`
 
@@ -44,8 +48,8 @@ deleting`), `tenant_domains.status` (`active | reserved | suspended`) and the `s
 [docs/contracts/tenancy-and-context.md](../../docs/contracts/tenancy-and-context.md)), and a tenant in
 `provisioning` resolves but has no members, so nothing is served. The switch table is the missing setting,
 not a new mechanism.
-**Owed:** **#45** — with no `model_providers` / `provider_routes` / `provider_health` owner, a provider
-switch has nothing to name, so this packet assumes a switch row keyed by `providerKey` and no registry.
+**Answered:** **#45** — T-116 owns the provider registry ([#143](https://github.com/TerraOI/TerraOI/pull/143)); a provider
+switch is keyed on `model_providers.key`, with a foreign key once #143 merges ([#199](https://github.com/TerraOI/TerraOI/issues/199)).
 **The expert switch** assumes [T-311](./T-311-expert-definitions.md)'s `tenant_experts`; if that has not
 merged, this packet lands platform, tenant and provider switches only and says so.
 **#62** — provisioning seeds brand defaults, but no packet owns `tenant_brands` (plan §6.1 names it;
@@ -60,9 +64,10 @@ the current CHECKs accept and never works around a constraint.
 
 ## Acceptance tests (write first)
 - [ ] positive: `supabase/tests/database/100_lifecycle_switches.test.sql` — one provisioning call creates the
-      organization, its `company1` and `company1-staging` domain rows, default roles and entitlements, and
-      stays `provisioning` until the run completes; re-running the same slug **resumes** it — no duplicate
-      rows or domain set — and every switch flip records actor and reason
+      organization, one domain row for the given host and the default roles, and stays `provisioning`
+      until the run completes; a second call with another host adds that host to the same organization;
+      re-running the same slug **resumes** it — no duplicate rows or domain set — and every switch flip
+      records actor and reason. Entitlements join this box in the follow-up slice after T-311 (E3)
 - [ ] negative: a reserved slug (`admin`, `www`, `terraoi`) and a host already registered to another
       organization are refused, and provisioning as a platform admin creates **no**
       `organisation_memberships` row, so that admin gets no tenant context and reads no tenant data

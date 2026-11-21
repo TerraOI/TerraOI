@@ -1,6 +1,6 @@
 # ADR-0003 The session and the identity carrier (#37, T-102)
 
-Status: **accepted** — the supervisor's decision, given in chat on 2026-11-13; B1 of the [#171 review](https://github.com/TerraOI/TerraOI/pull/171#issuecomment-6840937458) asked for this acceptance before that PR merged, and it reaches `main` through [#175](https://github.com/TerraOI/TerraOI/pull/175). Accepted as amended, **including §3b**: the own-row membership read sets no tenant scope, and that exception is now approved rather than proposed. · Date: 2026-11-06 · Amended: 2026-11-12 (#75); 2026-11-13 (§3b, the two pre-activation reads, from the #171 review) · Deciders: supervisor ([#37](https://github.com/TerraOI/TerraOI/issues/37), comment `6693315053`, 2026-11-06T19:17:09Z; [#75](https://github.com/TerraOI/TerraOI/issues/75), 2026-11-08T23:16:53Z; acceptance given in chat, 2026-11-13); Lane 1 authored
+Status: **accepted** — the supervisor's decision, given in chat on 2026-11-13; B1 of the [#171 review](https://github.com/TerraOI/TerraOI/pull/171#issuecomment-6840937458) asked for this acceptance before that PR merged, and it reaches `main` through [#175](https://github.com/TerraOI/TerraOI/pull/175). Accepted as amended, **including §3b**: the own-row membership read sets no tenant scope, and that exception is now approved rather than proposed. · Date: 2026-11-06 · Amended: 2026-11-12 (#75); 2026-11-13 (§3b, the two pre-activation reads, from the #171 review); 2026-11-20 (§3a the sixth function, §3b the host-keyed Entra issuer read, §4 reset revocation: #182, #184, #185) · Deciders: supervisor ([#37](https://github.com/TerraOI/TerraOI/issues/37), comment `6693315053`, 2026-11-06T19:17:09Z; [#75](https://github.com/TerraOI/TerraOI/issues/75), 2026-11-08T23:16:53Z; acceptance given in chat, 2026-11-13); Lane 1 authored
 Plan refs: §4.1 (host resolution), §4.2 (authn, cookies, CSRF, cross-host replay), §4.3 (RLS and scoped access), §6.1 (identity/access), §20.8 (human steps); F02, F05; TOI-ADR-15
 Depends on: ADR-0001 (contracts), ADR-0002 (the unexposed-schema + least-privilege-login precedent)
 Amendment: [#75](https://github.com/TerraOI/TerraOI/issues/75) — **how the Worker reaches the session row** (answered: Hyperdrive + `toi_session_worker`; see §3a)
@@ -79,7 +79,10 @@ dedicated role, following the ADR-0002 precedent.
 - **Connection:** Hyperdrive binding `SESSION_DB`. The Worker connects as a login user that is
   `IN ROLE toi_session_worker`.
 - **Grants:** `USAGE` on schema `toi_identity`, plus `EXECUTE` on the five `toi_identity.*_session_v1`
-  functions only. **No table grants.** The role has no privilege on `public` or any tenant table.
+  functions and, from T-201 PR-2, on `toi_identity.revoke_user_sessions_v1(uuid, text, timestamptz)`
+  ([#184](https://github.com/TerraOI/TerraOI/issues/184), 2026-11-20). That is six functions, approved
+  by name. **No table grants.** The role has no privilege on `public` or any tenant table. A further
+  function on this carrier needs its own supervisor ruling; this is not a standing permission.
 - **Threat model:** a leaked `SESSION_DB` credential can authenticate, revoke and rotate sessions,
   but cannot read tenant data. Token material stays encrypted with the separate `SESSION_TOKEN_KEY`
   Worker secret, so the database credential alone cannot recover tokens.
@@ -112,6 +115,16 @@ table selects are gone — AGENTS.md §4.2 and plan §4.3 put tenant access behi
   database/017_scoped_identity_reads.test.sql` pins each of those facts, including that the invited
   user still gets `28000` from the scoped read in the tenant where they are only invited.
 
+**A third pre-membership read ([#185](https://github.com/TerraOI/TerraOI/issues/185), 2026-11-20):
+the allowed Entra issuers, keyed on the routed host.** The Entra gate runs before a membership exists,
+so it cannot be a scoped read either. It must not take an organisation id from the caller: a read that
+follows `p_organisation_id` lets any signed-in user probe any tenant's configuration (AGENTS.md §4.1).
+The function takes the host, applies the same normalised-bare-host guard and the same active-domain
+and active-organisation conditions as `resolve_tenant_host`, and resolves host → organisation inside.
+The Worker passes the host from `request.url`. The grant is `authenticated` only, and an unknown host
+is not distinguishable from a tenant with no issuers. What stays visible is what a visitor of that
+host could learn by starting a sign-in there.
+
 This is deliberately narrow. When the page path wires its `TenancyStore` for real, that store's
 `findMembership(organisationId, userId)` should lose its user argument too, and any new read that
 runs *after* a context exists goes through `withTenantRpc`, not here.
@@ -123,6 +136,16 @@ authenticates nowhere from that instant — this is the property the self-signed
 is why the row exists. Revocation is host-scoped (a company1 cookie cannot revoke a company2 row) and
 idempotent. If the store write fails the browser still gets its cookies cleared, but the server logs a fixed
 `session_store` marker: an operator is never told a revocation happened that did not.
+
+**Password reset is the exception to host scope ([#182](https://github.com/TerraOI/TerraOI/issues/182),
+2026-11-20).** A completed reset revokes every live session of that user on **every host of the same
+organisation**, because plan §4.2 says resets "revoke other sessions" and the threat is a compromised
+credential, not one stolen cookie. `revoke_user_sessions_v1` still takes the routed host and resolves
+the organisation inside; the caller never passes an organisation id. An unknown or inactive host is
+refused, and the same user's sessions under a different organisation are not touched. Its boolean
+means "the revocation ran", including when zero rows were revoked
+([#183](https://github.com/TerraOI/TerraOI/issues/183)). Session matching stays exact-host everywhere else.
+
 
 ### 5. Token refresh and rotation
 

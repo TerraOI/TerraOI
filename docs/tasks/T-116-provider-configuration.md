@@ -1,7 +1,7 @@
 # T-116 Provider and clearance configuration
 
 Lane: 2 (shared path) · Week: 3 · Protected: yes (`supabase/migrations/`, `src/platform/gateway/` chain and clearance) · Depends on: T-003, T-115 (must be merged before claiming)
-Status: in progress (wyuinline) — the configuration half is open as a PR at round 3 of [#143](https://github.com/TerraOI/TerraOI/pull/143): one migration (`20261113074600_provider_configuration.sql`, re-timestamped for the N5 rebase) creating `model_providers`, `provider_routes`, `tenant_provider_policy` and `provider_health` with the narrow-only and one-matrix-revision guards, pgTAP slot `046` (row in COORDINATION §6b), and every new function revoked by full signature from all four roles a request can arrive as — `public, anon, authenticated` **and `service_role`** — per #60/FAQ-0010 (the catalog default hands EXECUTE to `service_role` as it does to PUBLIC, and `service_role` is a Data API role that bypasses RLS). **No request-role function grant in this PR**: after round 3's B5, `tenant_provider_policy_v1()` is closed to `anon` and `authenticated` as well — it reads `current_organisation_id()` but never sets the scope, which FAQ-0011 puts inside the calling RPC's own transaction, so a granted read answers a tenant zero rows and clears more than that tenant recorded (§4.3). The consumer named here is the gateway's tenant-policy read on the server path (#134), not the Data API; an admin read (T-202) would be a new FAQ-0011-shaped RPC in its own migration plus its own `001` entry. Evidence owed: the CI `database` job (pgTAP `046`, `plan(74)`) and `supabase db lint` — `pnpm db:test` needs Docker, which no builder has (FAQ-0009). The **typed repository** half is now ruled by #134 (Server path above): `security definer` read functions in a non-exposed schema, executed by `NOLOGIN` role `toi_gateway_config` over `CONFIG_DB`, no table grants. That half is writable in SQL and TypeScript today; what no builder can do is give it a live binding — the login user, its password, the Hyperdrive config and the `wrangler.jsonc` binding are T-004 §20.8 human steps. `provider_health` is written by T-314 through one named function on the same role, not here.
+Status: in progress (wyuinline) — [#143](https://github.com/TerraOI/TerraOI/pull/143) merged at `10a3499` with Round-4 CHANGES_REQUESTED still open, so the merged migration stays untouched (AGENTS.md §6). Follow-up migration `20261120210000_provider_configuration_round4.sql` applies B7 (deferrable INITIALLY IMMEDIATE one-revision constraint + BEFORE bump on ceiling/enabled; mixed-revision path uses SET CONSTRAINTS DEFERRED then IMMEDIATE inside try_*), B8 (drop member SELECT grant and policy), B9 (JWT seed-user negatives in `046`), N6 (drop unused `tenant_provider_policy_v1()`), N8 (`route_position` column comment). Evidence owed: CI `database` (`046` `plan(75)`) and `supabase db lint` — no Docker locally (FAQ-0009). Typed-repository half still waits on T-004 §20.8.
 Plan refs: §6.1, §12.4, §20.3 week 3, F37, F38; decision [#45](https://github.com/TerraOI/TerraOI/issues/45)
 
 ## Supervisor rulings to apply (2026-11-09)
@@ -9,12 +9,15 @@ These supersede anything below that disagrees.
 - **Server path** ([#134](https://github.com/TerraOI/TerraOI/issues/134)): the gateway reads provider configuration through `security definer` read functions (pinned `search_path`) in a **non-exposed** schema, executed by its own `NOLOGIN` role `toi_gateway_config` over a `CONFIG_DB` Hyperdrive binding, with **no table grants**. T-314's health writes go through one named function on the same role. One role per server path, never shared with `toi_job_api`. The human steps are in T-004.
 - **Function privileges** ([#142](https://github.com/TerraOI/TerraOI/issues/142), FAQ-0010): any function this packet leaves in `public` (the trigger functions) is revoked from `public, anon, authenticated` by full signature in the creating transaction; a request-role grant is added to `001`'s allow-list in the same PR.
 
+- **Production gateway bundle** ([#178 ruling](https://github.com/TerraOI/TerraOI/pull/178#issuecomment-6985784215), [#199](https://github.com/TerraOI/TerraOI/issues/199), 2026-11-18): this packet also owns the one production builder of `GatewayDeps` (`call.ts`), which no packet owned. It lives in `src/platform/gateway/` (the only place the provider factories may be named, per `provider-boundary.test.ts`) and assembles the parsed configuration from this packet's repository, the provider adapters from Worker bindings, the health reader/writer over `provider_health`, and the meter. Consumers (T-104's `chatGatewayBundle()` today) receive it through injection and never build one. If any part is missing or fails to load (binding absent, configuration malformed, read error), the builder returns no bundle and the caller answers `unavailable`, never a default chain (AGENTS.md §4.3). The Owns and Acceptance entries below carry it.
+
 ## Goal
 The model-chain configuration that the gateway receives today as reviewed, injected configuration (`parseGatewayConfiguration`) can be loaded from Postgres: `model_providers`, `provider_routes`, `tenant_provider_policy` and `provider_health` (§6.1). The gateway's chain and clearance behaviour does not change. Only the source of its configuration does, behind the existing injection seam.
 
 ## Owns (may edit)
 - One new migration in `supabase/migrations/` (timestamp later than every merged one) and its pgTAP file in `supabase/tests/database/`
 - A typed repository in `src/platform/gateway/` that produces the same parsed configuration type the gateway already consumes
+- The production `GatewayDeps` builder in `src/platform/gateway/` and its test (#178 ruling)
 - `src/contracts/database.types.ts` only through `pnpm db:types`
 
 ## Must not edit
@@ -33,6 +36,8 @@ The model-chain configuration that the gateway receives today as reviewed, injec
 - [ ] negative: `authenticated` cannot insert or update any of the four tables; `has_function_privilege` is false for `anon` on every new function
 - [ ] negative: a policy row permitting a data class the platform route does not clear is refused (the tenant can narrow, never widen, §12.4)
 - [ ] failure: a malformed or missing configuration row makes the gateway fail closed (no provider selected), never fall back to a default chain
+- [ ] positive: in a configured environment the builder yields a `GatewayDeps` the existing gateway tests accept
+- [ ] failure: a missing binding, a malformed configuration or a failed read each make the builder yield no bundle, and the consumer answers `unavailable`
 
 ## Done evidence
 CI `database` job output (assertion count), `pnpm verify` output, `supabase db lint --level error`.
