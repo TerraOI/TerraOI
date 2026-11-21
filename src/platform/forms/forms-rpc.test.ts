@@ -4,8 +4,9 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createTenantContext } from "@/contracts/tenant-context";
 
+import { buildFormsPorts } from "./adapters";
 import { createFormsRpcClient } from "./forms-rpc";
-import { SEEDED_FORM_TEMPLATE_ROWS } from "./seeded-templates";
+import { SEEDED_FORM_TEMPLATE_ROWS } from "./seeded-template-fixtures";
 import { mapFormTemplateRow } from "./template-schema";
 
 const COMPANY1_ORG = "11111111-1111-4111-8111-111111111111";
@@ -13,8 +14,11 @@ const COMPANY2_ORG = "22222222-2222-4222-8222-222222222222";
 const SUBMISSION_ID = "aa000000-0000-4000-8000-000000000001";
 const SUPERSEDED_ID = "aa000000-0000-4000-8000-000000000000";
 
-const uavTemplate = mapFormTemplateRow(SEEDED_FORM_TEMPLATE_ROWS[0]!);
-const gprTemplate = mapFormTemplateRow(SEEDED_FORM_TEMPLATE_ROWS[2]!);
+const uavRow = SEEDED_FORM_TEMPLATE_ROWS[0]!;
+const siteARow = SEEDED_FORM_TEMPLATE_ROWS[1]!;
+const gprRow = SEEDED_FORM_TEMPLATE_ROWS[2]!;
+const uavTemplate = mapFormTemplateRow(uavRow);
+const gprTemplate = mapFormTemplateRow(gprRow);
 
 const CTX_1 = createTenantContext({
   organisationId: COMPANY1_ORG,
@@ -49,7 +53,7 @@ const VALID_UAV_VALUES = {
 };
 
 describe("forms RPC client (unit)", () => {
-  it("refuses invalid values or closed template version locally without calling the socket", async () => {
+  it("refuses invalid inputs or closed template version locally without calling the socket", async () => {
     const fetchImpl = vi.fn();
     const client = createFormsRpcClient({ postgrestBaseUrl: "https://example.supabase.co/rest/v1", fetchImpl });
 
@@ -81,6 +85,14 @@ describe("forms RPC client (unit)", () => {
     expect(badSub.ok).toBe(false);
     if (!badSub.ok) expect(badSub.kind).toBe("validation");
 
+    const badTemplateId = await client.getTemplate({
+      context: CTX_1,
+      accessToken: "user-token-1",
+      templateId: "not-a-uuid",
+    });
+    expect(badTemplateId.ok).toBe(false);
+    if (!badTemplateId.ok) expect(badTemplateId.kind).toBe("validation");
+
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
@@ -104,6 +116,16 @@ describe("forms RPC client (unit)", () => {
       expect(denied.message).not.toContain("42501");
     }
 
+    const deniedList = await client42501.listTemplates({
+      context: CTX_1,
+      accessToken: "user-token-1",
+    });
+    expect(deniedList.ok).toBe(false);
+    if (!deniedList.ok) {
+      expect(deniedList.kind).toBe("tenancy");
+      expect(deniedList.message).not.toContain(secretDbMsg);
+    }
+
     const client22023 = createFormsRpcClient({
       postgrestBaseUrl: "https://example.supabase.co/rest/v1",
       fetchImpl: async () =>
@@ -118,6 +140,32 @@ describe("forms RPC client (unit)", () => {
     if (!replayed.ok) {
       expect(replayed.kind).toBe("rejected");
     }
+  });
+
+  it("rejects malformed or unsafe template payloads from list_form_templates_v1 and get_form_template_v1", async () => {
+    const badListClient = createFormsRpcClient({
+      postgrestBaseUrl: "https://example.supabase.co/rest/v1",
+      fetchImpl: async () => new Response(JSON.stringify({ not: "an array" }), { status: 200 }),
+    });
+    const badList = await badListClient.listTemplates({ context: CTX_1, accessToken: "user-token-1" });
+    expect(badList.ok).toBe(false);
+    if (!badList.ok) expect(badList.kind).toBe("backend_failure");
+
+    const unsafeRowClient = createFormsRpcClient({
+      postgrestBaseUrl: "https://example.supabase.co/rest/v1",
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify([{ ...uavRow, data_class: "restricted" }]),
+          { status: 200 },
+        ),
+    });
+    const unsafeGet = await unsafeRowClient.getTemplate({
+      context: CTX_1,
+      accessToken: "user-token-1",
+      templateId: uavRow.id,
+    });
+    expect(unsafeGet.ok).toBe(false);
+    if (!unsafeGet.ok) expect(unsafeGet.kind).toBe("backend_failure");
   });
 
   it("preserves draftSubmissionId when saveAndSubmit saves the draft but submit_form_v1 refuses permission", async () => {
@@ -162,6 +210,33 @@ describe("forms RPC client (loopback HTTP harness, COORDINATION §6a)", () => {
       const body = JSON.parse(raw) as Record<string, unknown>;
       seen.push({ path: req.url ?? "", auth: req.headers.authorization, body });
       res.setHeader("content-type", "application/json");
+      if (req.url === "/rpc/list_form_templates_v1") {
+        res.statusCode = 200;
+        if (body.p_organisation_id === COMPANY1_ORG) {
+          res.end(
+            JSON.stringify([
+              { ...uavRow, published_at: "2026-11-01T00:00:00+00:00" },
+              { ...siteARow, published_at: "2026-11-01T00:00:00+00:00" },
+            ]),
+          );
+          return;
+        }
+        if (body.p_organisation_id === COMPANY2_ORG) {
+          res.end(JSON.stringify([{ ...gprRow, published_at: "2026-11-01T00:00:00+00:00" }]));
+          return;
+        }
+        res.end("[]");
+        return;
+      }
+      if (req.url === "/rpc/get_form_template_v1") {
+        res.statusCode = 200;
+        if (body.p_organisation_id === COMPANY1_ORG && body.p_template_id === siteARow.id) {
+          res.end(JSON.stringify([{ ...siteARow, published_at: "2026-11-01T00:00:00+00:00" }]));
+          return;
+        }
+        res.end("[]");
+        return;
+      }
       if (req.url === "/rpc/save_form_draft_v1") {
         res.statusCode = 200;
         res.end(JSON.stringify(SUBMISSION_ID));
@@ -185,6 +260,50 @@ describe("forms RPC client (loopback HTTP harness, COORDINATION §6a)", () => {
 
   afterAll(async () => {
     await new Promise<void>((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
+  });
+
+  it("reads templates through list_form_templates_v1 and get_form_template_v1 via buildFormsPorts and withTenantRpc", async () => {
+    const ports = buildFormsPorts({ POSTGREST_BASE_URL: baseUrl });
+
+    const [c1List, c2List, siteAGet, foreignGet] = await Promise.all([
+      ports.formsRpc.listTemplates({ context: CTX_1, accessToken: "token-company1" }),
+      ports.formsRpc.listTemplates({ context: CTX_2, accessToken: "token-company2" }),
+      ports.formsRpc.getTemplate({ context: CTX_1, accessToken: "token-company1", templateId: siteARow.id }),
+      ports.formsRpc.getTemplate({ context: CTX_1, accessToken: "token-company1", templateId: gprRow.id }),
+    ]);
+
+    expect(c1List.ok).toBe(true);
+    if (c1List.ok) {
+      expect(c1List.templates.map((t) => t.id)).toEqual([uavRow.id, siteARow.id]);
+      expect(c1List.templates[0]?.publishedAt).toBe("2026-11-01T00:00:00.000Z");
+    }
+
+    expect(c2List.ok).toBe(true);
+    if (c2List.ok) {
+      expect(c2List.templates.map((t) => t.id)).toEqual([gprRow.id]);
+    }
+
+    expect(siteAGet.ok).toBe(true);
+    if (siteAGet.ok) {
+      expect(siteAGet.template?.id).toBe(siteARow.id);
+      expect(siteAGet.template?.projectId).toBe(siteARow.project_id);
+    }
+
+    expect(foreignGet).toEqual({ ok: true, template: null });
+
+    const c1ListReq = seen.find(
+      (r) => r.path === "/rpc/list_form_templates_v1" && r.auth === "Bearer token-company1",
+    );
+    expect(c1ListReq?.body).toEqual({ p_organisation_id: COMPANY1_ORG });
+
+    const siteAGetReq = seen.find(
+      (r) => r.path === "/rpc/get_form_template_v1" && r.body.p_template_id === siteARow.id,
+    );
+    expect(siteAGetReq?.auth).toBe("Bearer token-company1");
+    expect(siteAGetReq?.body).toEqual({
+      p_organisation_id: COMPANY1_ORG,
+      p_template_id: siteARow.id,
+    });
   });
 
   it("sends p_organisation_id from TenantContext and bearer token over real HTTP with no cross-tenant bleed", async () => {

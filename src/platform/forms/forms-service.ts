@@ -38,8 +38,6 @@ export interface FormsPorts {
   findHost(host: string): Promise<HostRecord | null>;
   findMembership(organisationId: string, accessToken: string): Promise<MembershipRecord | null>;
   policyRevision(organisationId: string, accessToken: string): Promise<number>;
-  listTemplates(context: TenantContext): Promise<FormTemplate[]>;
-  findTemplate(context: TenantContext, templateId: string): Promise<FormTemplate | null>;
   formsRpc: FormsRpcClient;
 }
 
@@ -161,12 +159,17 @@ export async function buildFormsListView(input: {
     return { kind: auth.kind, message: auth.message };
   }
 
-  try {
-    const templates = await input.ports.listTemplates(auth.context);
-    return { kind: "ready", host: auth.host, templates };
-  } catch {
-    return { kind: "unavailable", message: SAFE_FAILURE_MESSAGE.backend_failure };
+  const listed = await input.ports.formsRpc.listTemplates({
+    context: auth.context,
+    accessToken: auth.accessToken,
+  });
+  if (!listed.ok) {
+    if (listed.kind === "tenancy") {
+      return { kind: "no_access", message: listed.message };
+    }
+    return { kind: "unavailable", message: listed.message };
   }
+  return { kind: "ready", host: auth.host, templates: listed.templates };
 }
 
 export async function buildFormDetailView(input: {
@@ -191,14 +194,29 @@ export async function buildFormDetailView(input: {
     return { kind: "unavailable", message: SAFE_FAILURE_MESSAGE.backend_failure };
   }
 
-  let template: FormTemplate | null;
-  try {
-    template = await input.ports.findTemplate(auth.context, input.templateId);
-  } catch {
-    return { kind: "unavailable", message: SAFE_FAILURE_MESSAGE.backend_failure };
+  const loaded = await input.ports.formsRpc.getTemplate({
+    context: auth.context,
+    accessToken: auth.accessToken,
+    templateId: input.templateId,
+  });
+  if (!loaded.ok) {
+    if (loaded.kind === "tenancy") {
+      return { kind: "no_access", message: loaded.message };
+    }
+    if (loaded.kind === "validation") {
+      return { kind: "not_found", message: "That form is not available." };
+    }
+    return { kind: "unavailable", message: loaded.message };
   }
+  const template = loaded.template;
   if (template === null) {
     return { kind: "not_found", message: "That form is not available." };
+  }
+  if (template.status !== "published") {
+    return {
+      kind: "not_found",
+      message: `Template version ${template.version} is no longer open for submissions.`,
+    };
   }
 
   let fields: FormFieldSpec[];
@@ -339,12 +357,19 @@ export async function handleFormAction(input: {
     return jsonReply(403, { ok: false, code: "csrf_invalid", message: "Your form session expired. Reload the page and try again." });
   }
 
-  let template: FormTemplate | null;
-  try {
-    template = await ports.findTemplate(auth.context, body.data.templateId);
-  } catch {
-    return jsonReply(503, { ok: false, code: "unavailable", message: SAFE_FAILURE_MESSAGE.backend_failure });
+  const loaded = await ports.formsRpc.getTemplate({
+    context: auth.context,
+    accessToken: auth.accessToken,
+    templateId: body.data.templateId,
+  });
+  if (!loaded.ok) {
+    return jsonReply(statusForRpcFailure(loaded.kind), {
+      ok: false,
+      code: loaded.kind,
+      message: loaded.message,
+    });
   }
+  const template = loaded.template;
   if (template === null) {
     return jsonReply(404, { ok: false, code: "not_found", message: "That form is not available." });
   }

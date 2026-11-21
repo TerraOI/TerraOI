@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
-import { SEEDED_FORM_TEMPLATE_ROWS } from "@/platform/forms/seeded-templates";
+import { SEEDED_FORM_TEMPLATE_ROWS } from "@/platform/forms/seeded-template-fixtures";
 import { extractFormFields, mapFormTemplateRow } from "@/platform/forms/template-schema";
 
 import { FormRenderer } from "./form-renderer";

@@ -55,7 +55,7 @@ const FormTemplateRowSchema = z.strictObject({
   project_id: z.uuid().nullable().optional(),
   data_class: DataClass,
   status: z.enum(["draft", "published", "retired"]),
-  published_at: z.string().nullable().optional(),
+  published_at: z.iso.datetime({ offset: true }).nullable().optional(),
 });
 
 export type FormTemplateRow = z.infer<typeof FormTemplateRowSchema>;
@@ -63,6 +63,8 @@ export type FormTemplateRow = z.infer<typeof FormTemplateRowSchema>;
 /** Parse one DB/seed row into the merged `FormTemplate` contract, enforcing unsafe-content rules. */
 export function mapFormTemplateRow(row: unknown): FormTemplate {
   const parsed = FormTemplateRowSchema.parse(row);
+  const publishedAt =
+    parsed.published_at != null ? new Date(parsed.published_at).toISOString() : undefined;
   return FormTemplate.parse({
     id: parsed.id,
     version: parsed.version,
@@ -77,7 +79,7 @@ export function mapFormTemplateRow(row: unknown): FormTemplate {
     ...(parsed.project_id != null ? { projectId: parsed.project_id } : {}),
     dataClass: parsed.data_class,
     status: parsed.status,
-    ...(parsed.published_at != null ? { publishedAt: parsed.published_at } : {}),
+    ...(publishedAt !== undefined ? { publishedAt } : {}),
   });
 }
 

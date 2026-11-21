@@ -1,15 +1,13 @@
-import type { FormTemplate } from "@/contracts/form-template";
-import type { TenantContext } from "@/contracts/tenant-context";
 import { buildIdentityPorts, type IdentityEnv } from "@/platform/identity/adapters";
 import type { FetchImpl } from "@/platform/tenancy/tenant-rpc";
 
 import { createFormsRpcClient } from "./forms-rpc";
 import type { FormsPorts } from "./forms-service";
-import { findSeededTemplateForTenant, listSeededTemplatesForTenant } from "./seeded-templates";
 
 /**
  * Deployment wiring for the forms pages and submit route. Reuses `buildIdentityPorts` for session
- * and tenancy verification, and wires `createFormsRpcClient` to PostgREST over `withTenantRpc`.
+ * and tenancy verification, and wires `createFormsRpcClient` (`list_form_templates_v1`,
+ * `get_form_template_v1`, `save_form_draft_v1`, `submit_form_v1`) to PostgREST over `withTenantRpc`.
  */
 
 export type FormsEnv = Partial<IdentityEnv> & {
@@ -18,8 +16,6 @@ export type FormsEnv = Partial<IdentityEnv> & {
 
 export interface FormsAdapterOptions {
   fetchImpl?: FetchImpl;
-  listTemplates?: (context: TenantContext) => Promise<FormTemplate[]>;
-  findTemplate?: (context: TenantContext, templateId: string) => Promise<FormTemplate | null>;
 }
 
 function resolvePostgrestBase(env: FormsEnv): string | undefined {
@@ -45,8 +41,6 @@ export function buildFormsPorts(env: FormsEnv, options: FormsAdapterOptions = {}
     findHost: (host) => identity.findHost(host),
     findMembership: (organisationId, accessToken) => identity.findMembership(organisationId, accessToken),
     policyRevision: (organisationId, accessToken) => identity.policyRevision(organisationId, accessToken),
-    listTemplates: options.listTemplates ?? (async (ctx) => listSeededTemplatesForTenant(ctx)),
-    findTemplate: options.findTemplate ?? (async (ctx, id) => findSeededTemplateForTenant(ctx, id)),
     formsRpc,
   };
 }

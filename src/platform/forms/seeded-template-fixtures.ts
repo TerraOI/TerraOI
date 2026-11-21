@@ -1,17 +1,9 @@
-import type { FormTemplate } from "@/contracts/form-template";
-import type { TenantContext } from "@/contracts/tenant-context";
-
-import { mapFormTemplateRow, type FormTemplateRow } from "./template-schema";
+import type { FormTemplateRow } from "./template-schema";
 
 /**
- * M1 platform-seeded form templates mirroring `supabase/seed.sql` (plan §7.6, §15.0, FAQ-0013).
- *
- * `20261120213000_forms.sql` (#197) shipped the write RPCs (`save_form_draft_v1`, `submit_form_v1`)
- * and RLS select policies on `form_templates`, without a scoped read RPC. Until a follow-up SQL PR
- * adds `list_form_templates_v1`, this catalog serves the exact seeded platform templates installed
- * in each tenant, strictly filtered by `TenantContext.organisationId` and `permittedProjectIds`.
- * Every write still goes through `withTenantRpc` into Postgres, which re-enforces template status,
- * version, project membership and RLS.
+ * Test-only fixtures mirroring the three M1 platform-seeded rows in `supabase/seed.sql`
+ * (AGENTS.md §4.7, plan §15.0). Never imported from production runtime code; runtime reads go
+ * through `list_form_templates_v1` and `get_form_template_v1` via `withTenantRpc`.
  */
 export const SEEDED_FORM_TEMPLATE_ROWS: readonly FormTemplateRow[] = [
   {
@@ -98,23 +90,3 @@ export const SEEDED_FORM_TEMPLATE_ROWS: readonly FormTemplateRow[] = [
     published_at: "2026-11-01T00:00:00Z",
   },
 ];
-
-function isVisibleToContext(row: FormTemplateRow, ctx: TenantContext): boolean {
-  if (row.organisation_id !== ctx.organisationId) return false;
-  if (row.status !== "published") return false;
-  if (row.project_id !== null && row.project_id !== undefined) {
-    return ctx.permittedProjectIds.includes(row.project_id);
-  }
-  return true;
-}
-
-/** Return only published templates installed in `ctx.organisationId` and visible to the member. */
-export function listSeededTemplatesForTenant(ctx: TenantContext): FormTemplate[] {
-  return SEEDED_FORM_TEMPLATE_ROWS.filter((row) => isVisibleToContext(row, ctx)).map(mapFormTemplateRow);
-}
-
-/** Resolve one published template in `ctx.organisationId`; foreign or unauthorized ids return null. */
-export function findSeededTemplateForTenant(ctx: TenantContext, templateId: string): FormTemplate | null {
-  const row = SEEDED_FORM_TEMPLATE_ROWS.find((item) => item.id === templateId && isVisibleToContext(item, ctx));
-  return row === undefined ? null : mapFormTemplateRow(row);
-}

@@ -3,44 +3,19 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { FormTemplate } from "@/contracts/form-template";
-import { createTenantContext } from "@/contracts/tenant-context";
 
-import {
-  SEEDED_FORM_TEMPLATE_ROWS,
-  findSeededTemplateForTenant,
-  listSeededTemplatesForTenant,
-} from "./seeded-templates";
+import { SEEDED_FORM_TEMPLATE_ROWS } from "./seeded-template-fixtures";
 import { mapFormTemplateRow } from "./template-schema";
 
 const COMPANY1_ORG_ID = "11111111-1111-4111-8111-111111111111";
 const COMPANY2_ORG_ID = "22222222-2222-4222-8222-222222222222";
-const OTHER_ORG_ID = "33333333-3333-4333-8333-333333333333";
 const SITE_A_PROJECT_ID = "41000000-0000-4000-8000-000000000001";
-
-const UAV_TEMPLATE_ID = "80000000-0000-4000-8000-000000000001";
-const SITE_A_TEMPLATE_ID = "80000000-0000-4000-8000-000000000002";
-const GPR_TEMPLATE_ID = "80000000-0000-4000-8000-000000000003";
 
 const SEEDED_COLLECTIONS = new Map<string, { organisationId: string; projectId: string | null }>([
   ["51000000-0000-4000-8000-000000000001", { organisationId: COMPANY1_ORG_ID, projectId: null }],
   ["51000000-0000-4000-8000-000000000002", { organisationId: COMPANY1_ORG_ID, projectId: SITE_A_PROJECT_ID }],
   ["52000000-0000-4000-8000-000000000001", { organisationId: COMPANY2_ORG_ID, projectId: null }],
 ]);
-
-function contextFor(organisationId: string, permittedProjectIds: string[] = []) {
-  return createTenantContext({
-    organisationId,
-    host: organisationId === COMPANY2_ORG_ID ? "company2.terraoi.app" : "company1.terraoi.app",
-    userId: "00000000-0000-4000-8000-0000000000a2",
-    membershipId: "99000000-0000-4000-8000-000000000001",
-    membershipStatus: "active",
-    roles: ["member"],
-    permittedServiceKeys: [],
-    permittedProjectIds,
-    policyRevision: 1,
-    resolvedAt: "2026-11-20T00:00:00Z",
-  });
-}
 
 describe("seeded form templates (T-301 acceptance)", () => {
   it("parses at least two platform templates, one per seeded service key, each bound to a publishable collection", () => {
@@ -78,34 +53,29 @@ describe("seeded form templates (T-301 acceptance)", () => {
     }
   });
 
-  it("keeps tenant and project audience isolation when listing and resolving templates", () => {
-    const company1Field = contextFor(COMPANY1_ORG_ID, []);
-    const company1SiteA = contextFor(COMPANY1_ORG_ID, [SITE_A_PROJECT_ID]);
-    const company2Member = contextFor(COMPANY2_ORG_ID, []);
-    const unknownTenant = contextFor(OTHER_ORG_ID, []);
-
-    // Company1 member outside Site A sees only tenant-wide UAV pre-flight check.
-    expect(listSeededTemplatesForTenant(company1Field).map((t) => t.id)).toEqual([UAV_TEMPLATE_ID]);
-    expect(findSeededTemplateForTenant(company1Field, SITE_A_TEMPLATE_ID)).toBeNull();
-    expect(findSeededTemplateForTenant(company1Field, GPR_TEMPLATE_ID)).toBeNull();
-
-    // Company1 member inside Site A sees UAV pre-flight and Site A observation, never company2.
-    expect(listSeededTemplatesForTenant(company1SiteA).map((t) => t.id)).toEqual([
-      UAV_TEMPLATE_ID,
-      SITE_A_TEMPLATE_ID,
-    ]);
-    expect(findSeededTemplateForTenant(company1SiteA, GPR_TEMPLATE_ID)).toBeNull();
-
-    // Company2 member sees only GPR field log.
-    expect(listSeededTemplatesForTenant(company2Member).map((t) => t.id)).toEqual([GPR_TEMPLATE_ID]);
-    expect(findSeededTemplateForTenant(company2Member, UAV_TEMPLATE_ID)).toBeNull();
-
-    // Unknown tenant fails closed to empty.
-    expect(listSeededTemplatesForTenant(unknownTenant)).toEqual([]);
+  it("keeps seeded rows test-only and never imported by runtime forms code (B1)", () => {
+    const runtimeFiles = [
+      "src/platform/forms/adapters.ts",
+      "src/platform/forms/forms-rpc.ts",
+      "src/platform/forms/forms-service.ts",
+      "src/app/(tenant)/forms/page.tsx",
+      "src/app/(tenant)/forms/[templateId]/page.tsx",
+      "src/app/(tenant)/forms/submit/route.ts",
+    ];
+    for (const file of runtimeFiles) {
+      const source = readFileSync(resolve(process.cwd(), file), "utf8");
+      expect(source).not.toContain("seeded-template");
+    }
   });
 
-  it("keeps organisationId on tenant-scoped rows and refuses unsafe or restricted templates", () => {
+  it("normalizes Postgres timestamptz offsets, keeps organisationId on tenant rows, and refuses unsafe or restricted templates", () => {
     const baseRow = SEEDED_FORM_TEMPLATE_ROWS[0]!;
+
+    const withPgOffset = mapFormTemplateRow({
+      ...baseRow,
+      published_at: "2026-11-01T00:00:00.123456+00:00",
+    });
+    expect(withPgOffset.publishedAt).toBe("2026-11-01T00:00:00.123Z");
 
     const tenantRow = mapFormTemplateRow({ ...baseRow, scope: "tenant" });
     expect(tenantRow.scope).toBe("tenant");

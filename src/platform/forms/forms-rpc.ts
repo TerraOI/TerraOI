@@ -9,10 +9,11 @@ import {
   type TenantRpcFailure,
 } from "@/platform/tenancy/tenant-rpc";
 
-import { validateFormValues } from "./template-schema";
+import { mapFormTemplateRow, validateFormValues } from "./template-schema";
 
 /**
- * Typed client for the merged T-301 scoped RPCs (`save_form_draft_v1`, `submit_form_v1`).
+ * Typed client for the T-301 scoped RPCs (`list_form_templates_v1`, `get_form_template_v1`,
+ * `save_form_draft_v1`, `submit_form_v1`).
  *
  * Every call goes through `withTenantRpc` (FAQ-0011, plan §4.3): `p_organisation_id` comes only
  * from `TenantContext`, never from client arguments, and the bearer token is the signed-in user's
@@ -22,6 +23,17 @@ import { validateFormValues } from "./template-schema";
 export interface FormsRpcDeps {
   postgrestBaseUrl?: string;
   fetchImpl?: FetchImpl;
+}
+
+export interface ListFormTemplatesInput {
+  context: TenantContext;
+  accessToken: string;
+}
+
+export interface GetFormTemplateInput {
+  context: TenantContext;
+  accessToken: string;
+  templateId: string;
 }
 
 export interface SaveFormDraftInput {
@@ -47,17 +59,21 @@ export type FormsRpcFailureKind =
   | "backend_failure"
   | "not_configured";
 
-export type FormsRpcOutcome =
-  | { ok: true; submissionId: string }
-  | {
-      ok: false;
-      kind: FormsRpcFailureKind;
-      message: string;
-      fieldErrors?: Record<string, string>;
-      draftSubmissionId?: string;
-    };
+export interface FormsRpcFailure {
+  ok: false;
+  kind: FormsRpcFailureKind;
+  message: string;
+  fieldErrors?: Record<string, string>;
+  draftSubmissionId?: string;
+}
+
+export type FormsRpcOutcome = { ok: true; submissionId: string } | FormsRpcFailure;
+export type ListFormTemplatesOutcome = { ok: true; templates: FormTemplate[] } | FormsRpcFailure;
+export type GetFormTemplateOutcome = { ok: true; template: FormTemplate | null } | FormsRpcFailure;
 
 export interface FormsRpcClient {
+  listTemplates(input: ListFormTemplatesInput): Promise<ListFormTemplatesOutcome>;
+  getTemplate(input: GetFormTemplateInput): Promise<GetFormTemplateOutcome>;
   saveDraft(input: SaveFormDraftInput): Promise<FormsRpcOutcome>;
   submitDraft(input: SubmitFormInput): Promise<FormsRpcOutcome>;
   saveAndSubmit(input: SaveFormDraftInput): Promise<FormsRpcOutcome>;
@@ -73,7 +89,7 @@ export const SAFE_FORMS_RPC_MESSAGE: Record<FormsRpcFailureKind, string> = {
   not_configured: "The service is temporarily unavailable. Please try again.",
 };
 
-function mapBackendFailure(reason: BackendFailureReason): FormsRpcOutcome {
+function mapBackendFailure(reason: BackendFailureReason): FormsRpcFailure {
   switch (reason) {
     case "rejected":
       return { ok: false, kind: "rejected", message: SAFE_FORMS_RPC_MESSAGE.rejected };
@@ -90,7 +106,7 @@ function mapBackendFailure(reason: BackendFailureReason): FormsRpcOutcome {
   }
 }
 
-function mapTenantRpcFailure(failure: TenantRpcFailure): FormsRpcOutcome {
+function mapTenantRpcFailure(failure: TenantRpcFailure): FormsRpcFailure {
   switch (failure.kind) {
     case "tenancy":
       return { ok: false, kind: "tenancy", message: SAFE_FORMS_RPC_MESSAGE.tenancy };
@@ -114,11 +130,58 @@ function parseUuidReturn(data: unknown): FormsRpcOutcome {
   return { ok: true, submissionId: parsed.data };
 }
 
+function parseTemplateRows(data: unknown): FormTemplate[] | null {
+  if (!Array.isArray(data)) return null;
+  try {
+    return data.map((row) => mapFormTemplateRow(row));
+  } catch {
+    return null;
+  }
+}
+
 export function createFormsRpcClient(deps: FormsRpcDeps): FormsRpcClient {
   const config = {
     postgrestBaseUrl: deps.postgrestBaseUrl,
     ...(deps.fetchImpl === undefined ? {} : { fetchImpl: deps.fetchImpl }),
   };
+
+  async function listTemplates(input: ListFormTemplatesInput): Promise<ListFormTemplatesOutcome> {
+    const outcome = await withTenantRpc(
+      input.context,
+      "list_form_templates_v1",
+      {},
+      input.accessToken,
+      config,
+    );
+    if (!outcome.ok) return mapTenantRpcFailure(outcome);
+
+    const templates = parseTemplateRows(outcome.data);
+    if (templates === null) {
+      return { ok: false, kind: "backend_failure", message: SAFE_FORMS_RPC_MESSAGE.backend_failure };
+    }
+    return { ok: true, templates };
+  }
+
+  async function getTemplate(input: GetFormTemplateInput): Promise<GetFormTemplateOutcome> {
+    if (!z.uuid().safeParse(input.templateId).success) {
+      return { ok: false, kind: "validation", message: "That form is not available." };
+    }
+
+    const outcome = await withTenantRpc(
+      input.context,
+      "get_form_template_v1",
+      { p_template_id: input.templateId },
+      input.accessToken,
+      config,
+    );
+    if (!outcome.ok) return mapTenantRpcFailure(outcome);
+
+    const templates = parseTemplateRows(outcome.data);
+    if (templates === null || templates.length > 1) {
+      return { ok: false, kind: "backend_failure", message: SAFE_FORMS_RPC_MESSAGE.backend_failure };
+    }
+    return { ok: true, template: templates[0] ?? null };
+  }
 
   async function saveDraft(input: SaveFormDraftInput): Promise<FormsRpcOutcome> {
     const validated = validateFormValues(input.template, input.templateVersion, input.values);
@@ -190,5 +253,5 @@ export function createFormsRpcClient(deps: FormsRpcDeps): FormsRpcClient {
     return submitted;
   }
 
-  return { saveDraft, submitDraft, saveAndSubmit };
+  return { listTemplates, getTemplate, saveDraft, submitDraft, saveAndSubmit };
 }

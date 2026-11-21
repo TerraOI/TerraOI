@@ -10,7 +10,8 @@ import {
   handleFormAction,
   type FormsPorts,
 } from "./forms-service";
-import { findSeededTemplateForTenant, listSeededTemplatesForTenant } from "./seeded-templates";
+import { SEEDED_FORM_TEMPLATE_ROWS } from "./seeded-template-fixtures";
+import { mapFormTemplateRow } from "./template-schema";
 
 const COMPANY1_ORG = "11111111-1111-4111-8111-111111111111";
 const USER_ID = "00000000-0000-4000-8000-0000000000a1";
@@ -21,6 +22,8 @@ const SUBMISSION_ID = "aa000000-0000-4000-8000-000000000001";
 const NOW = 1_763_600_000;
 const SIGNING_SECRET = "0123456789abcdef0123456789abcdef";
 const TOKEN_KEY = "fedcba9876543210fedcba9876543210";
+
+const UAV_TEMPLATE = mapFormTemplateRow(SEEDED_FORM_TEMPLATE_ROWS[0]!);
 
 function memorySessionStore(): SessionStore {
   const rows = new Map<string, StoredSession>();
@@ -52,6 +55,11 @@ async function setupFixture(overrides: Partial<FormsPorts> = {}) {
   const cookieHeader = `${issued.cookie.name}=${issued.cookie.value}`;
   const csrfToken = await issueCsrfToken({ host: "company1.terraoi.app", secret: SIGNING_SECRET, now: NOW });
 
+  const listTemplates = vi.fn().mockResolvedValue({ ok: true, templates: [UAV_TEMPLATE] });
+  const getTemplate = vi.fn().mockImplementation(async ({ templateId }: { templateId: string }) => ({
+    ok: true,
+    template: templateId === UAV_TEMPLATE_ID ? UAV_TEMPLATE : null,
+  }));
   const saveDraft = vi.fn().mockResolvedValue({ ok: true, submissionId: SUBMISSION_ID });
   const submitDraft = vi.fn().mockResolvedValue({ ok: true, submissionId: SUBMISSION_ID });
   const saveAndSubmit = vi.fn().mockResolvedValue({ ok: true, submissionId: SUBMISSION_ID });
@@ -73,18 +81,16 @@ async function setupFixture(overrides: Partial<FormsPorts> = {}) {
       permittedProjectIds: [],
     }),
     policyRevision: async () => 1,
-    listTemplates: async (ctx) => listSeededTemplatesForTenant(ctx),
-    findTemplate: async (ctx, id) => findSeededTemplateForTenant(ctx, id),
-    formsRpc: { saveDraft, submitDraft, saveAndSubmit },
+    formsRpc: { listTemplates, getTemplate, saveDraft, submitDraft, saveAndSubmit },
     ...overrides,
   };
 
-  return { ports, cookieHeader, csrfToken, saveDraft, submitDraft, saveAndSubmit };
+  return { ports, cookieHeader, csrfToken, listTemplates, getTemplate, saveDraft, submitDraft, saveAndSubmit };
 }
 
 describe("forms views (GET /forms, GET /forms/:id)", () => {
-  it("lists authorized tenant templates for an active member and hides foreign templates", async () => {
-    const { ports, cookieHeader } = await setupFixture();
+  it("lists authorized tenant templates via scoped read RPC and hides foreign templates", async () => {
+    const { ports, cookieHeader, listTemplates, getTemplate } = await setupFixture();
     const listView = await buildFormsListView({
       request: new Request("https://company1.terraoi.app/forms", { headers: { cookie: cookieHeader } }),
       ports,
@@ -93,6 +99,12 @@ describe("forms views (GET /forms, GET /forms/:id)", () => {
     if (listView.kind === "ready") {
       expect(listView.templates.map((t) => t.id)).toEqual([UAV_TEMPLATE_ID]);
     }
+    expect(listTemplates).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accessToken: "supa-access-1",
+        context: expect.objectContaining({ organisationId: COMPANY1_ORG }),
+      }),
+    );
 
     const foreignDetail = await buildFormDetailView({
       request: new Request(`https://company1.terraoi.app/forms/${GPR_TEMPLATE_ID}`, {
@@ -102,6 +114,51 @@ describe("forms views (GET /forms, GET /forms/:id)", () => {
       ports,
     });
     expect(foreignDetail.kind).toBe("not_found");
+    expect(getTemplate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accessToken: "supa-access-1",
+        templateId: GPR_TEMPLATE_ID,
+        context: expect.objectContaining({ organisationId: COMPANY1_ORG }),
+      }),
+    );
+  });
+
+  it("refuses retired templates on detail view and surfaces tenancy refusals as no_access", async () => {
+    const { ports, cookieHeader } = await setupFixture();
+    const retiredTemplate = { ...UAV_TEMPLATE, status: "retired" as const };
+    const retiredDetail = await buildFormDetailView({
+      request: new Request(`https://company1.terraoi.app/forms/${UAV_TEMPLATE_ID}`, {
+        headers: { cookie: cookieHeader },
+      }),
+      templateId: UAV_TEMPLATE_ID,
+      ports: {
+        ...ports,
+        formsRpc: {
+          ...ports.formsRpc,
+          getTemplate: vi.fn().mockResolvedValue({ ok: true, template: retiredTemplate }),
+        },
+      },
+    });
+    expect(retiredDetail.kind).toBe("not_found");
+    if (retiredDetail.kind === "not_found") {
+      expect(retiredDetail.message).toContain("v1");
+    }
+
+    const deniedList = await buildFormsListView({
+      request: new Request("https://company1.terraoi.app/forms", { headers: { cookie: cookieHeader } }),
+      ports: {
+        ...ports,
+        formsRpc: {
+          ...ports.formsRpc,
+          listTemplates: vi.fn().mockResolvedValue({
+            ok: false,
+            kind: "tenancy",
+            message: "You do not have permission to perform this action in this workspace.",
+          }),
+        },
+      },
+    });
+    expect(deniedList.kind).toBe("no_access");
   });
 
   it("redirects signed-out visitors to /login and refuses suspended members with no_access", async () => {
@@ -243,7 +300,7 @@ describe("handleFormAction (POST /forms/submit)", () => {
     );
   });
 
-  it("refuses a mismatched template version with 409 naming the version validated", async () => {
+  it("refuses a retired or mismatched template version with 409 naming the version validated", async () => {
     const { ports, cookieHeader, csrfToken, saveDraft } = await setupFixture();
     const res = await handleFormAction({
       request: new Request("https://company1.terraoi.app/forms/submit", {
@@ -269,5 +326,37 @@ describe("handleFormAction (POST /forms/submit)", () => {
     expect(body.code).toBe("version_closed");
     expect(body.message).toContain("v0");
     expect(saveDraft).not.toHaveBeenCalled();
+
+    const retiredRes = await handleFormAction({
+      request: new Request("https://company1.terraoi.app/forms/submit", {
+        method: "POST",
+        headers: {
+          origin: "https://company1.terraoi.app",
+          "content-type": "application/json",
+          cookie: cookieHeader,
+        },
+        body: JSON.stringify({
+          action: "submit",
+          csrfToken,
+          templateId: UAV_TEMPLATE_ID,
+          templateVersion: "v1",
+          values: { airframe_check: "Tether checked", battery_pct: 91, weather_notes: "Calm" },
+        }),
+      }),
+      ports: {
+        ...ports,
+        formsRpc: {
+          ...ports.formsRpc,
+          getTemplate: vi.fn().mockResolvedValue({
+            ok: true,
+            template: { ...UAV_TEMPLATE, status: "retired" },
+          }),
+        },
+      },
+    });
+    expect(retiredRes.status).toBe(409);
+    const retiredBody = (await retiredRes.json()) as { ok: boolean; code: string; message: string };
+    expect(retiredBody.code).toBe("version_closed");
+    expect(retiredBody.message).toContain("v1");
   });
 });

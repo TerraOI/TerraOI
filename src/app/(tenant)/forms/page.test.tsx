@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 
-import { SEEDED_FORM_TEMPLATE_ROWS } from "@/platform/forms/seeded-templates";
+import { SEEDED_FORM_TEMPLATE_ROWS } from "@/platform/forms/seeded-template-fixtures";
 import { mapFormTemplateRow } from "@/platform/forms/template-schema";
 import { ROUTED_HOST_HEADER } from "@/platform/tenancy/page-host";
 

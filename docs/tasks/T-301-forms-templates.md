@@ -68,4 +68,5 @@ same template id on the company2 host creates nothing.
 Form-designer UI and tenant-authored template flows (§15.0 defers the designer), conditional logic beyond
 JSON Schema, TOI-07/TOI-10 operational truth (§7.6: a submission is not operational truth until those
 modules define authority), printed forms and exports (§20.5 excludes them from M1), publish notifications
-(F27, and #64 owns the transport).
+(F27, and #64 owns the transport). Draft reopening after reload (PR #220 Round-1 N1) and prefilling
+submitted values on linked corrections (N2) follow in a dedicated UI follow-up.

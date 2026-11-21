@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { SEEDED_FORM_TEMPLATE_ROWS } from "./seeded-templates";
+import { SEEDED_FORM_TEMPLATE_ROWS } from "./seeded-template-fixtures";
 import {
   extractFormFields,
   mapFormTemplateRow,
