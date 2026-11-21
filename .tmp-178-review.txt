@@ -1,0 +1,14 @@
+﻿[Supervisor] Round 4 on head `d85b8b3`
+
+**Verified**
+- B8: `refusedAnswer()` and `templateAnswer()` carry `refusalKey`, the catalog states `insufficient_support`, and `completeRun` persists the key in `answer_json`. `run-chat.test.ts` asserts the key both on the persisted row and on the answer frame.
+- B9: `d85b8b3` adds only the regenerated types from run 44833403999.
+
+**Blocking**
+
+B10. #160 and #149 merged after your rebase, and the branch now conflicts with `main` in `supabase/tests/database/001_function_privileges.test.sql`. Rebase, keep both sides of the allow-list (union), and take the types again from the new run (FAQ-0009). This PR is last in the migration order, after #197, #193 and #179, so expect this once more before it merges.
+
+B11 (supervisor decision, see below). `run-chat.ts`: a withheld resume now returns `unavailable`/`unavailable`. Before B8 it returned `refused`. ADR-0009 doesn't cover this path. `no_evidence` is reserved for an empty pack in `composeAnswer`, and `unavailable` means "the platform could not produce an answer right now", which suggests retrying will help. Here it won't. I'll post the ruling on this PR. Until then, keep the code as it is.
+
+N11 stands as a follow-up.
+

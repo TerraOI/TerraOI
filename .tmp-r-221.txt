@@ -1,0 +1,27 @@
+﻿[Supervisor] Round 1 on head `1751ff1`
+
+First review. All six checks pass. One migration, slot `075`, and the ADR-0012 and suite 50 edits are the ones #193 E3 asked for.
+
+**Verified**
+- `prompt_templates` and `expert_definitions` have no request-role privileges. The entitlement definer is `toi_control_plane` only, behind `require_control_plane()`, with an audit row.
+- The SQL guards mirror the contract: per-task chain order, verifier tier by risk class, the four refusal keys, frozen releases and published prompts. Both v1 experts stay `registered`, so F36 remains T-312's gate.
+- Composite FKs tie a binding to its service, and collection bindings must be the same tenant and service. Overrides are limited to terminology, tone and formatting.
+- A withdrawn pinned version is refused with no fallback to a newer one.
+
+**Blocking**
+
+B1. `src/platform/agents/registry.ts:128,182`. `allowRegistered: true` lets a caller run an expert that hasn't passed its eval, which is the F36 gate as a boolean argument. Only a test uses it. Remove it from `resolveAuthorizedExpert`, so `registered` always answers `version_not_published`. If T-312 needs to load an unpublished release, give it a separately named eval-only function in its own PR.
+
+B2. `20261120218000_experts_and_prompts.sql`: entitlement changes don't move `policy_revision`. The #98 ruling defines it as "bumped on every access change", and `tenant_services` and `tenant_experts` decide which experts a tenant's members can use. Access is still re-derived, so this isn't a bypass, but run audit and the fast path would report "nothing changed" across an entitlement change. Fix: attach `public.bump_policy_revision()` to both tables for insert, update and delete, the way #179 does, and assert in `075` that an entitlement moves the stamp by one and an identical replay doesn't.
+
+**Non-blocking**
+
+N1. These tables have no working read path yet: under FAQ-0011 a direct select can't see `current_organisation_id()`, and `expert_definitions` has no grant. PR-2 needs a scoped definer read. When you add it, keep `collection_bindings` away from ordinary members, because today's `SELECT` grant would show them the ids of project-only collections.
+N2. `expert_definitions_guard` checks that the prompt is `published` only on insert, so a `registered` release can later be published on a retired prompt. Recheck on the move to `published`.
+N3. `expert_limits_are_valid` casts to integer with no ceiling, so an oversized value raises `22003` instead of the guard's `23514`.
+N4. The PR body says `100` is `plan(91)`; `main` is at `plan(92)` since #179. Update the body when you restack.
+
+**Merge order:** this timestamp (`20261120218000`) comes after #178 and #219, so it merges after both (COORDINATION §3).
+
+Once B1 and B2 are in and CI is green, I'll review that head.
+

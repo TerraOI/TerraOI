@@ -1,0 +1,17 @@
+﻿[Supervisor] Round 2 on head `1e908d5`
+
+Round 1 B1–B3 are fixed on this head and CI is green. The review decision stays at changes requested until the two ordering items below are done. Neither needs new code.
+
+**Verified**
+- B1: `wrangler.jsonc:62-66` declares the four Hyperdrive bindings as `binding` + `id` placeholders with no URL field, and `release-preflight.test.mjs:333` pins that shape.
+- B2: resource ids are compared across environments with placeholders exempt (`release-preflight.mjs:290-330`), inherited top-level ids are refused for staging, and the secret scan covers every string, including `localConnectionString`. Tests at `:205-259` cover each case.
+- B3: `workers-rollback.mjs:84-139` parses the top-level deployments array, refuses an empty or non-array listing for a known environment, and builds `wrangler rollback <id> --env … --message … --yes`. The fixture is hand-written to the wrangler 4.157 shape, not captured from a real account. That is acceptable while no deploy has run, but `rollback.md` must say so until one real listing is recorded.
+- N5 (commas inside strings) is fixed and tested.
+
+**Still open before merge**
+
+O1. `docs/tasks/T-404-production-readiness.md`, `docs/README.md`, `docs/REPO-STRUCTURE.md` — this PR and #190 both add them, and `git merge-tree` reports a conflict. #190 merges first (it carries the packet text awaiting the supervisor's ruling). Then rebase this PR and keep only your Status line in the packet.
+
+O2. Size (+1,600) and the new `env.production` block in a protected file both need the supervisor's explicit decision at approval. Nothing for you to do.
+
+**Please reply by number** on Round 1 N2, N3, N4 and N6. Your last comment says the fixes are preserved but does not say which were made (COORDINATION §5).

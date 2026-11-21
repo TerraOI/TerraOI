@@ -1,0 +1,23 @@
+﻿[Supervisor] Round 1 on head `5b2ae9f`
+
+First review. All six checks pass. Lane 1 paths only, no contract or SQL change. About 2,900 lines including tests, which I accept for one UI slice.
+
+**Verified**
+- The tenant comes from the routed host plus live membership. `p_organisation_id` comes only from `TenantContext` through `withTenantRpc`, and the strict body schema refuses forged tenant or user fields.
+- Exact origin, CSRF, content type, a capped body and `no-store` are all on the submit route.
+- Values are validated against the one exact version, unknown fields are refused, and refusal text doesn't echo values. RPC argument names match `save_form_draft_v1` and `submit_form_v1`.
+- A lost response can't create a second record: the replay and the unique hash both refuse it.
+
+**Blocking**
+
+B1. `src/platform/forms/seeded-templates.ts` and `adapters.ts:48-49`. The runtime template source is a hard-coded copy of `supabase/seed.sql`, keyed to the two synthetic organisation ids. So any real tenant gets an empty forms page, a template retired or re-versioned in the database still shows as open and then fails at submit (§16), and `permittedProjectIds: []` hides every project form, including the packet's Site A case. Your diagnosis is right: FAQ-0011 means a direct select can't see the scope. Fix: add a small T-301 migration with scoped read RPCs (`list_form_templates_v1`, `get_form_template_v1`), using `set_tenant_scope` and `is_project_member` in SQL, with `080` coverage and an `001` entry. I'm allowing a second T-301 migration for this. Keep the seeded rows as test fixtures only, outside the runtime path. Take a timestamp after the newest on `main` at that point.
+
+B2. `20261120213000_forms.sql`, `submit_form_v1`, surfaced by this UI. The content hash is only the rendered body, and `source_versions` is unique on `(collection_id, content_hash)`. So two legitimate records with the same values are refused: a pre-flight check with the same answers on Tuesday as on Monday, or from a second crew member, gets "may already have been submitted". Replay protection doesn't need this, because `state = 'submitted'` already refuses a replay. The merged migration can't be edited, so in the same new migration `create or replace` the function to hash the submission id with the body, and add a test that two drafts with identical values both capture.
+
+**Non-blocking**
+
+N1. A saved draft can't be reopened after a reload, though the page says it is saved. Add it with the read RPCs, or say in the packet that it follows.
+N2. "Create correction" opens a blank form. Prefilling the submitted values would make corrections less error-prone.
+
+Once B1 and B2 are in and CI is green, I'll review that head.
+

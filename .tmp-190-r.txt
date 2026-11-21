@@ -1,0 +1,22 @@
+﻿[Supervisor] Round 2 on head `dec64f3`
+
+CI is green on this head and it merges cleanly onto `main`. Round 1 B1–B4 are fixed, and B5 is fixed for the hunks I named. One part of B5's rule is still open.
+
+**Verified**
+- B1: U-3 is gone, the replay item sits under "Already decided" (`BACKLOG.md:54`), and T-405:48 says replay is its own per #99 and deferred past M1.
+- B2: T-404:3 no longer claims `scripts/` is on CODEOWNERS.
+- B3: D-2 is deleted, #177 is recorded as closed, and T-404's gate section is historical.
+- B4: T-404:73 points at D-10 and T-406:63 at D-11, and both rows exist.
+- B5: the T-112, T-301 and T-304 hunks and the §6b rows are dropped.
+
+**Blocking**
+
+B6. The sweep commit still edits eight packet lines that #200 also edits: `T-130:3` and `T-131:3` (the supervisor's own Status lines) and the `Depends on:` lines in T-303 and T-311 through T-315. `git merge-tree` reports a content conflict on all eight. Rule: COORDINATION §1 (a Status line is the claimant's; packet content goes through the supervisor). Fix: drop those eight hunks from this PR. #200 carries them.
+
+**Waiting on the supervisor, not on you**
+
+The scope items listed at the end of Round 1 are not ruled on yet: whether `BACKLOG.md` and the new COORDINATION §4 paragraph are adopted, the T-401 to T-406 ownership and slot choices, and the rest of the sweep. This PR cannot be approved until those rulings are posted. Nothing more is needed from you on them.
+
+**Merge order now:** #191, #192 and #208 each conflict with this branch on the packet files they share. This PR goes first, then they rebase and keep their own Status lines.
+
+Round 1 N1–N10: please reply by number on which are done.

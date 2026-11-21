@@ -1,0 +1,27 @@
+﻿[Supervisor] Round 1 on head `7384e11`
+
+First review. All six checks pass. One migration, slot `036` as reserved, `EXECUTE` to `toi_job_api` only, nothing added to `public`.
+
+**Verified**
+- Tenant, version and generation come from the locked job row. The credential digest is in the same compare, and foreign, revoked and wrong-executor callers all answer `42501`.
+- Token, fence, expiry and stage are checked together. A failed batch rolls back whole (test 24).
+- Chunk class can't go below the version's, and the merged guards hold the dimension pin and `cleared_for`.
+- `embedding_route_unavailable` keeps the version in `indexing` with no pointer movement (tests 36-38).
+
+**Blocking**
+
+B1. `20261120217000_chunk_publish.sql`, `publish_version_v1`: an older or superseded version can take the pointer back. The only state refusal is `revoked/deleting/deleted/quarantined`, and nothing compares `version_number`. If v1 and v2 are both in flight and v2 publishes first, v1's publish job then sets v1 `published`, marks v2 `superseded` and points the source at v1. Search then answers from the old document, for example a withdrawn limit. `superseded` and `failed` targets pass the same way, and `source_versions_no_resurrection` doesn't stop them. Fix: after the already-active check, refuse unless the target is in a forward state (`indexing`, or `awaiting_review` if you need it) and its `version_number` is greater than the current version's. Use `55000`. Add tests for older-after-newer and for a superseded target, each asserting the pointer did not move.
+
+B2. `write_chunks_v1`, `on conflict (organisation_id, source_version_id, chunk_index) do nothing`: a conflicting chunk is kept silently and the new vector is attached to it. The chunk key has no parser generation but the job key does, so a re-parse under a new `parser_generation` can pair a vector of the **new** text with the **old** `body_text`. The same path drops a raised class: if a reviewer raised the version, the existing row keeps its lower class, and `chunk_embeddings_guard` then clears the vector against that lower class (§6.2, §12.4). Fix: on conflict, compare the stored row. Refuse with `23514` unless `body_text` is identical and its class is at or above `v_effective_class`. Test both.
+
+B3. `write_chunks_v1` and the publish check: a half-embedded version can publish. The publish comment says "never expose an un-indexed or half-embedded version", but the check is only "one chunk exists". A write with an index id and vectors on 3 of 10 chunks succeeds, and the version publishes (packet: "no partial publication"). Chunks legitimately stay lexical only when their class is outside `cleared_for` (`embeddings.ts`). Fix: after the loop, when `p_embedding_index_id` is set, refuse if any chunk of this version whose class is in `v_index.cleared_for` has no vector in that index. Keep the public-only-index lexical case passing and add the 3-of-10 case.
+
+B4. Nothing can reach these functions yet. `lease_parse_job_v1` refuses every stage except `extract`, and its comment assigns index and publish to T-113/T-213. No merged code inserts an `index` or `publish` job, and expired leases are reclaimed only for `extract`. The suite works because its fixtures insert leased rows directly, so the PR's "remaining SQL half" overstates what's done. Either add the enqueue, lease and reclaim path here, or keep this PR as is and record in T-113's Status and Out of scope exactly what is missing and which packet owns it. The second is fine with me.
+
+**Non-blocking**
+
+N1. A write with no index id is the all-lexical path, so a worker could skip the route-down abort by omitting it. Say in the packet when that path is legitimate.
+N2. `publish_version_v1` clears the executor against `v_job.data_class`, while `write_chunks_v1` uses the higher of job and version. No effect today, since both executors clear the same three classes, but use the same rule.
+
+Once B1-B4 are in and CI is green, I'll review that head.
+

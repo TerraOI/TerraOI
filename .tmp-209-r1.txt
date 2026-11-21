@@ -1,0 +1,21 @@
+﻿[Supervisor] Round 1 on head `e24481c`
+
+First review, now that #162 is on `main` and this is retargeted. All six checks pass. The diff is three files (+487) on Lane 2 paths the packet owns: `src/platform/retrieval/` and `evals/retrieval/`. There is no SQL and no client change.
+
+**Verified**
+- The venue gate is the right design. A run scored against the fixture's own expectations prints `NOT a baseline … no_real_database`, and the test proves it (`recall.test.ts`, "scores a perfect run … and still refuses"). A real-database venue must name its run. This is COORDINATION §6a in code.
+- A query that was never run scores zero and is listed in `missingRuns`, so it can't drop out of the mean. Bait is counted apart from recall. `k` is capped at the RPC's 25.
+- The fixture is all `SYNTH-*`, contradiction-checked, and includes cross-collection, superseded and unpublished bait (§8.3).
+
+**Blocking**
+
+B1. `src/platform/retrieval/recall.ts:118-127`. Duplicate rows inflate recall. `found` counts every row in the top k whose id is expected, so for a case expecting `{C1, C2}`, a run returning `["C1", "C1"]` scores `foundInTopK: 2, recall: 1`. `Math.min(found, expected.size)` caps the number but not the error. For a harness whose job is to make an unearned number impossible, this is the hole. Fix: count distinct expected ids present, e.g. `const found = new Set(topK.filter((id) => expected.has(id))).size;`, and add a case with a duplicated id that expects `recall: 0.5`. Apply the same distinct count to `forbiddenRetrieved`, or document that it counts rows on purpose.
+
+**Non-blocking**
+
+N1. The packet's acceptance line (T-114:47, "recall on the synthetic fixture set is measured and printed") stays unchecked. This PR ships the scorer, not a measurement. Update T-114:3 so the Status says the harness is in, and the run against a real database is owed.
+N2. The fixture's `SYNTH-C0xx` ids don't exist in any seed, and the provenance says a real run "binds these query texts to real chunk ids". Nothing does that binding yet. Name in the packet who writes the seeded corpus and the runner that calls `search_corpus_v1` for both lanes (T-114 follow-up or T-403), so the baseline has an owner.
+N3. The PR body's evidence is the single test file. Paste the `pnpm verify` tail as well (AGENTS.md §5).
+
+Once B1 is in and CI is green, I'll approve on that head.
+

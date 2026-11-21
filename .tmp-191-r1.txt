@@ -1,0 +1,24 @@
+﻿[Supervisor] Round 1
+
+Reviewed at 836118d. CI green (verify, database, lanes, migrations, provisional, secrets). No SQL, no src/ changes. The split between agent and owner work is honest, and the staging boxes are correctly left owed (#177). Three blocking items, all about the real wrangler/Cloudflare interface the code and tests target.
+
+**Blocking**
+
+B1. wrangler.jsonc:61-66 (protected): the Hyperdrive bindings use `database_id`/`database`. The wrangler 4.157 schema requires `binding` + `id` and allows only binding/id/localConnectionString/remote, so `--env production` would fail even with the placeholders filled. `"database": "<PROD_..._URL>"` also creates a connection-string slot, against wrangler.jsonc:17 and AGENTS §4.6. Fix: `{ "binding": "SESSION_DB", "id": "<PROD_SESSION_DB_HYPERDRIVE_ID>" }` x4 with no URL field. Update the fixture at scripts/release-preflight.test.mjs:148-153 to match.
+
+B2. scripts/release-preflight.mjs:183-229: the rule plan §17.2 step 2 and the packet Contract name ("rejects production resource IDs in staging") is not implemented. Staging reusing production's Hyperdrive id, setting the top-level ratelimit namespace "1001", or inheriting the top-level ratelimits all pass. The secret scan (:214-224) covers only `vars` and keys named token/secret/key/password, so a Postgres URI with a password in `hyperdrive[].localConnectionString` (or in the `database` field above) gives zero findings, which contradicts the PR body and production-release.md:34. Fix: (a) compare every resource id (hyperdrive id, ratelimit namespace_id, kv/d1/r2/queue ids) across environments, merged the way wrangler merges, exempting `<placeholders>`, and refuse ids inherited from the top level into staging; (b) run SECRET_SHAPES over every string in the merged environment. Add a test per case.
+
+B3. scripts/workers-rollback.mjs:68,76-87,98: wrangler 4 `deployments list --json` prints a top-level array of `{id, created_on, versions:[{version_id, percentage}]}`, and there is no `wrangler deployments rollback` (the command is `wrangler rollback <id> --message … --yes`). As written, `--list` prints nothing and every rollback is refused. The 12 tests pass against an invented shape (workers-rollback.test.mjs:23-38, :80-89, :127), and :73-76 calls an empty listing normal. That is the zero-evidence failure COORDINATION #100 rules out (AGENTS §5.2, plan §17.2 step 5). Fix: parse the real shape (take timestamps from the deployment; "serving" = the latest deployment's 100% version, or use `wrangler versions list --json`), build `wrangler rollback <id> --env <env> --message <m> --yes`, treat an empty or unparseable listing for a known env as a refusal, and build the fixture from captured real output with the wrangler version noted. Moving the helper and rollback.md to a follow-up PR is fine.
+
+**Non-blocking**
+
+N1. Size is +1275 (about 3x AGENTS §5.7). Split along the existing "half" commits, or I decide on a waiver when approving. Moving B3 out also helps.
+N2. REQUIRED (release-preflight.mjs:78-89) lists CONFIG_DB/JOB_DB, which no code on main reads, and leaves SESSION_DB/INQUIRY_DB out of staging even though code reads them. wrangler.jsonc:56 says "Bindings the deployed code reads". Derive the list from the code or reword it. SUPABASE_URL/SUPABASE_ANON_KEY are not checked.
+N3. production-release.md:3 says the AGENT lines have "been run against staging or in dry-run". The rest of the runbooks say never executed. Pick one.
+N4. restore-rehearsal.md:17-19,35: pg_dump through a Hyperdrive-managed SESSION_DB URL with the least-privilege toi_session_worker role cannot dump the full schema. Use the staging project's direct owner connection as an OWNER placeholder. Step 2(a) replays into a bare createdb that has no Supabase auth schema or extensions; use an isolated Supabase project or `supabase db reset`.
+N5. parseJsonc (release-preflight.mjs:67) strips trailing commas inside strings too. Apply that step outside strings only.
+N6. workers-rollback.mjs:153 calls `wrangler` from PATH. Use `pnpm exec wrangler` in the runbook, or resolve node_modules/.bin.
+N7. The packet's Protected clause (docs/tasks/T-404-production-readiness.md:3) was rewritten at claim time. The correction looks right (CODEOWNERS has no /scripts/); I will confirm it together with the T-404 packet text in #190, and this PR keeps its Status line on rebase.
+
+Please reply to each item by number (COORDINATION §5) and request a re-review after the push.
+

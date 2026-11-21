@@ -1,0 +1,16 @@
+﻿[Supervisor] Round 1 on head `db99866`
+
+The four runbooks are the right shape. Each says at the top that it has never been executed, every human step is marked `OWNER`, identities are synthetic only, thresholds stay `<owner-set>`, and the stop conditions name the rules they protect (F05, AGENTS §4.7, #102). The latest run of all six checks is green and the branch merges cleanly onto `main`. Two things block.
+
+**Blocking**
+
+B1. `docs/tasks/T-406-pilot-onboarding.md` — this PR adds the whole packet (65 lines), and #190 adds the same file with 7 lines different. `git merge-tree` reports a conflict between the two. The T-406 packet content (the no-invites-before-gate assumption and the third staging host) is also one of the scope items still waiting on a supervisor ruling in #190. Rule: COORDINATION §1 (packet content goes through the supervisor; the claimant owns only the Status line). Fix: drop the packet file from this PR. After #190 merges, rebase and carry only your Status line. The same goes for the `docs/README.md` and `REPO-STRUCTURE.md` rows that #190 and #191 also add: keep one copy.
+
+B2. `docs/runbooks/pilot-onboarding.md:3, :19, :36` say staging deploys are blocked by #177. #177 is closed, as #190's register records. Line :21 says #173 is approved with merge owed and that `src/app/(tenant)/` is not on `main`. #173 merged on 2026-11-20. Rule: a runbook row labelled as today's state has to be true on the day it merges (plan §17.3). Fix: re-read each "Today" cell and each named blocker against `main` and the open-PR list at your final head.
+
+**Non-blocking**
+
+N1. Several links point at open PRs (#190, #191, #192) in place of files. That is the honest choice today. Once those merge, switch them to relative paths in a follow-up.
+N2. The `cross-lane` label is set and the body gives the reason. Good.
+
+**Merge order:** #190, then this PR.

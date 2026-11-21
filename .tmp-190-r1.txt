@@ -1,0 +1,33 @@
+﻿[Supervisor] Round 1
+
+Thanks for registering this instead of leaving it in a worktree. The packets follow the template and most register rows check out against origin/main (U-1, U-11, U-14, U-16, D-1 verified). CI is green on `9fdb0d0`. Five things must change before merge.
+
+**Blocking**
+
+B1. docs/tasks/T-405-dashboards-and-alerts.md:40, :48 and docs/BACKLOG.md:32 (U-3) — contradicts a recorded ruling. #99's decision assigns replay to T-405 ("Replay … is T-405, not M1"; "T-405 gains a packet line for replay and dashboards when it is written") and ADR-0005:302 (§10b) records the same; the reconciler is a read model in T-211's job-API migration. U-3 cites ADR-0005:242, which §10b superseded. Rule: COORDINATION §3; BACKLOG:8 ("never restated as open once decided"). Fix: delete U-3; T-405 states replay is its own per #99, deferred past M1, and that its dashboards read T-211's reconciler view; move the item to "Already decided". #192 needs the same change.
+
+B2. docs/tasks/T-404-production-readiness.md:3 — states `scripts/` is on CODEOWNERS; .github/CODEOWNERS has no /scripts/ entry. Rule: plan §20.4 item 1 (the Protected line must be accurate). Fix: wrangler.jsonc (and .github/ if ever written) protected; supabase/migrations/ only if a defect migration lands; scripts/ shared. #191's corrected wording is fine to adopt.
+
+B3. docs/BACKLOG.md:17 (D-2), :41 (U-12), :47 (U-17); T-404:60-62; T-406:3 — stale or wrong: #177 is closed (the register's own rule at :8 says delete the row); #172 is merged, not CHANGES_REQUESTED; slot 013 is in §6b (`013_tenant_admin`, T-202). Fix: delete D-2, rewrite T-404's gate section as historical, correct the #172 references, drop the slot-013 clause from U-17.
+
+B4. Dangling register ids — T-404:73 → "D-6" (D-6 is reviewers/pilot users, not restore-data clearance); T-406:63 → "D-8" (D-8 is gate-as-packet); T-403:60 → a reranking row that does not exist. #191 and #192 already cite these ids. Fix: add the missing rows or repoint, then keep ids stable.
+
+B5. Conflicts with lines other PRs own (measured with git merge-tree): COORDINATION.md:128/:136/:149 vs #150 and #143 (each registers its own §6b row; #143 removes the sentence you rewrite at :149); T-112:3 vs #168; T-304:3/:50-56 vs #193 (and #199 is open on the provider-switch key you choose here); T-301:3 vs #197 (and #196 asks the claimability question your "not claimable yet" answers). Rule: COORDINATION.md:41 (status lines are the claimant's; packet content goes through the supervisor) and §6b (the claimant registers the slot). Fix: drop these hunks from this PR; I will rule on #196 and #199 separately.
+
+**Non-blocking**
+
+N1. BACKLOG.md:43 — a blank line inside the U table makes U-14…U-17 render as plain text.
+N2. T-405:3 — `ingestion_jobs` is on main (knowledge_core.sql:353).
+N3. T-401:29 says 8 files / 328 assertions; main and your other packets say 11 / 417.
+N4. T-101:3 — stray "a merged as #18"; the status needs a `(<login>)` (COORDINATION §1.3).
+N5. T-301/T-303/T-304 say the T-103 shell half is "not started"; it is open as #173 (as T-406 says).
+N6. T-401:22 — the Export/connector exclusions come from §20.5, not from a ruling; "manifest" (:31) is not in §20.5's White-label row; 11 areas are in scope, not 12.
+N7. BACKLOG:7 requires an issue per decision row, but D-3…D-9, U-5, U-9 and U-17 have none. File them, or I will rule on the rule.
+N8. D-8 and U-13 carry recommendations; those belong in an issue or an inbox question, not a register row.
+N9. #74 already places runbooks in docs/runbooks/, so U-8 is a wording gap in REPO-STRUCTURE:19. Please put both clauses (runbooks and BACKLOG.md) in the one row so #191 does not conflict.
+N10. Consider splitting the 14-packet sweep (commit 364d6d9) into its own PR.
+
+**Scope items I will rule on (not yours to change):** whether BACKLOG.md and the COORDINATION §4 paragraph are adopted; the §6b sentence at :149; each sweep hunk in 364d6d9 (including the T-130/T-131 lines); T-401's one-line-fix allowance; T-403's ownership of chunker.ts, compose.ts and the retrieval knobs, and its expert_definitions rows (U-5); T-405's ops-RPC grant and slot 111; T-402's slot 110 and finding ownership; T-406's no-invites-before-gate assumption and the third staging host.
+
+**Merge order:** #143 and #150 first (their own §6b rows), then #168, then this PR, then #191 and #192 rebase onto it, keeping their claimed Status lines; #193 and #197 keep their lines once #196 and #199 are answered.
+

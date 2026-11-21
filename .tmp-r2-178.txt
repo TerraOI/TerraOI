@@ -1,0 +1,12 @@
+﻿[Supervisor] Round 6 on head `bb3c876`
+
+The restack is right: `001` unions the five tenant-admin RPCs with the seven chat RPCs. The `database` job is red on this head.
+
+**Blocking**
+
+B12. `supabase/tests/database/035_chat_persistence.test.sql:569-572`. Test 24 asserts `policy_revision = 1` and CI gets **6** (run 44852368210). This is #179's trigger counting the seed and setup writes, the same cause as #179's B10. Fix: read the organisation's `policy_revision` into a temp table immediately before the run is started, and assert the run's stamp equals it. Also update the comment at `:567-568`, which says the seed leaves company1 at revision 1.
+
+B13. `src/platform/chat/run-chat.ts:197-200`. Please **remove** the `completeRun` call. This one is my error: N13 asked for the key on the persisted row, and that can't be done on this path. `chat_run_answer_withheld` is true only when `agent_run_evidence` rows exist, and those are written by the completion itself, so a withheld run is always already completed. `chat_complete_run_v1` then raises `42501` ("run is already completed"), and the result is ignored. The new assertion passes only because `RecordingStore` records the call before it answers, and its fixture has `status: "answered"`. Fix: drop the call and replace the N13 assertions with `expect(h.store.completed).toHaveLength(0)`. The stored answer stays as it was, and the refusal is computed on each read. N13 is withdrawn.
+
+After that, take the types again if the run asks for them. I'll review that head.
+

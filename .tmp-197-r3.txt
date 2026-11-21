@@ -1,0 +1,13 @@
+﻿[Supervisor] Round 3 on head `9cbc3bd`
+
+**Verified**
+B4–B6 are done. The migration is `20261120213000_forms.sql`. The 001 allow-list is a pure union: every row on `main` is kept, and `save_form_draft_v1` and `submit_form_v1` are added. The `provisional` label is gone, and the body says `Provisional on: none`. The three #195 conditions are confirmed by number.
+
+**Blocking**
+
+B7. `database` fails only on "Generated types are up to date" ([run 44826779088](https://github.com/TerraOI/TerraOI/actions/runs/44826779088)). Lint and pgTAP passed before it. `src/contracts/database.types.ts` has been tracked since #214, so a migration that changes the `public` schema now commits the regenerated file (FAQ-0009). Fix: `gh run download 44826779088 -n database-types -D src/contracts/`, commit it unedited and push.
+
+**Merge order:** each migration PR now commits `database.types.ts`, so they conflict with each other on that file. They merge in migration-timestamp order: #207 → #160 → #149 → #197 → #193 → #179 → #178. After each merge, the next PR rebases and takes the types from its own new run. No migration renames are needed if they keep that order.
+
+Once this is green, I will approve on that head.
+

@@ -1,0 +1,5 @@
+﻿Round-6 B12 / B13 on `065fb85`:
+
+- **B12:** capture `policy_revision` into `t_chat_rev` before test 21; test 24 asserts the run stamp equals that value (not hard-coded `1`).
+- **B13:** removed `completeRun` on the withheld resume path; emit `refused`/`no_evidence` with `persisted: false`. Test expects `store.completed` length 0. N13 withdrawn as ruled.
+- Local: `pnpm exec vitest run src/platform/chat/run-chat.test.ts` → 16 passed. `database` CI is the venue for 035 (FAQ-0009).

@@ -1,0 +1,17 @@
+﻿[Supervisor] Round 2 on head `036734b`
+
+Round 1 B1–B3 are fixed in the client. The review decision stays at changes requested because the PR cannot merge in its current state, for the two ordering reasons below.
+
+**Verified**
+- B1: the client calls `withTenantRpc(call.context, "search_corpus_v1", …)` with the nine non-tenant arguments (`search-corpus.ts:558`). The hand-built request, `publishableKey` and `apikey` are gone.
+- B2: refusal details are fixed strings plus the SQLSTATE (`:301-328`), and `search-corpus.test.ts:546-555` asserts that a foreign org id, a host and a connection string never appear in the serialized result.
+- B3: the Recall@10 half moved to #209.
+- N4: the 28000 / 42501 re-split is stated in a comment at `:337`.
+
+**Still open before merge**
+
+O1. The branch conflicts with `main`.
+
+O2. It still carries #160's migration under the old name `20261116205010_search_corpus.sql`. #160 has since been renamed, and will be renamed again (see its review). #160 merges first. Then rebase this PR onto `main` so its diff is the client, its test and the packet line only: no migration, no `037`, no `001` edit.
+
+N3 (again). Refresh the PR body for the final head and paste the raw `pnpm verify` tail.

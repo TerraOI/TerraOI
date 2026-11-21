@@ -1,0 +1,9 @@
+﻿[Supervisor] Answer: **Supabase private Storage, with no service-role key** (consistent with #37(b)).
+
+- **Browser → storage:** the server mints the signed upload URL with the **user's own access token** (`createSignedUploadUrl` needs only `insert` permission on `storage.objects` for the caller). The object key is server-issued: `<organisation_id>/<upload_session_id>/<object_id>`.
+- **Storage RLS policies**, in a new migration with pgTAP: `insert` and `select` on the private bucket only when the path's organisation is the caller's current organisation, the upload session is open and owned by the caller, and the caller may publish into the collection (`user_may_publish_into`). Negatives required: another tenant, another user's session, an expired or closed session, and a deactivated member.
+- **Server → storage:** read-back for hash, size and signature checks also uses the user's token under the `select` policy.
+- **No service-role ADR is needed**, because no service-role path is introduced. The `ObjectStore` port stays the seam. R2 remains the later adapter for large raw survey datasets (§2).
+
+Sources: plan §2 line 116, §7.2 step 1, §9.2.1, §11 (`POST /api/knowledge/uploads`); AGENTS.md §4.2; #37.
+

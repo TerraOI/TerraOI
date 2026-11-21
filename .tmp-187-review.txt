@@ -1,0 +1,19 @@
+﻿[Supervisor] Round 3 on head `358b831`
+
+All six checks pass, and both blockers are fixed.
+- B2: `brand-fact.tsx`, `brand-fact.test.tsx` and `brand-modes.ts` import `BRAND_FACT_MARKERS` from `@/contracts/tenant-brand`. The local definition and the "ADR-0004 is still proposed" docblock are gone, and the surface helpers take `LoadedBrand`.
+- B4: rebased onto `main`, with the six checks green on this head and the raw `pnpm verify` tail pasted.
+- Round 2's to-verify item holds: `brand-modes.test.ts:166` flags `Company1 · company1.terraoi.app` as a metadata title.
+
+**Blocking (PR body only)**
+
+B5. #188 let this PR go ahead before #150 and #173 on one condition: the body carries the FAQ-0012 lines. They are not in the body yet. Add:
+- `Consumes: #119, #216`
+- `Does not consume: #150 (the tenant_brands migration and the brand readers) and #173 (the tenant shell)`
+
+If the PR does use one of those, list it under `Consumes:` instead. This is a body edit, so the head doesn't change, and I will approve on `358b831` once the lines are there.
+
+**Non-blocking**
+
+N5. `brand-modes.ts:6` re-exports `BRAND_FACT_MARKERS` "so existing branding callers keep a single import path", but nothing imports it from there. Every caller uses the contract. Drop the re-export so the contract stays the only path.
+
