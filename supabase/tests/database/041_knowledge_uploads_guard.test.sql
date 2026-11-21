@@ -11,16 +11,16 @@
 -- can read one file and see one ruling each.
 --
 -- Fixtures are supabase/seed.sql's synthetic rows: orgs company1 11111111-…-1111 / company2
--- 22222222-…-2222; people …a1 company1 admin (Site A project member), …a2 company1 member
--- (knowledge.read only), …a3 company1 suspended, …a4 member of BOTH orgs (no knowledge permission in
--- either), …b1 company2 admin; collections 51000000-…-001 (company1, tenant-wide `public`) and
--- 51000000-…-002 (company1, Site A project, `client_confidential`), 52000000-…-001 (company2,
--- tenant-wide); an *active* `corpus` index generation per tenant (seed.sql:219-226), which
--- register_source_version_v1 requires before it will write anything (§6, #6 pinned in T-113).
+-- 22222222-…-2222; people …a1 company1 admin (Site A project member), …a2 company1 member +
+-- seeded `contributor` (`knowledge.write`, #39), …a3 company1 suspended, …a4 member of BOTH orgs
+-- (member only — the read-only publish-refusal pin after the contributor seed), …b1 company2 admin;
+-- collections 51000000-…-001 (company1, tenant-wide `public`) and 51000000-…-002 (company1, Site A
+-- project, `client_confidential`), 52000000-…-001 (company2, tenant-wide); an *active* `corpus` index
+-- generation per tenant (seed.sql:219-226), which register_source_version_v1 requires before it will
+-- write anything (§6, #6 pinned in T-113).
 --
--- The publisher role 040 seeds for the #39 predicate is NOT seeded here: every successful capture below
--- is done by …a1, a tenant admin holding `knowledge.admin` at `admin`, which the merged publish
--- predicate already accepts — so 041 adds no role fixture and cannot drift the counts another slot makes.
+-- Successful captures below still use …a1 (`knowledge.admin`). The read-only negative (test 30) uses
+-- …a4 after the #39 seed put `contributor` on …a2.
 -- The file still ends with `rollback;`: pg_prove runs one session per file against a freshly reset
 -- database, and a mutated fixture (this file deletes and restores a project membership) left behind
 -- would make the suite order-dependent.
@@ -388,15 +388,17 @@ select is((select result from t_out where case_name = 'unknown_collection'), '42
   '29 and so is a collection that does not exist: the RPC is not a collection-existence oracle, and '
   || 'moving the tenant into an argument changed nothing about that');
 
+-- #39 seeded `contributor` on …a2; the read-only negative uses …a4 (member only). FAQ-0007 ask on
+-- the seed PR for this slot adaptation.
 set local role authenticated;
-set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a2';
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a4';
 insert into t_out values ('member_begin', pg_temp.try_begin('11111111-1111-4111-8111-111111111111',
   '51000000-0000-4000-8000-000000000001', 't112cmember', 'member.pdf', null));
 reset role;
 select is((select result from t_out where case_name = 'member_begin'), '42501',
   '30 a member holding only `knowledge.read` passes the membership gate and is refused at the publish '
-  || 'predicate: reading a corpus is not publishing into it (#39), and 28000-vs-42501 is why 24 and 30 are '
-  || 'not the same door');
+  || 'predicate: reading a corpus is not publishing into it (#39; …a4 after the contributor seed on …a2), '
+  || 'and 28000-vs-42501 is why 24 and 30 are not the same door');
 
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a4';
