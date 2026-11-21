@@ -310,8 +310,9 @@ select is_empty(
         and a.privilege_type = 'EXECUTE'
         and p.proname not in ('set_lifecycle_switch_v1', 'lifecycle_switch_state_v1',
                               'lifecycle_switch_history_v1', 'suspend_tenant_v1',
-                              'resume_tenant_v1', 'provision_tenant_v1') $$,
-  '50 toi_control_plane is granted execute on the six lifecycle functions and nothing else (016 idiom)');
+                              'resume_tenant_v1', 'provision_tenant_v1',
+                              'entitle_tenant_service_v1') $$,
+  '50 toi_control_plane is granted execute on the allowed control-plane functions and nothing else (016 idiom; ADR-0012 / #193 E3)');
 select ok(
   (select count(*) = 0
      from pg_proc p
