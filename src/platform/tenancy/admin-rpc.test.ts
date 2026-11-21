@@ -216,4 +216,48 @@ describe("createAdminRpcClient (T-202)", () => {
       p_organisation_id: ORG,
     });
   });
+
+  it("inviteMember canonicalizes the address and injects p_organisation_id only from context", async () => {
+    const { fetchImpl, calls } = recordingFetch(async () => okResponse("invited"));
+    const client = createAdminRpcClient({
+      postgrestBaseUrl: "https://db.example/rest/v1",
+      fetchImpl,
+    });
+    await expect(
+      client.inviteMember({
+        context: CTX,
+        accessToken: TOKEN,
+        email: "  Field.Tech@Company1.TEST ",
+        roleId: ROLE,
+      }),
+    ).resolves.toEqual({ ok: true });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toContain("/rpc/invite_member_v1");
+    expect(calls[0]?.body).toEqual({
+      p_organisation_id: ORG,
+      p_email: "field.tech@company1.test",
+      p_role_id: ROLE,
+    });
+    expect(JSON.stringify(calls[0]?.body)).not.toContain(ORG_B);
+  });
+
+  it("inviteMember refuses a malformed email before dialling", async () => {
+    const fetchImpl = vi.fn<FetchImpl>();
+    const client = createAdminRpcClient({
+      postgrestBaseUrl: "https://db.example/rest/v1",
+      fetchImpl,
+    });
+    const outcome = await client.inviteMember({
+      context: CTX,
+      accessToken: TOKEN,
+      email: "not-an-address",
+      roleId: ROLE,
+    });
+    expect(outcome).toEqual({
+      ok: false,
+      kind: "validation",
+      message: SAFE_ADMIN_RPC_MESSAGE.validation,
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
 });

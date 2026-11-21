@@ -2,9 +2,16 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AdminRpcClient } from "./admin-rpc";
 import type { AdminPorts } from "./admin-service";
-import { handleCreateCollection, handleCreateProject, handleMembershipRoleAction } from "./admin-service";
+import {
+  handleCreateCollection,
+  handleCreateProject,
+  handleInviteMember,
+  handleMembershipRoleAction,
+} from "./admin-service";
 
-function ports(overrides: Partial<Pick<AdminRpcClient, "createProject" | "createCollection">> = {}): AdminPorts {
+function ports(
+  overrides: Partial<Pick<AdminRpcClient, "createProject" | "createCollection" | "inviteMember">> = {},
+): AdminPorts {
   return {
     now: () => 1_700_000_000,
     signingSecret: () => "a".repeat(32),
@@ -16,6 +23,7 @@ function ports(overrides: Partial<Pick<AdminRpcClient, "createProject" | "create
     adminRpc: {
       grantMembershipRole: vi.fn(),
       revokeMembershipRole: vi.fn(),
+      inviteMember: overrides.inviteMember ?? vi.fn(),
       createProject: overrides.createProject ?? vi.fn(),
       addProjectMember: vi.fn(),
       removeProjectMember: vi.fn(),
@@ -92,5 +100,17 @@ describe("handleMembershipRoleAction (T-202 PR-2e)", () => {
     expect(response.status).toBe(405);
     expect(grantMembershipRole).not.toHaveBeenCalled();
     expect(revokeMembershipRole).not.toHaveBeenCalled();
+  });
+});
+
+describe("handleInviteMember (T-202 PR-2f)", () => {
+  it("rejects a non-POST method without dialling invite_member_v1", async () => {
+    const inviteMember = vi.fn<AdminRpcClient["inviteMember"]>();
+    const response = await handleInviteMember({
+      request: new Request("https://company1.terraoi.test/admin/members/invite", { method: "GET" }),
+      ports: ports({ inviteMember }),
+    });
+    expect(response.status).toBe(405);
+    expect(inviteMember).not.toHaveBeenCalled();
   });
 });

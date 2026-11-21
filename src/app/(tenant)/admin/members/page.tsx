@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { InviteMemberForm } from "@/components/admin/invite-member-form";
 import { MembershipRoleForm } from "@/components/admin/membership-role-form";
 import { buildAdminPorts } from "@/platform/tenancy/admin-adapters";
 import { buildAdminMembersView } from "@/platform/tenancy/admin-service";
@@ -22,7 +23,12 @@ export default async function AdminMembersPage() {
     case "redirect":
       redirect(view.location);
     case "ready":
-      return <MembershipRoleForm csrfToken={view.csrfToken} />;
+      return (
+        <>
+          <InviteMemberForm csrfToken={view.csrfToken} />
+          <MembershipRoleForm csrfToken={view.csrfToken} />
+        </>
+      );
     case "no_access":
     case "not_found":
     case "unavailable":

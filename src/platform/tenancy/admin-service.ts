@@ -198,6 +198,12 @@ const MembershipRoleBodySchema = z.strictObject({
   roleId: z.uuid(),
 });
 
+const InviteMemberBodySchema = z.strictObject({
+  csrfToken: z.string().min(1).max(512),
+  email: z.string().min(1).max(254),
+  roleId: z.uuid(),
+});
+
 function jsonReply(status: number, body: Record<string, unknown>): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -504,4 +510,90 @@ export async function handleMembershipRoleAction(input: {
   }
 
   return jsonReply(200, { ok: true, action: body.data.action });
+}
+
+export async function handleInviteMember(input: {
+  request: Request;
+  hostOptions?: HostAdapterOptions;
+  ports: AdminPorts;
+}): Promise<Response> {
+  const { request, ports } = input;
+  if (request.method !== "POST") {
+    return jsonReply(405, { ok: false, code: "method_not_allowed", message: "Method not allowed." });
+  }
+
+  const auth = await resolveAuthenticatedContext(input);
+  if (!auth.ok) {
+    const status =
+      auth.kind === "redirect"
+        ? 401
+        : auth.kind === "no_access"
+          ? 403
+          : auth.kind === "unavailable"
+            ? 503
+            : 404;
+    return jsonReply(status, { ok: false, code: auth.kind, message: auth.message });
+  }
+
+  if (!originAllowed(request, auth.host)) {
+    return jsonReply(403, {
+      ok: false,
+      code: "origin_mismatch",
+      message: "This request did not come from this workspace.",
+    });
+  }
+
+  const contentType = (request.headers.get("content-type") ?? "").split(";")[0]?.trim().toLowerCase();
+  if (contentType !== "application/json") {
+    return jsonReply(415, { ok: false, code: "unsupported_media_type", message: "Send a JSON body." });
+  }
+
+  const secret = ports.signingSecret();
+  if (!hasUsableSecret(secret)) {
+    return jsonReply(503, { ok: false, code: "unavailable", message: SAFE_FAILURE_MESSAGE.backend_failure });
+  }
+
+  const rawBody = await readCappedBody(request, MAX_ADMIN_BODY_BYTES);
+  if (rawBody === null) {
+    return jsonReply(413, { ok: false, code: "payload_too_large", message: "The request is too large." });
+  }
+
+  let parsedJson: unknown;
+  try {
+    parsedJson = JSON.parse(rawBody);
+  } catch {
+    return jsonReply(400, { ok: false, code: "invalid_request", message: "The request body is not valid JSON." });
+  }
+
+  const body = InviteMemberBodySchema.safeParse(parsedJson);
+  if (!body.success) {
+    return jsonReply(400, { ok: false, code: "invalid_request", message: "The invite request is invalid." });
+  }
+
+  const csrf = await verifyCsrfToken({
+    token: body.data.csrfToken,
+    host: auth.host,
+    secret,
+    now: ports.now(),
+  });
+  if (!csrf.ok) {
+    return jsonReply(403, { ok: false, code: "csrf_invalid", message: "Refresh the page and try again." });
+  }
+
+  const invited = await ports.adminRpc.inviteMember({
+    context: auth.context,
+    accessToken: auth.accessToken,
+    email: body.data.email,
+    roleId: body.data.roleId,
+  });
+
+  if (!invited.ok) {
+    return jsonReply(statusForRpcFailure(invited.kind), {
+      ok: false,
+      code: invited.kind,
+      message: invited.message,
+    });
+  }
+
+  return jsonReply(200, { ok: true });
 }
