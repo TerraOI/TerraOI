@@ -104,6 +104,19 @@ begin
 end;
 $fn$;
 
+-- Same as try_revoke but keeps the fixed FAQ-0014 message for the last-admin pin.
+create function pg_temp.try_revoke_detail(p_organisation_id uuid, p_user_id uuid, p_role_id uuid) returns text
+language plpgsql security invoker as $fn$
+begin
+  begin
+    perform public.revoke_membership_role_v1(p_organisation_id, p_user_id, p_role_id);
+    return 'ok';
+  exception when others then
+    return sqlstate::text || '|' || sqlerrm;
+  end;
+end;
+$fn$;
+
 create function pg_temp.try_project(p_organisation_id uuid, p_key text, p_name text, p_visibility text)
 returns text language plpgsql security invoker as $fn$
 begin
@@ -318,7 +331,7 @@ insert into public.organisation_memberships (organisation_id, user_id, status)
 on conflict (organisation_id, user_id) do nothing;
 
 -- 137 numbered assertions below; pgTAP fails if plan and finish() disagree.
-select plan(137);
+select plan(146);
 
 -- ================================================================ privileges, shape, no activate
 -- PostgreSQL hands EXECUTE on a new function in `public` to PUBLIC, and a migration cannot close that
@@ -1240,6 +1253,79 @@ select is((select name from public.projects where id = '41000000-0000-4000-8000-
   'Site A survey (renamed by 013)',
   '155 and the UPDATE wrote the name it was given, so the ok above is a real write and not a statement that '
   || 'matched nothing — and the row still has no updated_at column, because this migration adds none');
+
+-- ================================================================ #202 / FAQ-0014 last-admin guard
+-- Seeded company1 has one active `admin` holder (…a1). Revoking that assignment must 23514; with two
+-- admins one demotion may pass and the remaining one may not; a suspended admin does not count.
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+insert into t_out values ('last_admin_self',
+  pg_temp.try_revoke_detail('11111111-1111-4111-8111-111111111111',
+                            '00000000-0000-4000-8000-0000000000a1',
+                            '31000000-0000-4000-8000-000000000002'));
+reset role;
+
+select is(split_part((select result from t_out where case_name = 'last_admin_self'), '|', 1), '23514',
+  '156 the last active members.admin holder cannot revoke that role from themself (#202 / FAQ-0014)');
+select is(split_part((select result from t_out where case_name = 'last_admin_self'), '|', 2),
+  'cannot remove the last active members.admin holder',
+  '157 and the refusal is the fixed state-rule message, not a permission failure');
+select is((select count(*)::int from public.membership_roles mr
+            join public.organisation_memberships m on m.id = mr.membership_id
+           where m.user_id = '00000000-0000-4000-8000-0000000000a1'
+             and mr.role_id = '31000000-0000-4000-8000-000000000002'), 1::int,
+  '158 the refused revoke wrote nothing: …a1 still holds `admin`');
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+insert into t_out values ('grant_second_admin',
+  pg_temp.try_grant('11111111-1111-4111-8111-111111111111',
+                    '00000000-0000-4000-8000-0000000000a2',
+                    '31000000-0000-4000-8000-000000000002'));
+insert into t_out values ('demote_second',
+  pg_temp.try_revoke('11111111-1111-4111-8111-111111111111',
+                     '00000000-0000-4000-8000-0000000000a2',
+                     '31000000-0000-4000-8000-000000000002'));
+insert into t_out values ('last_again',
+  pg_temp.try_revoke('11111111-1111-4111-8111-111111111111',
+                     '00000000-0000-4000-8000-0000000000a1',
+                     '31000000-0000-4000-8000-000000000002'));
+reset role;
+
+select is((select result from t_out where case_name = 'grant_second_admin'), 'ok',
+  '159 with a second admin granted, the tenant has two active members.admin holders');
+select is((select result from t_out where case_name = 'demote_second'), 'ok',
+  '160 one of two admins can be demoted');
+select is((select result from t_out where case_name = 'last_again'), '23514',
+  '161 and the remaining admin then cannot demote themself');
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+insert into t_out values ('grant_for_suspend',
+  pg_temp.try_grant('11111111-1111-4111-8111-111111111111',
+                    '00000000-0000-4000-8000-0000000000a2',
+                    '31000000-0000-4000-8000-000000000002'));
+reset role;
+select is((select result from t_out where case_name = 'grant_for_suspend'), 'ok',
+  '162 fixture: …a2 holds `admin` again so a suspended holder can be set up');
+
+-- Suspend …a2 as the migration owner (no member-status RPC in M1 yet). Rolled back with this file.
+select is(pg_temp.try_owner_sql(
+  'update public.organisation_memberships set status = ''suspended'' '
+  || 'where organisation_id = ''11111111-1111-4111-8111-111111111111'' '
+  || 'and user_id = ''00000000-0000-4000-8000-0000000000a2'''), 'ok',
+  '163 …a2 is suspended while still holding the `admin` role assignment');
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+insert into t_out values ('suspend_does_not_count',
+  pg_temp.try_revoke('11111111-1111-4111-8111-111111111111',
+                     '00000000-0000-4000-8000-0000000000a1',
+                     '31000000-0000-4000-8000-000000000002'));
+reset role;
+
+select is((select result from t_out where case_name = 'suspend_does_not_count'), '23514',
+  '164 a suspended admin does not count: …a1 is still the only **active** members.admin holder and cannot leave');
 
 select * from finish();
 rollback;
