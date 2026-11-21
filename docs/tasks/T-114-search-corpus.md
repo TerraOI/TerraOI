@@ -1,6 +1,6 @@
-# T-114 `search_corpus_v1`: hybrid retrieval under RLS
+﻿# T-114 `search_corpus_v1`: hybrid retrieval under RLS
 
-Lane: 2 (shared path) · Week: 1 · Protected: yes (`supabase/migrations/`) · Depends on: T-111, T-113 · Status: in progress (wyuinline) — SQL half complete and green in CI's `database` job (#160, head `26cd5d8`, pgTAP slot 037 + the `001` allow-list row); staging evidence owed per COORDINATION §6a (T-004 §20.8 human step), and the typed client plus the Recall@10 harness ride in the stacked PR. Provisional on #161 (`p_authority_filters` / `p_effective_on` have no columns).
+Lane: 2 (shared path) · Week: 1 · Protected: yes (`supabase/migrations/`) · Depends on: T-111, T-113 · Status: in review — **code complete; staging evidence owed** (T-004 §20.8) — SQL half in #160; typed `search_corpus_v1` client in #162 (branch `t-114b-retrieval-client`, Round-1 B1/B2 via `withTenantRpc`); Recall@10 scorer moved to stacked PR on #162 (`t-114b-recall-at-10`). Client evidence is `pnpm verify` plus the COORDINATION §6a loopback harness (local); `pnpm db:test` not run here (no Docker; this half changes no SQL). Staging cross-tenant query evidence and a real-corpus Recall@10 baseline remain owed per §6a — no acceptance box naming a measurement or staging run is ticked. #161 / #163 answered (no longer provisional).
 Plan refs: §8.1–§8.3, §6.2; F16, F08
 
 ## Supervisor rulings to apply (2026-11-09)

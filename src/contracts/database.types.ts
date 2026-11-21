@@ -209,6 +209,100 @@ isOneToOne: false
       referencedColumns: ["id","organisation_id"]
     }
                   ]
+                },"form_submissions": {
+                  Row: {
+                    "body_text": string | null,"created_at": string,"created_by": string,"id": string,"organisation_id": string,"project_id": string | null,"source_id": string | null,"source_version_id": string | null,"state": string,"supersedes_submission_id": string | null,"template_id": string,"template_version": string,"updated_at": string,"values_json": NonNullable<Json>
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "body_text"?: string | null,"created_at"?: string,"created_by": string,"id"?: string,"organisation_id": string,"project_id"?: string | null,"source_id"?: string | null,"source_version_id"?: string | null,"state"?: string,"supersedes_submission_id"?: string | null,"template_id": string,"template_version": string,"updated_at"?: string,"values_json": NonNullable<Json>
+                  }
+                  Update: {
+                    "body_text"?: string | null,"created_at"?: string,"created_by"?: string,"id"?: string,"organisation_id"?: string,"project_id"?: string | null,"source_id"?: string | null,"source_version_id"?: string | null,"state"?: string,"supersedes_submission_id"?: string | null,"template_id"?: string,"template_version"?: string,"updated_at"?: string,"values_json"?: NonNullable<Json>
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "form_submissions_created_by_fk"
+      columns: ["created_by"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "form_submissions_organisation_fk"
+      columns: ["organisation_id"]
+isOneToOne: false
+      referencedRelation: "organisations"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "form_submissions_project_fk"
+      columns: ["project_id","organisation_id"]
+isOneToOne: false
+      referencedRelation: "projects"
+      referencedColumns: ["id","organisation_id"]
+    },{
+      foreignKeyName: "form_submissions_source_fk"
+      columns: ["source_id","organisation_id"]
+isOneToOne: false
+      referencedRelation: "knowledge_sources"
+      referencedColumns: ["id","organisation_id"]
+    },{
+      foreignKeyName: "form_submissions_source_version_fk"
+      columns: ["source_version_id","organisation_id"]
+isOneToOne: false
+      referencedRelation: "source_versions"
+      referencedColumns: ["id","organisation_id"]
+    },{
+      foreignKeyName: "form_submissions_supersedes_fk"
+      columns: ["supersedes_submission_id","organisation_id"]
+isOneToOne: false
+      referencedRelation: "form_submissions"
+      referencedColumns: ["id","organisation_id"]
+    },{
+      foreignKeyName: "form_submissions_template_fk"
+      columns: ["template_id","organisation_id"]
+isOneToOne: false
+      referencedRelation: "form_templates"
+      referencedColumns: ["id","organisation_id"]
+    },{
+      foreignKeyName: "form_submissions_template_version_fk"
+      columns: ["template_id","organisation_id","template_version"]
+isOneToOne: false
+      referencedRelation: "form_templates"
+      referencedColumns: ["id","organisation_id","version"]
+    }
+                  ]
+                },"form_templates": {
+                  Row: {
+                    "created_at": string,"data_class": string,"default_collection_id": string,"description": string | null,"id": string,"json_schema": NonNullable<Json>,"name": string,"organisation_id": string,"project_id": string | null,"published_at": string | null,"scope": string,"service_key": string,"status": string,"ui_hints": NonNullable<Json>,"updated_at": string,"version": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"data_class": string,"default_collection_id": string,"description"?: string | null,"id"?: string,"json_schema": NonNullable<Json>,"name": string,"organisation_id": string,"project_id"?: string | null,"published_at"?: string | null,"scope": string,"service_key": string,"status"?: string,"ui_hints"?: NonNullable<Json>,"updated_at"?: string,"version": string
+                  }
+                  Update: {
+                    "created_at"?: string,"data_class"?: string,"default_collection_id"?: string,"description"?: string | null,"id"?: string,"json_schema"?: NonNullable<Json>,"name"?: string,"organisation_id"?: string,"project_id"?: string | null,"published_at"?: string | null,"scope"?: string,"service_key"?: string,"status"?: string,"ui_hints"?: NonNullable<Json>,"updated_at"?: string,"version"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "form_templates_collection_fk"
+      columns: ["default_collection_id","organisation_id"]
+isOneToOne: false
+      referencedRelation: "knowledge_collections"
+      referencedColumns: ["id","organisation_id"]
+    },{
+      foreignKeyName: "form_templates_organisation_fk"
+      columns: ["organisation_id"]
+isOneToOne: false
+      referencedRelation: "organisations"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "form_templates_project_fk"
+      columns: ["project_id","organisation_id"]
+isOneToOne: false
+      referencedRelation: "projects"
+      referencedColumns: ["id","organisation_id"]
+    }
+                  ]
                 },"ingestion_jobs": {
                   Row: {
                     "attempt": number,"completed_at": string | null,"created_at": string,"data_class": string,"executor": string,"id": string,"index_generation": number,"last_error": string | null,"lease_expires_at": string | null,"lease_fence": number,"lease_token": string | null,"organisation_id": string,"parser_generation": string,"source_version_id": string,"stage": string,"status": string,"updated_at": string
@@ -856,6 +950,18 @@ isOneToOne: false
 "data_class_rank":
 { Args: { "p_data_class": string }; Returns: number
                            },
+"form_submission_body_text":
+{ Args: { "p_ui_hints": Json,"p_values": Json }; Returns: string
+                           },
+"form_template_is_wellformed":
+{ Args: { "p_json_schema": Json,"p_ui_hints": Json }; Returns: boolean
+                           },
+"form_template_value_is_safe":
+{ Args: { "p_value": Json }; Returns: boolean
+                           },
+"form_values_reject_reason":
+{ Args: { "p_json_schema": Json,"p_values": Json }; Returns: string
+                           },
 "get_tenant_brand_v1":
 { Args: { "p_organisation_id": string }; Returns: {
               "accent_color": string,"config_version": number,"descriptor": string,"display_name": string,"document_prefix": string,"email_reply_to": string,"email_sender_name": string,"favicon_asset_id": string,"legal_name": string,"logo_asset_id": string,"mode": string,"on_primary_color": string,"organisation_id": string,"primary_color": string,"report_owner": string,"support_label": string,"support_url": string,"tagline": string
@@ -893,6 +999,9 @@ isOneToOne: false
               "host": string,"is_canonical": boolean,"organisation_id": string,"organisation_status": string
             }[]
                            },
+"save_form_draft_v1":
+{ Args: { "p_organisation_id": string,"p_supersedes_submission_id"?: string,"p_template_id": string,"p_template_version": string,"p_values": Json }; Returns: string
+                           },
 "search_corpus_v1":
 { Args: { "p_authority_filters": (string)[],"p_collection_ids": (string)[],"p_effective_on": string,"p_embedding_index_id": string,"p_limit": number,"p_organisation_id": string,"p_project_id": string,"p_query_embedding": string,"p_query_text": string,"p_service_keys": (string)[] }; Returns: {
               "o_body_text": string,"o_chunk_id": string,"o_chunk_index": number,"o_collection_id": string,"o_content_hash": string,"o_data_class": string,"o_diagnostics": Json,"o_evidence_kind": string,"o_exact_match": boolean,"o_index_generation": number,"o_lane": string,"o_lexical_rank": number,"o_locator": Json,"o_organisation_id": string,"o_project_id": string,"o_published_at": string,"o_rank": number,"o_result_status": string,"o_rrf_score": number,"o_service_key": string,"o_source_id": string,"o_source_version_id": string,"o_vector_rank": number
@@ -906,6 +1015,9 @@ isOneToOne: false
                            },
 "source_version_is_readable":
 { Args: { "p_source_version_id": string }; Returns: boolean
+                           },
+"submit_form_v1":
+{ Args: { "p_organisation_id": string,"p_submission_id": string }; Returns: string
                            },
 "update_collection_v1":
 { Args: { "p_collection_id": string,"p_name": string,"p_organisation_id": string }; Returns: undefined

@@ -135,6 +135,9 @@ $$, '31 no function in public is executable by anon except the named allow-list 
 --     request role at all, so it must not appear here: 026_brand_config.test.sql test 9 pins that
 --     closed until the admin surface and its seeded permission arrive.
 --   retrieval (`search_corpus.sql`): search_corpus_v1, the reader-only hybrid RPC (#136)
+--   forms (`20261120213000_forms.sql`, T-301): save_form_draft_v1, submit_form_v1 — same shape,
+--     `p_organisation_id` first and the scope set inside. The validators, the two guard trigger
+--     functions and the template-safety helpers are revoked and deliberately not listed here.
 --   chat persistence (`20261120216000_chat_persistence.sql`, T-104): the seven scoped chat RPCs. Same
 --     shape — `p_organisation_id` first, scope established inside, `authenticated` only and never
 --     `anon`, because chat is behind sign-in (plan §4.1). The migration's own guard, trigger and
@@ -180,6 +183,8 @@ select is_empty($$
            ('public.load_public_brand(text)'::regprocedure),
            ('public.get_tenant_brand_v1(uuid)'::regprocedure),
            ('public.search_corpus_v1(uuid, text[], uuid, uuid[], text, extensions.vector, uuid, date, text[], integer)'::regprocedure),
+           ('public.save_form_draft_v1(uuid, uuid, text, jsonb, uuid)'::regprocedure),
+           ('public.submit_form_v1(uuid, uuid)'::regprocedure),
            ('public.chat_ensure_conversation_v1(uuid, uuid, text, uuid)'::regprocedure),
            ('public.chat_append_user_message_v1(uuid, uuid, text, text, text)'::regprocedure),
            ('public.chat_start_run_v1(uuid, uuid, uuid, text, text, uuid, text)'::regprocedure),
@@ -192,19 +197,20 @@ select is_empty($$
 $$, '32 no function in public is executable by authenticated beyond the named allow-list (§4.3, #60)');
 
 -- 33 the other schemas stay shut to both request roles: `toi_identity` (session functions, #75
--- pending), `intake` (pilot inquiries, granted only to `inquiry_writer`) and `job_api` (the T-211 job
+-- pending), `intake` (pilot inquiries, granted only to `inquiry_writer`), `job_api` (the T-211 job
 -- API, granted only to `toi_job_api` — the extension #134 asked for, added here rather than asserted
 -- only inside 045 because this suite is the one that carries function privileges; 045 pins the
--- behaviour and the worker role's own reach).
+-- behaviour and the worker role's own reach), and `toi_control` (T-304 / #193; includes
+-- provider_switch_state_v1 per #199).
 select is_empty($$
   select n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' as function
     from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
-   where n.nspname in ('toi_identity', 'intake', 'job_api')
+   where n.nspname in ('toi_identity', 'intake', 'job_api', 'toi_control')
      and p.prokind = 'f'
      and (has_function_privilege('anon', p.oid, 'EXECUTE')
           or has_function_privilege('authenticated', p.oid, 'EXECUTE'))
-$$, '33 neither anon nor authenticated can execute anything in toi_identity, intake or job_api (§4.3, #134)');
+$$, '33 neither anon nor authenticated can execute anything in toi_identity, intake, job_api or toi_control (§4.3, #134)');
 
 -- ---------------------------------------------------------------- 34-38 Addition 1: measured, not assumed
 -- The ruling asked for a source-level closure: `alter default privileges … revoke execute on
