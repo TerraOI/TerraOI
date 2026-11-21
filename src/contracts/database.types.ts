@@ -825,14 +825,14 @@ isOneToOne: false
                   ]
                 },"tenant_services": {
                   Row: {
-                    "created_at": string,"enabled": boolean,"entitled_at": string,"organisation_id": string,"service_key": string,"updated_at": string
+                    "created_at": string,"enabled": boolean,"entitled_at": string,"id": string,"organisation_id": string,"service_key": string,"updated_at": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "created_at"?: string,"enabled"?: boolean,"entitled_at"?: string,"organisation_id": string,"service_key": string,"updated_at"?: string
+                    "created_at"?: string,"enabled"?: boolean,"entitled_at"?: string,"id"?: string,"organisation_id": string,"service_key": string,"updated_at"?: string
                   }
                   Update: {
-                    "created_at"?: string,"enabled"?: boolean,"entitled_at"?: string,"organisation_id"?: string,"service_key"?: string,"updated_at"?: string
+                    "created_at"?: string,"enabled"?: boolean,"entitled_at"?: string,"id"?: string,"organisation_id"?: string,"service_key"?: string,"updated_at"?: string
                   }
                   Relationships: [
                     {
