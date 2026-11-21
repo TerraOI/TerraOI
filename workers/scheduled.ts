@@ -4,6 +4,7 @@ import {
   type DispatchOutboxResult,
   type JobDbBinding,
 } from "./job-db";
+import { createCloudExtractor } from "./cloud-extractor";
 import {
   createCloudWorkerDeps,
   runCloudWorkerPull,
@@ -16,8 +17,8 @@ import {
  * Cron entry for the extraction deployment (#170): `triggers.crons` → `scheduled()` →
  * outbox dispatch (#99) then `runCloudWorkerPull`, bounded by `DEFAULT_MAX_JOBS_PER_INVOCATION`.
  *
- * Outbox dispatch runs whenever `JOB_DB` + `TOI_WORKER_TOKEN` are bound — it does not wait on
- * T-212. The pull loop stays idle until `resolveCloudExtractor()` returns a port.
+ * Outbox dispatch runs whenever `JOB_DB` + `TOI_WORKER_TOKEN` are bound. Pull runs when
+ * `resolveCloudExtractor()` returns the T-212-backed port (this cut).
  */
 
 export type ScheduledEnv = CloudWorkerEnv & {
@@ -42,10 +43,10 @@ export type ScheduledTickResult = {
 };
 
 /**
- * Hook T-212 replaces: return the cloud `ExtractorPort`, or `null` to keep the pull loop idle.
+ * T-212-backed cloud extractor (#135). Returns a port so cron pull leases extract jobs.
  */
 export function resolveCloudExtractor(): ExtractorPort | null {
-  return null;
+  return createCloudExtractor();
 }
 
 const DEFAULT_OUTBOX_LIMIT = 32;
