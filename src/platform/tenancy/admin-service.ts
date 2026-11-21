@@ -18,8 +18,9 @@ import {
 import type { AdminRpcClient, AdminRpcFailureKind } from "./admin-rpc";
 
 /**
- * Request boundary for `/admin/projects` and `POST /admin/projects/create` (T-202, plan §15.0 / §4.1).
- * Tenant comes only from the routed host + membership; the create body never carries an org id.
+ * Request boundary for `/admin/projects`, `/admin/collections` and their create routes
+ * (T-202, plan §15.0 / §4.1). Tenant comes only from the routed host + membership; the create
+ * body never carries an org id.
  */
 
 export const MAX_ADMIN_BODY_BYTES = 16 * 1024;
@@ -35,12 +36,14 @@ export interface AdminPorts {
   adminRpc: AdminRpcClient;
 }
 
-export type AdminProjectsView =
+export type AdminFormView =
   | { kind: "ready"; host: string; csrfToken: string }
   | { kind: "redirect"; location: string }
   | { kind: "no_access"; message: string }
   | { kind: "not_found"; message: string }
   | { kind: "unavailable"; message: string };
+
+export type AdminProjectsView = AdminFormView;
 
 type AuthenticatedAdminContext =
   | { ok: true; host: string; context: TenantContext; accessToken: string }
@@ -128,11 +131,11 @@ async function resolveAuthenticatedContext(input: {
   return { ok: true, host: parsed.host, context: resolution.context, accessToken };
 }
 
-export async function buildAdminProjectsView(input: {
+async function buildAdminFormView(input: {
   request: Request;
   hostOptions?: HostAdapterOptions;
   ports: AdminPorts;
-}): Promise<AdminProjectsView> {
+}): Promise<AdminFormView> {
   const auth = await resolveAuthenticatedContext(input);
   if (!auth.ok) {
     if (auth.kind === "redirect") return { kind: "redirect", location: "/login" };
@@ -148,11 +151,36 @@ export async function buildAdminProjectsView(input: {
   return { kind: "ready", host: auth.host, csrfToken };
 }
 
+export async function buildAdminProjectsView(input: {
+  request: Request;
+  hostOptions?: HostAdapterOptions;
+  ports: AdminPorts;
+}): Promise<AdminFormView> {
+  return buildAdminFormView(input);
+}
+
+export async function buildAdminCollectionsView(input: {
+  request: Request;
+  hostOptions?: HostAdapterOptions;
+  ports: AdminPorts;
+}): Promise<AdminFormView> {
+  return buildAdminFormView(input);
+}
+
 const CreateProjectBodySchema = z.strictObject({
   csrfToken: z.string().min(1).max(512),
   key: z.string().min(1).max(63),
   name: z.string().min(1).max(200),
   visibility: z.enum(["organisation", "project"]),
+});
+
+const CreateCollectionBodySchema = z.strictObject({
+  csrfToken: z.string().min(1).max(512),
+  key: z.string().min(1).max(63),
+  name: z.string().min(1).max(200),
+  service: z.string().min(1).max(64),
+  dataClass: z.enum(["public", "internal", "client_confidential"]),
+  projectId: z.uuid().nullable(),
 });
 
 function jsonReply(status: number, body: Record<string, unknown>): Response {
@@ -282,4 +310,93 @@ export async function handleCreateProject(input: {
   }
 
   return jsonReply(201, { ok: true, projectId: created.id });
+}
+
+export async function handleCreateCollection(input: {
+  request: Request;
+  hostOptions?: HostAdapterOptions;
+  ports: AdminPorts;
+}): Promise<Response> {
+  const { request, ports } = input;
+  if (request.method !== "POST") {
+    return jsonReply(405, { ok: false, code: "method_not_allowed", message: "Method not allowed." });
+  }
+
+  const auth = await resolveAuthenticatedContext(input);
+  if (!auth.ok) {
+    const status =
+      auth.kind === "redirect"
+        ? 401
+        : auth.kind === "no_access"
+          ? 403
+          : auth.kind === "unavailable"
+            ? 503
+            : 404;
+    return jsonReply(status, { ok: false, code: auth.kind, message: auth.message });
+  }
+
+  if (!originAllowed(request, auth.host)) {
+    return jsonReply(403, {
+      ok: false,
+      code: "origin_mismatch",
+      message: "This request did not come from this workspace.",
+    });
+  }
+
+  const contentType = (request.headers.get("content-type") ?? "").split(";")[0]?.trim().toLowerCase();
+  if (contentType !== "application/json") {
+    return jsonReply(415, { ok: false, code: "unsupported_media_type", message: "Send a JSON body." });
+  }
+
+  const secret = ports.signingSecret();
+  if (!hasUsableSecret(secret)) {
+    return jsonReply(503, { ok: false, code: "unavailable", message: SAFE_FAILURE_MESSAGE.backend_failure });
+  }
+
+  const rawBody = await readCappedBody(request, MAX_ADMIN_BODY_BYTES);
+  if (rawBody === null) {
+    return jsonReply(413, { ok: false, code: "payload_too_large", message: "The request is too large." });
+  }
+
+  let parsedJson: unknown;
+  try {
+    parsedJson = JSON.parse(rawBody);
+  } catch {
+    return jsonReply(400, { ok: false, code: "invalid_request", message: "The request body is not valid JSON." });
+  }
+
+  const body = CreateCollectionBodySchema.safeParse(parsedJson);
+  if (!body.success) {
+    return jsonReply(400, { ok: false, code: "invalid_request", message: "The collection request is invalid." });
+  }
+
+  const csrf = await verifyCsrfToken({
+    token: body.data.csrfToken,
+    host: auth.host,
+    secret,
+    now: ports.now(),
+  });
+  if (!csrf.ok) {
+    return jsonReply(403, { ok: false, code: "csrf_invalid", message: "Refresh the page and try again." });
+  }
+
+  const created = await ports.adminRpc.createCollection({
+    context: auth.context,
+    accessToken: auth.accessToken,
+    key: body.data.key,
+    name: body.data.name,
+    service: body.data.service,
+    dataClass: body.data.dataClass,
+    projectId: body.data.projectId,
+  });
+
+  if (!created.ok) {
+    return jsonReply(statusForRpcFailure(created.kind), {
+      ok: false,
+      code: created.kind,
+      message: created.message,
+    });
+  }
+
+  return jsonReply(201, { ok: true, collectionId: created.id });
 }
