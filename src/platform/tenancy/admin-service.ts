@@ -167,6 +167,14 @@ export async function buildAdminCollectionsView(input: {
   return buildAdminFormView(input);
 }
 
+export async function buildAdminMembersView(input: {
+  request: Request;
+  hostOptions?: HostAdapterOptions;
+  ports: AdminPorts;
+}): Promise<AdminFormView> {
+  return buildAdminFormView(input);
+}
+
 const CreateProjectBodySchema = z.strictObject({
   csrfToken: z.string().min(1).max(512),
   key: z.string().min(1).max(63),
@@ -181,6 +189,13 @@ const CreateCollectionBodySchema = z.strictObject({
   service: z.string().min(1).max(64),
   dataClass: z.enum(["public", "internal", "client_confidential"]),
   projectId: z.uuid().nullable(),
+});
+
+const MembershipRoleBodySchema = z.strictObject({
+  csrfToken: z.string().min(1).max(512),
+  action: z.enum(["grant", "revoke"]),
+  userId: z.uuid(),
+  roleId: z.uuid(),
 });
 
 function jsonReply(status: number, body: Record<string, unknown>): Response {
@@ -399,4 +414,94 @@ export async function handleCreateCollection(input: {
   }
 
   return jsonReply(201, { ok: true, collectionId: created.id });
+}
+
+export async function handleMembershipRoleAction(input: {
+  request: Request;
+  hostOptions?: HostAdapterOptions;
+  ports: AdminPorts;
+}): Promise<Response> {
+  const { request, ports } = input;
+  if (request.method !== "POST") {
+    return jsonReply(405, { ok: false, code: "method_not_allowed", message: "Method not allowed." });
+  }
+
+  const auth = await resolveAuthenticatedContext(input);
+  if (!auth.ok) {
+    const status =
+      auth.kind === "redirect"
+        ? 401
+        : auth.kind === "no_access"
+          ? 403
+          : auth.kind === "unavailable"
+            ? 503
+            : 404;
+    return jsonReply(status, { ok: false, code: auth.kind, message: auth.message });
+  }
+
+  if (!originAllowed(request, auth.host)) {
+    return jsonReply(403, {
+      ok: false,
+      code: "origin_mismatch",
+      message: "This request did not come from this workspace.",
+    });
+  }
+
+  const contentType = (request.headers.get("content-type") ?? "").split(";")[0]?.trim().toLowerCase();
+  if (contentType !== "application/json") {
+    return jsonReply(415, { ok: false, code: "unsupported_media_type", message: "Send a JSON body." });
+  }
+
+  const secret = ports.signingSecret();
+  if (!hasUsableSecret(secret)) {
+    return jsonReply(503, { ok: false, code: "unavailable", message: SAFE_FAILURE_MESSAGE.backend_failure });
+  }
+
+  const rawBody = await readCappedBody(request, MAX_ADMIN_BODY_BYTES);
+  if (rawBody === null) {
+    return jsonReply(413, { ok: false, code: "payload_too_large", message: "The request is too large." });
+  }
+
+  let parsedJson: unknown;
+  try {
+    parsedJson = JSON.parse(rawBody);
+  } catch {
+    return jsonReply(400, { ok: false, code: "invalid_request", message: "The request body is not valid JSON." });
+  }
+
+  const body = MembershipRoleBodySchema.safeParse(parsedJson);
+  if (!body.success) {
+    return jsonReply(400, { ok: false, code: "invalid_request", message: "The membership role request is invalid." });
+  }
+
+  const csrf = await verifyCsrfToken({
+    token: body.data.csrfToken,
+    host: auth.host,
+    secret,
+    now: ports.now(),
+  });
+  if (!csrf.ok) {
+    return jsonReply(403, { ok: false, code: "csrf_invalid", message: "Refresh the page and try again." });
+  }
+
+  const args = {
+    context: auth.context,
+    accessToken: auth.accessToken,
+    userId: body.data.userId,
+    roleId: body.data.roleId,
+  };
+  const outcome =
+    body.data.action === "grant"
+      ? await ports.adminRpc.grantMembershipRole(args)
+      : await ports.adminRpc.revokeMembershipRole(args);
+
+  if (!outcome.ok) {
+    return jsonReply(statusForRpcFailure(outcome.kind), {
+      ok: false,
+      code: outcome.kind,
+      message: outcome.message,
+    });
+  }
+
+  return jsonReply(200, { ok: true, action: body.data.action });
 }

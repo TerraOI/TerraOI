@@ -10,6 +10,7 @@ vi.mock("next/link", () => ({
 
 import { CreateCollectionForm } from "./create-collection-form";
 import { CreateProjectForm } from "./create-project-form";
+import { MembershipRoleForm } from "./membership-role-form";
 
 afterEach(() => {
   cleanup();
@@ -100,5 +101,62 @@ describe("CreateCollectionForm (T-202 PR-2c)", () => {
     });
     expect(JSON.stringify(body)).not.toMatch(/organisation|organization/i);
     expect((await screen.findByRole("status")).textContent).toContain("Collection created.");
+  });
+});
+
+describe("MembershipRoleForm (T-202 PR-2e)", () => {
+  it("posts grant action with user and role ids and no organisation id", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      return Response.json({ ok: true, action: "grant" }, { status: 200 });
+    });
+
+    render(<MembershipRoleForm csrfToken="csrf-token-3" />);
+    fireEvent.change(screen.getByLabelText("User id"), {
+      target: { value: "00000000-0000-4000-8000-0000000000a1" },
+    });
+    fireEvent.change(screen.getByLabelText("Role id"), {
+      target: { value: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Grant role" }));
+
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0]?.url).toBe("/admin/members/role");
+    const body = JSON.parse(String(calls[0]?.init?.body)) as Record<string, unknown>;
+    expect(body).toEqual({
+      csrfToken: "csrf-token-3",
+      action: "grant",
+      userId: "00000000-0000-4000-8000-0000000000a1",
+      roleId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    });
+    expect(JSON.stringify(body)).not.toMatch(/organisation|organization/i);
+    expect((await screen.findByRole("status")).textContent).toContain("Role granted.");
+  });
+
+  it("surfaces last-admin refusal copy from the server", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          { ok: false, code: "last_admin", message: "This workspace must keep at least one active admin." },
+          { status: 409 },
+        ),
+      ),
+    );
+
+    render(<MembershipRoleForm csrfToken="csrf-token-3" />);
+    fireEvent.change(screen.getByLabelText("Action"), { target: { value: "revoke" } });
+    fireEvent.change(screen.getByLabelText("User id"), {
+      target: { value: "00000000-0000-4000-8000-0000000000a1" },
+    });
+    fireEvent.change(screen.getByLabelText("Role id"), {
+      target: { value: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Revoke role" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "This workspace must keep at least one active admin.",
+    );
   });
 });

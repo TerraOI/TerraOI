@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AdminRpcClient } from "./admin-rpc";
 import type { AdminPorts } from "./admin-service";
-import { handleCreateCollection, handleCreateProject } from "./admin-service";
+import { handleCreateCollection, handleCreateProject, handleMembershipRoleAction } from "./admin-service";
 
 function ports(overrides: Partial<Pick<AdminRpcClient, "createProject" | "createCollection">> = {}): AdminPorts {
   return {
@@ -71,5 +71,26 @@ describe("handleCreateCollection (T-202 PR-2c)", () => {
     });
     expect(response.status).toBe(405);
     expect(createCollection).not.toHaveBeenCalled();
+  });
+});
+
+describe("handleMembershipRoleAction (T-202 PR-2e)", () => {
+  it("rejects a non-POST method without dialling grant or revoke", async () => {
+    const grantMembershipRole = vi.fn<AdminRpcClient["grantMembershipRole"]>();
+    const revokeMembershipRole = vi.fn<AdminRpcClient["revokeMembershipRole"]>();
+    const response = await handleMembershipRoleAction({
+      request: new Request("https://company1.terraoi.test/admin/members/role", { method: "GET" }),
+      ports: {
+        ...ports(),
+        adminRpc: {
+          ...ports().adminRpc,
+          grantMembershipRole,
+          revokeMembershipRole,
+        },
+      },
+    });
+    expect(response.status).toBe(405);
+    expect(grantMembershipRole).not.toHaveBeenCalled();
+    expect(revokeMembershipRole).not.toHaveBeenCalled();
   });
 });
