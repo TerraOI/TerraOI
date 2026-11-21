@@ -346,7 +346,7 @@ insert into public.ingestion_jobs (
   ('96000000-0000-4000-8000-000000003615', '11111111-1111-4111-8111-111111111111',
    '71000000-0000-4000-8000-000000003611', 'index', 'cloud_worker', 'succeeded', 'public',
    'v1', 1, 1, null, null, 1),
-  ('96000000-0000-4000-8000-000000003616', '11111111-1111-4000-8000-000000003611',
+  ('96000000-0000-4000-8000-000000003616', '11111111-1111-4111-8111-111111111111',
    '71000000-0000-4000-8000-000000003611', 'publish', 'cloud_worker', 'leased', 'public',
    'v1', 1, 1, 't113-lease-pub-s1v1-sup1', now() + interval '10 minutes', 1),
   -- j3632: s3603 v2 client_confidential index job (B3 public-only-index lexical-only pass)
