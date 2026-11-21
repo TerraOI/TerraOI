@@ -10,6 +10,7 @@ who builds a value, what must be re-checked before use, and which plan section o
 | [chat-protocol.md](chat-protocol.md) | Chat request, progress events, idempotency, verified-only delivery | F17, F21–F24, F29 |
 | [model-chain.md](model-chain.md) | Cost-ordered chain, data-class clearance, pinned embeddings | F19–F22, F31, F37, F38 |
 | [knowledge-and-jobs.md](knowledge-and-jobs.md) | Source lifecycle states, job payloads, parse leases, form templates | F08–F16, F32, F33 |
+| [eval-case-format.md](eval-case-format.md) | Eval case files under `evals/`, evidence locators, refusal keys (ADR-0010) | F34–F36 |
 
 Rules of use (plan §20.1, [COORDINATION.md §2–§3](../COORDINATION.md)):
 

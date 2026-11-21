@@ -5,7 +5,7 @@
   "status": "drafted",
   "origin": "agent_drafted",
   "caseType": "must_refuse",
-  "question": "What did the old SITE-02 conditions note say about made ground?",
+  "question": "What did the old SYNTH-SITE-02 conditions note say about made ground?",
   "expectedAnswerPoints": [
     "Refused: its expected source SYNTH-GPR-SITECOND-01 was revoked under F14, so nothing current supports an answer; the lead must re-bind this case to SYNTH-GPR-SITECOND-02 page:2 section:1 or delete it, and the run records the case rather than a silent zero (T-312)."
   ],
@@ -27,6 +27,7 @@
     "SYNTH-GPR-SITECOND-02"
   ],
   "expectedEvidence": [],
+  "expectedRefusalKey": "insufficient_support",
   "approvedBy": null,
   "approvedAt": null,
   "draftedBy": "agent (T-315 draft)",
