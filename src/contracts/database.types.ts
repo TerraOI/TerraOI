@@ -711,6 +711,38 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"tenant_invitations": {
+                  Row: {
+                    "created_at": string,"email": string,"expires_at": string,"id": string,"invited_by": string,"organisation_id": string,"role_id": string,"status": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"email": string,"expires_at": string,"id"?: string,"invited_by": string,"organisation_id": string,"role_id": string,"status"?: string
+                  }
+                  Update: {
+                    "created_at"?: string,"email"?: string,"expires_at"?: string,"id"?: string,"invited_by"?: string,"organisation_id"?: string,"role_id"?: string,"status"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "tenant_invitations_invited_by_fkey"
+      columns: ["invited_by"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "tenant_invitations_organisation_id_fkey"
+      columns: ["organisation_id"]
+isOneToOne: false
+      referencedRelation: "organisations"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "tenant_invitations_role_id_organisation_id_fkey"
+      columns: ["role_id","organisation_id"]
+isOneToOne: false
+      referencedRelation: "organisation_roles"
+      referencedColumns: ["id","organisation_id"]
+    }
+                  ]
                 },"tenant_provider_policy": {
                   Row: {
                     "created_at": string,"data_class": string,"organisation_id": string,"provider_key": string,"recorded_by": string | null
@@ -805,6 +837,9 @@ isOneToOne: false
                            },
 "grant_membership_role_v1":
 { Args: { "p_organisation_id": string,"p_role_id": string,"p_user_id": string }; Returns: undefined
+                           },
+"invite_member_v1":
+{ Args: { "p_email": string,"p_organisation_id": string,"p_role_id": string }; Returns: string
                            },
 "is_active_member":
 { Args: { "p_organisation_id": string }; Returns: boolean
