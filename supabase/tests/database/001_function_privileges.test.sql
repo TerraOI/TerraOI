@@ -138,6 +138,8 @@ $$, '31 no function in public is executable by anon except the named allow-list 
 --   forms (`20261120213000_forms.sql`, T-301): save_form_draft_v1, submit_form_v1 — same shape,
 --     `p_organisation_id` first and the scope set inside. The validators, the two guard trigger
 --     functions and the template-safety helpers are revoked and deliberately not listed here.
+--   tenant admin (`20261120215000_tenant_admin_rpc.sql`, T-202 PR-1): five write RPCs — grant/revoke
+--     membership role, create project, add/remove project member — each with `p_organisation_id` first
 --   chat persistence (`20261120216000_chat_persistence.sql`, T-104): the seven scoped chat RPCs. Same
 --     shape — `p_organisation_id` first, scope established inside, `authenticated` only and never
 --     `anon`, because chat is behind sign-in (plan §4.1). The migration's own guard, trigger and
@@ -185,6 +187,19 @@ select is_empty($$
            ('public.search_corpus_v1(uuid, text[], uuid, uuid[], text, extensions.vector, uuid, date, text[], integer)'::regprocedure),
            ('public.save_form_draft_v1(uuid, uuid, text, jsonb, uuid)'::regprocedure),
            ('public.submit_form_v1(uuid, uuid)'::regprocedure),
+           -- T-202 PR-1 (`20261120215000_tenant_admin_rpc.sql`): the five tenant-admin write RPCs,
+           -- each revoked from all four request roles inside the file that creates it and granted back
+           -- to `authenticated` only. All five take `p_organisation_id` first and set the scope
+           -- themselves (FAQ-0011), and each decides inside its body on `members.admin` /
+           -- `projects.admin` at `admin`. No invite/activate here: invite is PR-1b; claim is T-201.
+           -- `bump_policy_revision()` is deliberately **not** here: a table's trigger fires without the
+           -- invoking role holding EXECUTE, and it is granted to nobody (tests 23-30 are the precedent
+           -- for revoked trigger functions).
+           ('public.grant_membership_role_v1(uuid, uuid, uuid)'::regprocedure),
+           ('public.revoke_membership_role_v1(uuid, uuid, uuid)'::regprocedure),
+           ('public.create_project_v1(uuid, text, text, text)'::regprocedure),
+           ('public.add_project_member_v1(uuid, uuid, uuid)'::regprocedure),
+           ('public.remove_project_member_v1(uuid, uuid, uuid)'::regprocedure),
            ('public.chat_ensure_conversation_v1(uuid, uuid, text, uuid)'::regprocedure),
            ('public.chat_append_user_message_v1(uuid, uuid, text, text, text)'::regprocedure),
            ('public.chat_start_run_v1(uuid, uuid, uuid, text, text, uuid, text)'::regprocedure),

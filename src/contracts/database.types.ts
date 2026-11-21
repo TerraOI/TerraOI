@@ -877,7 +877,10 @@ isOneToOne: false
             [_ in never]: never
           }
           Functions: {
-            "begin_upload_session_v1":
+            "add_project_member_v1":
+{ Args: { "p_organisation_id": string,"p_project_id": string,"p_user_id": string }; Returns: undefined
+                           },
+"begin_upload_session_v1":
 { Args: { "p_collection_id": string,"p_declared_size_bytes": number,"p_filename": string,"p_idempotency_key": string,"p_organisation_id": string }; Returns: {
               "o_expires_at": string,"o_max_size_bytes": number,"o_object_ref": string,"o_reused": boolean,"o_session_id": string,"o_state": string
             }[]
@@ -930,6 +933,9 @@ isOneToOne: false
 "create_collection_v1":
 { Args: { "p_data_class": string,"p_key": string,"p_name": string,"p_organisation_id": string,"p_project_id": string,"p_service": string }; Returns: string
                            },
+"create_project_v1":
+{ Args: { "p_key": string,"p_name": string,"p_organisation_id": string,"p_visibility": string }; Returns: string
+                           },
 "current_membership_v1":
 { Args: { "p_organisation_id": string }; Returns: {
               "membership_id": string,"organisation_id": string,"status": string
@@ -967,6 +973,9 @@ isOneToOne: false
               "accent_color": string,"config_version": number,"descriptor": string,"display_name": string,"document_prefix": string,"email_reply_to": string,"email_sender_name": string,"favicon_asset_id": string,"legal_name": string,"logo_asset_id": string,"mode": string,"on_primary_color": string,"organisation_id": string,"primary_color": string,"report_owner": string,"support_label": string,"support_url": string,"tagline": string
             }[]
                            },
+"grant_membership_role_v1":
+{ Args: { "p_organisation_id": string,"p_role_id": string,"p_user_id": string }; Returns: undefined
+                           },
 "is_active_member":
 { Args: { "p_organisation_id": string }; Returns: boolean
                            },
@@ -994,10 +1003,16 @@ isOneToOne: false
               "o_already_uploaded": boolean,"o_source_id": string,"o_source_version_id": string,"o_state": string
             }[]
                            },
+"remove_project_member_v1":
+{ Args: { "p_organisation_id": string,"p_project_id": string,"p_user_id": string }; Returns: undefined
+                           },
 "resolve_tenant_host":
 { Args: { "p_host": string }; Returns: {
               "host": string,"is_canonical": boolean,"organisation_id": string,"organisation_status": string
             }[]
+                           },
+"revoke_membership_role_v1":
+{ Args: { "p_organisation_id": string,"p_role_id": string,"p_user_id": string }; Returns: undefined
                            },
 "save_form_draft_v1":
 { Args: { "p_organisation_id": string,"p_supersedes_submission_id"?: string,"p_template_id": string,"p_template_version": string,"p_values": Json }; Returns: string

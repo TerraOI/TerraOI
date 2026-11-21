@@ -369,6 +369,11 @@ describe("the same question asked twice", () => {
     expect(frame.answer.refusalKey).toBe("no_evidence");
     expect(frame.answer.claims).toEqual([]);
     expect(frame.answer.summary).toContain("Nothing in the documents you are allowed to read");
+    // N13 / B11: refusalKey is on the Answer completeRun persists into answer_json, not only the frame.
+    expect(h.store.completed).toHaveLength(1);
+    expect(h.store.completed[0]?.status).toBe("refused");
+    expect(h.store.completed[0]?.refusalKey).toBe("no_evidence");
+    expect(h.store.completed[0]?.claims).toEqual([]);
     expect(JSON.stringify(h.frames)).not.toContain(COMPOSED_PHRASE);
     expect(h.searches).toHaveLength(0);
     expect(h.adapterCalls()).toBe(0);
