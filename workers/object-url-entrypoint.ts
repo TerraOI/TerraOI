@@ -6,7 +6,7 @@ import {
   type MintObjectUrlEnv,
   type MintObjectUrlResult,
 } from "./mint-object-url";
-import { runScheduledCloudPull, type ScheduledEnv } from "./scheduled";
+import { runScheduledTick, type ScheduledEnv } from "./scheduled";
 
 /**
  * Named RPC entrypoint for the app Worker's service binding (#170 / ADR-0011).
@@ -22,8 +22,9 @@ export class ObjectUrlMint extends WorkerEntrypoint<MintObjectUrlEnv> {
 type ExtractionEnv = MintObjectUrlEnv & ScheduledEnv;
 
 /**
- * Default export: no public HTTP; cron drives `runCloudWorkerPull` (#170 Cut C).
- * T-212 extractor wiring lands in `resolveCloudExtractor()` — until then the cron is idle.
+ * Default export: no public HTTP; cron drives outbox dispatch then pull (#170 / #99).
+ * T-212 extractor wiring lands in `resolveCloudExtractor()` — until then pull stays idle;
+ * outbox dispatch still runs whenever JOB_DB + TOI_WORKER_TOKEN are bound.
  */
 export default class ExtractionWorker extends WorkerEntrypoint<ExtractionEnv> {
   fetch(): Response {
@@ -31,6 +32,6 @@ export default class ExtractionWorker extends WorkerEntrypoint<ExtractionEnv> {
   }
 
   async scheduled(): Promise<void> {
-    await runScheduledCloudPull(this.env);
+    await runScheduledTick(this.env);
   }
 }
