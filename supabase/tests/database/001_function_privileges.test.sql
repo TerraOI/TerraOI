@@ -192,7 +192,13 @@ select is_empty($$
            ('public.revoke_membership_role_v1(uuid, uuid, uuid)'::regprocedure),
            ('public.create_project_v1(uuid, text, text, text)'::regprocedure),
            ('public.add_project_member_v1(uuid, uuid, uuid)'::regprocedure),
-           ('public.remove_project_member_v1(uuid, uuid, uuid)'::regprocedure)
+           ('public.remove_project_member_v1(uuid, uuid, uuid)'::regprocedure),
+           -- T-312 PR-2 (`20261121220000_evals.sql`): draft/review/list/export RPCs. Helper
+           -- `member_has_evals_review` stays revoked (trigger/helper precedent of tests 23-30).
+           ('public.create_eval_case_draft_v1(uuid, jsonb)'::regprocedure),
+           ('public.review_eval_case_v1(uuid, uuid, text, jsonb)'::regprocedure),
+           ('public.list_eval_cases_v1(uuid, text)'::regprocedure),
+           ('public.export_approved_eval_cases_v1(uuid)'::regprocedure)
          ) as allowed(proc)
      )
 $$, '32 no function in public is executable by authenticated beyond the named allow-list (§4.3, #60)');

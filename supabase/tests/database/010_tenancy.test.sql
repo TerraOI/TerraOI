@@ -289,12 +289,14 @@ select is((select count(*)::int from t_meta
   '43 the scoping did not over-filter: their own two company1 hosts are still readable');
 select is((select count(*)::int from t_meta
             where case_name = 'multi_c1' and kind = 'role'
-              and organisation_id = '11111111-1111-4111-8111-111111111111'), 2::int,
-  '44 and both company1 role definitions');
+              and organisation_id = '11111111-1111-4111-8111-111111111111'), 3::int,
+  -- Re-pin for T-312 / #82 eval_reviewer seed (2 → 3).
+  '44 and the three company1 role definitions');
 select is((select count(*)::int from t_meta
             where case_name = 'multi_c1' and kind in ('role_permission', 'membership_role')
-              and organisation_id = '11111111-1111-4111-8111-111111111111'), 10::int,
-  '45 and the six company1 permission rows plus four company1 role assignments');
+              and organisation_id = '11111111-1111-4111-8111-111111111111'), 14::int,
+  -- Re-pin for T-312 / #82: eight permission rows + six membership_roles (a1/a2 also hold eval_reviewer).
+  '45 and the eight company1 permission rows plus six company1 role assignments');
 
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a4';
