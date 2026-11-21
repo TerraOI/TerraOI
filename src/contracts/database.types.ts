@@ -798,6 +798,11 @@ isOneToOne: false
 "form_values_reject_reason":
 { Args: { "p_json_schema": Json,"p_values": Json }; Returns: string
                            },
+"get_form_template_v1":
+{ Args: { "p_organisation_id": string,"p_template_id": string }; Returns: {
+              "data_class": string,"default_collection_id": string,"description": string,"id": string,"json_schema": Json,"name": string,"organisation_id": string,"project_id": string,"published_at": string,"scope": string,"service_key": string,"status": string,"ui_hints": Json,"version": string
+            }[]
+                           },
 "get_tenant_brand_v1":
 { Args: { "p_organisation_id": string }; Returns: {
               "accent_color": string,"config_version": number,"descriptor": string,"display_name": string,"document_prefix": string,"email_reply_to": string,"email_sender_name": string,"favicon_asset_id": string,"legal_name": string,"logo_asset_id": string,"mode": string,"on_primary_color": string,"organisation_id": string,"primary_color": string,"report_owner": string,"support_label": string,"support_url": string,"tagline": string
@@ -811,6 +816,11 @@ isOneToOne: false
                            },
 "is_project_member":
 { Args: { "p_project_id": string }; Returns: boolean
+                           },
+"list_form_templates_v1":
+{ Args: { "p_organisation_id": string }; Returns: {
+              "data_class": string,"default_collection_id": string,"description": string,"id": string,"json_schema": Json,"name": string,"organisation_id": string,"project_id": string,"published_at": string,"scope": string,"service_key": string,"status": string,"ui_hints": Json,"version": string
+            }[]
                            },
 "load_public_brand":
 { Args: { "p_host": string }; Returns: {
