@@ -125,7 +125,6 @@ export interface ResolveAuthorizedExpertInput {
   readonly expertKey: string;
   readonly bindings: readonly TenantExpertBinding[];
   readonly definitions: readonly ExpertDefinitionRow[];
-  readonly allowRegistered?: boolean;
 }
 
 /**
@@ -179,15 +178,12 @@ export function resolveAuthorizedExpert(
         version: versionParsed.data,
       };
     case "registered":
-      if (!input.allowRegistered) {
-        return {
-          ok: false,
-          reason: "version_not_published",
-          expertKey: keyParsed.data,
-          version: versionParsed.data,
-        };
-      }
-      break;
+      return {
+        ok: false,
+        reason: "version_not_published",
+        expertKey: keyParsed.data,
+        version: versionParsed.data,
+      };
     case "published":
       break;
     default: {

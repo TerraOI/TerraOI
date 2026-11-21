@@ -263,7 +263,7 @@ describe("resolveAuthorizedExpert (F07 / T-311)", () => {
     });
   });
 
-  it("refuses an unpublished registered version by default (F36 gate), and allows it only when explicitly opted in", () => {
+  it("always refuses an unpublished registered version (F36 gate)", () => {
     const refused = resolveAuthorizedExpert({
       context: company1Context(["uav-compliance"]),
       expertKey: "uav-expert",
@@ -276,14 +276,5 @@ describe("resolveAuthorizedExpert (F07 / T-311)", () => {
       expertKey: "uav-expert",
       version: "1.0.0",
     });
-
-    const allowed = resolveAuthorizedExpert({
-      context: company1Context(["uav-compliance"]),
-      expertKey: "uav-expert",
-      bindings,
-      definitions: [UAV_V1_ROW],
-      allowRegistered: true,
-    });
-    expect(allowed.ok).toBe(true);
   });
 });

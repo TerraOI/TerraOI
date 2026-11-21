@@ -521,6 +521,7 @@ alter table public.expert_definitions enable row level security;
 
 -- ---------------------------------------------------------------- 4. tenant_services (tenant entitlements)
 create table public.tenant_services (
+  id uuid primary key default gen_random_uuid(),
   organisation_id uuid not null
     references public.organisations (id) on delete cascade,
   service_key text not null
@@ -529,7 +530,8 @@ create table public.tenant_services (
   entitled_at timestamptz not null default now(),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  constraint tenant_services_pkey primary key (organisation_id, service_key)
+  constraint tenant_services_org_service_key unique (organisation_id, service_key),
+  constraint tenant_services_tenant_id_key unique (id, organisation_id)
 );
 comment on table public.tenant_services is
   'Tenant service entitlements (plan §5.2, §6.1, #83, #193 E3). Written only through toi_control.entitle_tenant_service_v1 by toi_control_plane; active members read their own enabled rows via RLS.';
@@ -537,6 +539,20 @@ comment on table public.tenant_services is
 create trigger tenant_services_touch_updated
   before update on public.tenant_services
   for each row execute function public.touch_updated_at();
+
+-- #98 / #179: bump organisations.policy_revision on every real service entitlement change.
+create trigger tenant_services_bump_policy_rev_insert
+  after insert on public.tenant_services
+  referencing new table as new_rows
+  for each statement execute function public.bump_policy_revision();
+create trigger tenant_services_bump_policy_rev_update
+  after update on public.tenant_services
+  referencing old table as old_rows new table as new_rows
+  for each statement execute function public.bump_policy_revision();
+create trigger tenant_services_bump_policy_rev_delete
+  after delete on public.tenant_services
+  referencing old table as old_rows
+  for each statement execute function public.bump_policy_revision();
 
 alter table public.tenant_services enable row level security;
 
@@ -658,6 +674,20 @@ create trigger tenant_experts_guard
 create trigger tenant_experts_touch_updated
   before update on public.tenant_experts
   for each row execute function public.touch_updated_at();
+
+-- #98 / #179: bump organisations.policy_revision on every real expert binding or override change.
+create trigger tenant_experts_bump_policy_rev_insert
+  after insert on public.tenant_experts
+  referencing new table as new_rows
+  for each statement execute function public.bump_policy_revision();
+create trigger tenant_experts_bump_policy_rev_update
+  after update on public.tenant_experts
+  referencing old table as old_rows new table as new_rows
+  for each statement execute function public.bump_policy_revision();
+create trigger tenant_experts_bump_policy_rev_delete
+  after delete on public.tenant_experts
+  referencing old table as old_rows
+  for each statement execute function public.bump_policy_revision();
 
 alter table public.tenant_experts enable row level security;
 
@@ -824,7 +854,7 @@ begin
 
   insert into public.tenant_services (organisation_id, service_key, enabled)
   values (p_organisation_id, p_service_key, true)
-  on conflict on constraint tenant_services_pkey
+  on conflict on constraint tenant_services_org_service_key
   do update set enabled = true, updated_at = now();
 
   if p_expert_key is not null then

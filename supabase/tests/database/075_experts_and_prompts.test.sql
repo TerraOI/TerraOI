@@ -21,7 +21,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(76);
+select plan(84);
 
 -- ---------------------------------------------------------------- helpers (pg_temp, security invoker)
 create function pg_temp.try_sql(p_sql text)
@@ -599,7 +599,52 @@ select is(
 );
 
 -- ---------------------------------------------------------------- 49-64 control-plane entitlement & overrides
+create function pg_temp.rev_of(p_org_id uuid)
+returns bigint language sql security invoker as $fn$
+  select policy_revision from public.organisations where id = p_org_id;
+$fn$;
+
+create temp table t_rev_probes (step text primary key, rev bigint not null);
+insert into t_rev_probes values
+  ('c1_before_svc', pg_temp.rev_of('11111111-1111-4111-8111-111111111111'));
+
 grant toi_control_plane to postgres;
+set local role toi_control_plane;
+do $$
+begin
+  perform 1 from toi_control.entitle_tenant_service_v1(
+    '11111111-1111-4111-8111-111111111111',
+    'uav-compliance',
+    null,
+    null,
+    '{}'::uuid[],
+    'pilot service entitlement for company1',
+    'ops@terraoi.test'
+  );
+end;
+$$;
+reset role;
+insert into t_rev_probes values
+  ('c1_after_svc', pg_temp.rev_of('11111111-1111-4111-8111-111111111111'));
+
+set local role toi_control_plane;
+do $$
+begin
+  perform 1 from toi_control.entitle_tenant_service_v1(
+    '11111111-1111-4111-8111-111111111111',
+    'uav-compliance',
+    null,
+    null,
+    '{}'::uuid[],
+    'idempotent service entitlement replay',
+    'ops@terraoi.test'
+  );
+end;
+$$;
+reset role;
+insert into t_rev_probes values
+  ('c1_after_svc_replay', pg_temp.rev_of('11111111-1111-4111-8111-111111111111'));
+
 set local role toi_control_plane;
 create temp table t_entitle_read as
   select * from toi_control.entitle_tenant_service_v1(
@@ -611,13 +656,24 @@ create temp table t_entitle_read as
     'pilot entitlement for company1',
     'ops@terraoi.test'
   );
+reset role;
+insert into t_rev_probes values
+  ('c1_after_exp', pg_temp.rev_of('11111111-1111-4111-8111-111111111111'));
+
+set local role toi_control_plane;
 create temp table t_ctl_probes (case_name text primary key, result text not null);
 insert into t_ctl_probes values
   ('retry_same', pg_temp.try_entitle(
     '11111111-1111-4111-8111-111111111111',
     'uav-compliance', 'uav-expert', '1.0.0',
     array['51000000-0000-4000-8000-000000000001']::uuid[],
-    'idempotent retry', 'ops@terraoi.test')),
+    'idempotent retry', 'ops@terraoi.test'));
+reset role;
+insert into t_rev_probes values
+  ('c1_after_exp_replay', pg_temp.rev_of('11111111-1111-4111-8111-111111111111'));
+
+set local role toi_control_plane;
+insert into t_ctl_probes values
   ('empty_reason', pg_temp.try_entitle(
     '11111111-1111-4111-8111-111111111111',
     'uav-compliance', 'uav-expert', '1.0.0', '{}'::uuid[], '', 'ops@terraoi.test')),
@@ -751,6 +807,9 @@ end;
 $$;
 
 -- Vocabulary/style-only tenant override tests (59-62)
+insert into t_rev_probes values
+  ('c1_before_override', pg_temp.rev_of('11111111-1111-4111-8111-111111111111'));
+
 select is(
   pg_temp.try_sql($$
     update public.tenant_experts
@@ -761,6 +820,17 @@ select is(
   'ok',
   '59 tenant_experts accepts whitelisted vocabulary and style override (terminology, tone, formatting)'
 );
+
+insert into t_rev_probes values
+  ('c1_after_override', pg_temp.rev_of('11111111-1111-4111-8111-111111111111'));
+
+update public.tenant_experts
+   set vocabulary_override = '{"terminology":{"sortie":"flight"},"tone":"concise","formatting":"bulleted"}'::jsonb
+ where organisation_id = '11111111-1111-4111-8111-111111111111'
+   and expert_key = 'uav-expert' and expert_version = '1.0.0';
+
+insert into t_rev_probes values
+  ('c1_after_override_replay', pg_temp.rev_of('11111111-1111-4111-8111-111111111111'));
 
 select is(
   pg_temp.try_sql($$
@@ -912,6 +982,128 @@ select is((select result from t_auth_probes where case_name = 'select_prompt_tem
   '75 authenticated direct SELECT on prompt_templates is refused (42501, §9.3)');
 select is((select result from t_auth_probes where case_name = 'select_expert_definitions'), '42501',
   '76 authenticated direct SELECT on expert_definitions is refused (42501, §9.3)');
+
+-- ---------------------------------------------------------------- 77-84 #98 policy_revision triggers on entitlements
+select is(
+  (select count(*)::integer
+     from pg_trigger tr
+     join pg_class c on c.oid = tr.tgrelid
+     join pg_proc p on p.oid = tr.tgfoid
+     join pg_namespace n on n.oid = c.relnamespace
+    where n.nspname = 'public'
+      and c.relname in ('tenant_services', 'tenant_experts')
+      and p.proname = 'bump_policy_revision'
+      and not tr.tgisinternal
+      and (tr.tgtype::int & 1) = 0
+      and pg_get_triggerdef(tr.oid) ilike '% AFTER % FOR EACH STATEMENT %'),
+  6,
+  '77 tenant_services and tenant_experts carry six AFTER FOR EACH STATEMENT bump_policy_revision triggers (#98 / #179)'
+);
+
+select is(
+  (select rev from t_rev_probes where step = 'c1_after_svc')
+  - (select rev from t_rev_probes where step = 'c1_before_svc'),
+  1::bigint,
+  '78 entitling a tenant service moves organisations.policy_revision by exactly 1 (#98)'
+);
+
+select is(
+  (select rev from t_rev_probes where step = 'c1_after_svc_replay')
+  - (select rev from t_rev_probes where step = 'c1_after_svc'),
+  0::bigint,
+  '79 replaying an identical service entitlement leaves policy_revision unchanged (#98)'
+);
+
+select is(
+  (select rev from t_rev_probes where step = 'c1_after_exp')
+  - (select rev from t_rev_probes where step = 'c1_after_svc_replay'),
+  1::bigint,
+  '80 pinning an expert binding on an entitled service moves policy_revision by exactly 1 (#98)'
+);
+
+select is(
+  (select rev from t_rev_probes where step = 'c1_after_exp_replay')
+  - (select rev from t_rev_probes where step = 'c1_after_exp'),
+  0::bigint,
+  '81 replaying an identical service+expert entitlement leaves policy_revision unchanged (#98)'
+);
+
+select is(
+  ((select rev from t_rev_probes where step = 'c1_after_override')
+   - (select rev from t_rev_probes where step = 'c1_before_override'))::text
+  || '/' ||
+  ((select rev from t_rev_probes where step = 'c1_after_override_replay')
+   - (select rev from t_rev_probes where step = 'c1_after_override'))::text,
+  '1/0',
+  '82 updating tenant_experts.vocabulary_override moves policy_revision by 1 and identical replay moves it by 0'
+);
+
+insert into t_rev_probes values
+  ('c1_before_miss', pg_temp.rev_of('11111111-1111-4111-8111-111111111111'));
+create temp table t_miss_probes (case_name text primary key, result text not null);
+insert into t_miss_probes values
+  ('miss_ts', pg_temp.try_sql($$
+    delete from public.tenant_services
+     where organisation_id = '11111111-1111-4111-8111-111111111111'
+       and service_key = 'no-such-service'
+  $$)),
+  ('miss_te', pg_temp.try_sql($$
+    delete from public.tenant_experts
+     where organisation_id = '11111111-1111-4111-8111-111111111111'
+       and expert_key = 'no-such-expert'
+  $$));
+insert into t_rev_probes values
+  ('c1_after_miss', pg_temp.rev_of('11111111-1111-4111-8111-111111111111'));
+
+select is(
+  (select result from t_miss_probes where case_name = 'miss_ts')
+  || '/' || (select result from t_miss_probes where case_name = 'miss_te')
+  || '/' || ((select rev from t_rev_probes where step = 'c1_after_miss')
+             - (select rev from t_rev_probes where step = 'c1_before_miss'))::text,
+  'ok/ok/0',
+  '83 missed DELETE on tenant_services and tenant_experts completes without 54001 and moves policy_revision by 0'
+);
+
+insert into t_rev_probes values
+  ('c1_before_c2_ops', pg_temp.rev_of('11111111-1111-4111-8111-111111111111')),
+  ('c2_s0', pg_temp.rev_of('22222222-2222-4222-8222-222222222222'));
+
+delete from public.tenant_experts
+ where organisation_id = '22222222-2222-4222-8222-222222222222'
+   and expert_key = 'gpr-expert';
+insert into t_rev_probes values
+  ('c2_s1', pg_temp.rev_of('22222222-2222-4222-8222-222222222222'));
+
+update public.tenant_services
+   set enabled = false
+ where organisation_id = '22222222-2222-4222-8222-222222222222'
+   and service_key = 'gpr';
+insert into t_rev_probes values
+  ('c2_s2', pg_temp.rev_of('22222222-2222-4222-8222-222222222222'));
+
+update public.tenant_services
+   set enabled = false
+ where organisation_id = '22222222-2222-4222-8222-222222222222'
+   and service_key = 'gpr';
+insert into t_rev_probes values
+  ('c2_s3', pg_temp.rev_of('22222222-2222-4222-8222-222222222222'));
+
+delete from public.tenant_services
+ where organisation_id = '22222222-2222-4222-8222-222222222222'
+   and service_key = 'gpr';
+insert into t_rev_probes values
+  ('c2_s4', pg_temp.rev_of('22222222-2222-4222-8222-222222222222')),
+  ('c1_after_c2_ops', pg_temp.rev_of('11111111-1111-4111-8111-111111111111'));
+
+select is(
+  ((select rev from t_rev_probes where step = 'c2_s1') - (select rev from t_rev_probes where step = 'c2_s0'))::text
+  || '/' || ((select rev from t_rev_probes where step = 'c2_s2') - (select rev from t_rev_probes where step = 'c2_s1'))::text
+  || '/' || ((select rev from t_rev_probes where step = 'c2_s3') - (select rev from t_rev_probes where step = 'c2_s2'))::text
+  || '/' || ((select rev from t_rev_probes where step = 'c2_s4') - (select rev from t_rev_probes where step = 'c2_s3'))::text
+  || '/' || ((select rev from t_rev_probes where step = 'c1_after_c2_ops') - (select rev from t_rev_probes where step = 'c1_before_c2_ops'))::text,
+  '1/1/0/1/0',
+  '84 delete tenant_experts (+1), disable tenant_services (+1), identical update (0), delete tenant_services (+1) move only company2 policy_revision'
+);
 
 select * from finish();
 rollback;
