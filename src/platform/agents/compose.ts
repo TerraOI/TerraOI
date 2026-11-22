@@ -227,6 +227,17 @@ function safeAnswerBase(input: ComposeRunInput, dataClass: DataClass) {
   };
 }
 
+/** Providers after the one that just composed — the only place a pass-2 material retry may walk (§12.1). */
+function composeChainAfter(chain: readonly ProviderKey[], used: ProviderKey): ProviderKey[] {
+  const index = chain.indexOf(used);
+  return index < 0 ? chain.filter((key) => key !== used) : [...chain.slice(index + 1)];
+}
+
+function packTruncationNote(packLength: number, evidenceLength: number): string | undefined {
+  if (packLength >= evidenceLength) return undefined;
+  return `This answer used ${packLength} of ${evidenceLength} retrieved chunks: the expert's evidence limit is fewer chunks than retrieval returned.`;
+}
+
 export async function composeAnswer(
   input: ComposeRunInput,
   deps: ComposeDeps,
@@ -269,47 +280,188 @@ export async function composeAnswer(
   // The expert's own bound (plan §8.3, §10.1): a bounded pack, and the bound is visible.
   const cap = input.expert.limits.evidenceChunks;
   const pack = input.evidence.slice(0, cap);
-  const truncation: string[] = [];
-  if (pack.length < input.evidence.length) {
-    truncation.push(
-      `This answer used ${pack.length} of ${input.evidence.length} retrieved chunks: the expert's evidence limit is fewer chunks than retrieval returned.`,
-    );
-  }
-
   const runEvidence: RunEvidence[] = pack.map((chunk) => ({
     chunkId: chunk.chunkId,
     sourceVersionId: chunk.sourceVersionId,
     text: chunk.text,
     dataClass: chunk.dataClass,
   }));
+  const messages = composeMessages(input, pack);
 
-  const composed = await callModelGateway<ComposeCandidate>(
-    {
-      context: input.context,
-      runId: input.runId,
-      conversationId: input.conversationId,
-      task: "compose",
-      dataClass,
-      messages: composeMessages(input, pack),
-      maxOutputUnits: input.expert.limits.maxOutputTokens,
-      callTimeoutMs: input.expert.limits.stageDeadlineMs,
-      stageDeadlineMs: input.expert.limits.stageDeadlineMs,
-      tenantPolicy: input.tenantPolicy,
-      chain: input.expert.modelChains.compose,
-      outputSchema: ComposeCandidate,
-    },
-    deps,
-  );
+  let composeChain: readonly ProviderKey[] = input.expert.modelChains.compose;
+  let composedParsed: ComposeCandidate | null = null;
+  let candidateClaims: UnboundClaim[] = [];
+  let claims: Claim[] = [];
+  let bindingRejectedCount = 0;
+  let withheldCount = 0;
+  let truncation: string[] = [];
+  let composePass = 0;
 
-  audit.composeAttempts = composed.attempts;
-  audit.composeSkipped = composed.skipped;
-  audit.matrixRevision = composed.matrixRevision;
+  // At most two compose passes: the first answer, then one retry on the next eligible tier when
+  // pass 2 empties the claim set (plan §12.1). Candidate text is never streamed either time (§9.3).
+  while (composePass < 2) {
+    composePass += 1;
+    const composed = await callModelGateway<ComposeCandidate>(
+      {
+        context: input.context,
+        runId: input.runId,
+        conversationId: input.conversationId,
+        task: "compose",
+        dataClass,
+        messages,
+        maxOutputUnits: input.expert.limits.maxOutputTokens,
+        callTimeoutMs: input.expert.limits.stageDeadlineMs,
+        stageDeadlineMs: input.expert.limits.stageDeadlineMs,
+        tenantPolicy: input.tenantPolicy,
+        chain: composeChain,
+        outputSchema: ComposeCandidate,
+      },
+      deps,
+    );
 
-  if (!composed.ok || composed.parsed === undefined) {
-    // Employee-visible: one fixed sentence. Why (no cleared provider, deadline, budget authority)
-    // stays in the audit, because those names would disclose infrastructure (§9.3). Every one of these
-    // causes is a failure to produce, never a statement about the documents, so the key is
-    // `unavailable` and not one of the refusal-about-evidence keys (ADR-0009 decision 2).
+    audit.composeAttempts.push(...composed.attempts);
+    audit.composeSkipped = composed.skipped;
+    audit.matrixRevision = composed.matrixRevision;
+
+    if (!composed.ok || composed.parsed === undefined) {
+      // First pass unavailable → employee-visible unavailable. A retry that cannot compose leaves the
+      // prior pass-2 refusal path (nothing survived verification) rather than renaming it.
+      if (composedParsed === null) {
+        return {
+          answer: Answer.parse({
+            ...safeAnswerBase(input, dataClass),
+            status: "unavailable",
+            refusalKey: "unavailable" satisfies RefusalKey,
+            summary: input.expert.refusalTemplates.unavailable,
+            unknowns: ["The assistant could not produce an answer for this question right now."],
+            truncation: [packTruncationNote(pack.length, input.evidence.length)].filter(
+              (note): note is string => note !== undefined,
+            ),
+          }),
+          audit,
+        };
+      }
+      break;
+    }
+
+    composedParsed = composed.parsed;
+    audit.answeredBy = {
+      providerKey: composed.providerKey,
+      model: composed.model,
+      chainPosition: composed.chainPosition,
+    };
+
+    truncation = [];
+    const packNote = packTruncationNote(pack.length, input.evidence.length);
+    if (packNote !== undefined) truncation.push(packNote);
+
+    // Pass 1, deterministic: citations must exist in the pack this run was actually given, and the
+    // span each bound claim carries was derived here from its quote (ADR-0008).
+    candidateClaims = composed.parsed.claims.map((claim) => ({
+      ...claim,
+      verificationStatus: "unverified" as const,
+    }));
+    const binding = bindClaimsToEvidence(candidateClaims, runEvidence);
+    audit.bindingRejected = binding.rejected.map((claim) => claim.claimId);
+    bindingRejectedCount = binding.rejected.length;
+    if (binding.rejected.length > 0) {
+      truncation.push(
+        `${binding.rejected.length} claim(s) were dropped: their citation did not match the text retrieved for this question.`,
+      );
+    }
+
+    // Which verifier *would* be eligible: never the model that composed the answer, never below
+    // minVerifierTier, and never cleared by a different rule (§12.4 (d)/(e), issue #9).
+    const verifierRoute = selectModelRoute(
+      {
+        task: "verify",
+        dataClass,
+        tenantPolicy: input.tenantPolicy,
+        chain: input.expert.modelChains.verify,
+        minTier: input.expert.minVerifierTier,
+        composedWith: { providerKey: composed.providerKey, model: composed.model },
+        nowMs: (deps.clock ?? Date.now)(),
+      },
+      { config: deps.config, health: deps.health, adapters: deps.adapters },
+    );
+    audit.verifierRoute = verifierRoute;
+
+    claims = binding.bound;
+    const verdicts = new Map<string, SemanticVerdict>();
+    audit.droppedByVerifier = [];
+    audit.verdicts = [];
+    audit.withheldRequirementClaims = 0;
+
+    if (deps.semanticVerifier === undefined) {
+      audit.semanticVerification = "not_configured";
+    } else if (verifierRoute.eligible.length === 0) {
+      audit.semanticVerification = "no_eligible_verifier";
+    } else if (claims.length === 0) {
+      audit.semanticVerification = "not_needed";
+    } else {
+      const returned = await deps.semanticVerifier.verify({
+        claims,
+        evidence: runEvidence,
+        route: verifierRoute,
+      });
+      for (const verdict of returned) verdicts.set(verdict.claimId, verdict);
+      audit.verdicts = [...returned];
+      audit.semanticVerification = "ran";
+      const dropped = claims.filter((claim) => {
+        const verdict = verdicts.get(claim.id);
+        return verdict !== undefined && (verdict.status === "unsupported" || verdict.status === "contradicted");
+      });
+      if (dropped.length > 0) {
+        audit.droppedByVerifier = dropped.map((claim) => claim.id);
+        truncation.push(
+          `${dropped.length} claim(s) were dropped because the verifier found them unsupported by their cited text.`,
+        );
+      }
+      claims = claims
+        .filter((claim) => !audit.droppedByVerifier.includes(claim.id))
+        .map((claim) => {
+          const verdict = verdicts.get(claim.id);
+          return verdict === undefined ? claim : { ...claim, verificationStatus: verdict.status };
+        });
+    }
+
+    // Pass 2 not run → `requirement` claims are withheld (§12.1).
+    const needVerifier = (claim: Claim) => claim.type === "requirement" && !verdicts.has(claim.id);
+    const withheld = claims.filter(needVerifier);
+    withheldCount = withheld.length;
+    if (withheld.length > 0) {
+      audit.withheldRequirementClaims = withheld.length;
+      truncation.push(
+        `${withheld.length} requirement claim(s) are withheld: no eligible independent verifier ran for this answer.`,
+      );
+      claims = claims.filter((claim) => !needVerifier(claim));
+    }
+
+    // Material pass-2 failure: every claim the composer offered was dropped by the verifier. One
+    // retry on the next eligible compose tier; a second failure stays refused/partial (§12.1).
+    const materialPass2Failure =
+      audit.semanticVerification === "ran" &&
+      audit.droppedByVerifier.length > 0 &&
+      claims.length === 0;
+    if (!materialPass2Failure || composePass >= 2) break;
+
+    const nextChain = composeChainAfter(composeChain, composed.providerKey);
+    if (nextChain.length === 0) break;
+    const nextRoute = selectModelRoute(
+      {
+        task: "compose",
+        dataClass,
+        tenantPolicy: input.tenantPolicy,
+        chain: nextChain,
+        nowMs: (deps.clock ?? Date.now)(),
+      },
+      { config: deps.config, health: deps.health, adapters: deps.adapters },
+    );
+    if (nextRoute.eligible.length === 0) break;
+    composeChain = nextChain;
+  }
+
+  if (composedParsed === null) {
     return {
       answer: Answer.parse({
         ...safeAnswerBase(input, dataClass),
@@ -323,102 +475,17 @@ export async function composeAnswer(
     };
   }
 
-  audit.answeredBy = {
-    providerKey: composed.providerKey,
-    model: composed.model,
-    chainPosition: composed.chainPosition,
-  };
-
-  // Pass 1, deterministic: citations must exist in the pack this run was actually given, and the
-  // span each bound claim carries was derived here from its quote (ADR-0008).
-  const candidateClaims: UnboundClaim[] = composed.parsed.claims.map((claim) => ({
-    ...claim,
-    verificationStatus: "unverified",
-  }));
-  const binding = bindClaimsToEvidence(candidateClaims, runEvidence);
-  audit.bindingRejected = binding.rejected.map((claim) => claim.claimId);
-  if (binding.rejected.length > 0) {
-    truncation.push(
-      `${binding.rejected.length} claim(s) were dropped: their citation did not match the text retrieved for this question.`,
-    );
-  }
-
-  // Which verifier *would* be eligible: never the model that composed the answer, never below
-  // minVerifierTier, and never cleared by a different rule (§12.4 (d)/(e), issue #9).
-  const verifierRoute = selectModelRoute(
-    {
-      task: "verify",
-      dataClass,
-      tenantPolicy: input.tenantPolicy,
-      chain: input.expert.modelChains.verify,
-      minTier: input.expert.minVerifierTier,
-      composedWith: { providerKey: composed.providerKey, model: composed.model },
-      nowMs: (deps.clock ?? Date.now)(),
-    },
-    { config: deps.config, health: deps.health, adapters: deps.adapters },
-  );
-  audit.verifierRoute = verifierRoute;
-
-  let claims = binding.bound;
-  const verdicts = new Map<string, SemanticVerdict>();
-  if (deps.semanticVerifier === undefined) {
-    audit.semanticVerification = "not_configured";
-  } else if (verifierRoute.eligible.length === 0) {
-    audit.semanticVerification = "no_eligible_verifier";
-  } else if (claims.length === 0) {
-    audit.semanticVerification = "not_needed";
-  } else {
-    const returned = await deps.semanticVerifier.verify({
-      claims,
-      evidence: runEvidence,
-      route: verifierRoute,
-    });
-    for (const verdict of returned) verdicts.set(verdict.claimId, verdict);
-    audit.verdicts = [...returned];
-    audit.semanticVerification = "ran";
-    const dropped = claims.filter((claim) => {
-      const verdict = verdicts.get(claim.id);
-      return verdict !== undefined && (verdict.status === "unsupported" || verdict.status === "contradicted");
-    });
-    if (dropped.length > 0) {
-      audit.droppedByVerifier = dropped.map((claim) => claim.id);
-      truncation.push(
-        `${dropped.length} claim(s) were dropped because the verifier found them unsupported by their cited text.`,
-      );
-    }
-    claims = claims
-      .filter((claim) => !audit.droppedByVerifier.includes(claim.id))
-      .map((claim) => {
-        const verdict = verdicts.get(claim.id);
-        return verdict === undefined ? claim : { ...claim, verificationStatus: verdict.status };
-      });
-  }
-
-  // Pass 2 not run → `requirement` claims are withheld (§12.1). A normative claim the platform
-  // cannot support is the one class of text that must not reach an employee unverified.
-  const needVerifier = (claim: Claim) => claim.type === "requirement" && !verdicts.has(claim.id);
-  const withheld = claims.filter(needVerifier);
-  if (withheld.length > 0) {
-    audit.withheldRequirementClaims = withheld.length;
-    truncation.push(
-      `${withheld.length} requirement claim(s) are withheld: no eligible independent verifier ran for this answer.`,
-    );
-    claims = claims.filter((claim) => !needVerifier(claim));
-  }
-
   const grounded = claims.some((claim) => claim.type !== "inference" && claim.evidence.length > 0);
   const somethingWasLost =
-    binding.rejected.length > 0 ||
-    withheld.length > 0 ||
+    bindingRejectedCount > 0 ||
+    withheldCount > 0 ||
     audit.droppedByVerifier.length > 0 ||
     claims.length < candidateClaims.length;
 
   let status: Answer["status"];
   if (claims.length === 0) {
-    // Nothing survived: refusing is honest, "answered" with no ground under it is not (§12.1).
     status = "refused";
   } else if (!grounded) {
-    // Only inferences survived: an `answered` result needs an evidenced non-inference claim.
     status = "partial";
   } else if (somethingWasLost || pack.length < input.evidence.length) {
     status = "partial";
@@ -427,31 +494,23 @@ export async function composeAnswer(
   }
 
   // ADR-0009 decision 2 (#97): which sentence this path is allowed to tell, and the key that records it.
-  // Getting here means retrieval **did** hand this run a pack, so every refusal from here on is about
-  // support, not about finding: pass 1 rejected the citations, the verifier found the claims unsupported,
-  // or no eligible verifier could stand behind the only claim. Review finding B4 on #56/#58 was exactly
-  // this line choosing `no_evidence` for a refusal after findings. `out_of_scope` is chosen by the
-  // router (T-104, T-311), never here: compose does not decide what a service answers.
   const refusal: { key: RefusalKey; summary: string } | null =
     status === "refused"
       ? { key: "insufficient_support", summary: input.expert.refusalTemplates.insufficient_support }
       : null;
 
-  // On a refusal, unknowns and conflicts are platform-authored only (#210 / ADR-0009): composer
-  // prose on an all-dropped run is unverified and can describe the withheld claim (§9.3, #97).
-  // Partial answers still carry composed.parsed.unknowns/conflicts — that path is not this ruling.
   return {
     answer: Answer.parse({
       ...safeAnswerBase(input, dataClass),
       status,
       ...(refusal === null ? {} : { refusalKey: refusal.key }),
-      summary: refusal === null ? composed.parsed.summary : refusal.summary,
+      summary: refusal === null ? composedParsed.summary : refusal.summary,
       claims,
       unknowns:
         refusal === null
-          ? composed.parsed.unknowns
+          ? composedParsed.unknowns
           : ["Related material was found but could not be verified into an answer."],
-      conflicts: refusal === null ? composed.parsed.conflicts : [],
+      conflicts: refusal === null ? composedParsed.conflicts : [],
       truncation,
     }),
     audit,
