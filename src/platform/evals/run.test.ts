@@ -143,3 +143,121 @@ describe("clearanceForEvalCase (never widen for a case)", () => {
     );
   });
 });
+
+describe("runExpertEval scoring (F35 per-case results)", () => {
+  it("scores each case and binds results to the run corpus generation", () => {
+    const cases = [
+      approvedCase({ caseId: "UAV-E002", expectedAnswerStatus: "answered" }),
+      approvedCase({
+        caseId: "UAV-E009",
+        caseType: "must_refuse",
+        expectedAnswerStatus: "refused",
+        expectedRefusalKey: "out_of_scope",
+        isolationBait: true,
+        adversarialClass: "cross_tenant_bait",
+      }),
+    ];
+    const run = runExpertEval({
+      expertKey: "uav-expert",
+      expertVersion: "1.0.0-test",
+      chainConfig: { compose: ["local_box"] },
+      corpusGeneration: "gen-bound",
+      cases,
+      askCase: ({ evalCase }) => {
+        if (evalCase.isolationBait) {
+          return {
+            kind: "answer",
+            status: "refused",
+            refusalKey: "out_of_scope",
+            providerKeysUsed: ["local_box"],
+          };
+        }
+        return { kind: "answer", status: "answered", providerKeysUsed: ["local_box"] };
+      },
+    });
+    expect(run.status).toBe("completed");
+    expect(run.results.map((r) => r.caseId)).toEqual(["UAV-E002", "UAV-E009"]);
+    expect(run.results.every((r) => r.score === 1 && r.failureClass === null)).toBe(true);
+  });
+
+  it("records provider_outage without a scored zero", () => {
+    const run = runExpertEval({
+      expertKey: "uav-expert",
+      expertVersion: "1.0.0-test",
+      chainConfig: {},
+      corpusGeneration: "gen-a",
+      cases: [approvedCase({ caseId: "UAV-E001" })],
+      askCase: () => ({ kind: "infrastructure_failure", providerKeysUsed: ["claude"] }),
+    });
+    expect(run.results[0]?.score).toBeNull();
+    expect(run.results[0]?.failureClass).toBe("provider_outage");
+  });
+
+  it("discards the run when corpus generation drifts mid-run", () => {
+    const run = runExpertEval({
+      expertKey: "uav-expert",
+      expertVersion: "1.0.0-test",
+      chainConfig: {},
+      corpusGeneration: "gen-a",
+      cases: [approvedCase({ caseId: "UAV-E001" }), approvedCase({ caseId: "UAV-E002" })],
+      askCase: ({ evalCase }) => ({
+        kind: "answer",
+        status: "answered",
+        providerKeysUsed: ["local_box"],
+        observedCorpusGeneration: evalCase.caseId === "UAV-E002" ? "gen-b" : "gen-a",
+      }),
+    });
+    expect(run.status).toBe("discarded");
+    expect(run.results).toEqual([]);
+  });
+
+  it("a client_confidential case produces zero DeepSeek/OpenRouter calls in the mock", () => {
+    const used: string[] = [];
+    const confidential = approvedCase({
+      caseId: "UAV-E050",
+      dataClass: "client_confidential",
+    });
+    runExpertEval({
+      expertKey: "uav-expert",
+      expertVersion: "1.0.0-test",
+      chainConfig: {},
+      corpusGeneration: "gen-a",
+      cases: [confidential],
+      tenantPolicy: {
+        client_confidential: ["local_box", "claude", "deepseek", "openrouter"],
+      },
+      askCase: ({ clearance, evalCase }) => {
+        const chain = clearance[evalCase.dataClass];
+        for (const key of chain) {
+          used.push(key);
+        }
+        // Mock only calls the first cleared provider — never DeepSeek/OpenRouter.
+        const first = chain[0];
+        if (!first) {
+          return { kind: "infrastructure_failure", providerKeysUsed: [] };
+        }
+        return { kind: "answer", status: "answered", providerKeysUsed: [first] };
+      },
+    });
+    expect(used).not.toContain("deepseek");
+    expect(used).not.toContain("openrouter");
+    expect(used).toEqual(["local_box", "claude"]);
+  });
+
+  it("refuses a mock that tries to call a provider outside clearance", () => {
+    expect(() =>
+      runExpertEval({
+        expertKey: "uav-expert",
+        expertVersion: "1.0.0-test",
+        chainConfig: {},
+        corpusGeneration: "gen-a",
+        cases: [approvedCase({ caseId: "UAV-E050", dataClass: "client_confidential" })],
+        askCase: () => ({
+          kind: "answer",
+          status: "answered",
+          providerKeysUsed: ["deepseek"],
+        }),
+      }),
+    ).toThrow(/not cleared for data class/);
+  });
+});
