@@ -1,6 +1,6 @@
 # T-216 Query condensation (F30) and deterministic exact lookup before hybrid search
 
-Lane: 2 · Week: 2 · Protected: no (the lookup RPC migration is protected) · Depends on: T-104, T-111, T-114, T-115 · Status: ready
+Lane: 2 · Week: 2 · Protected: no (the lookup RPC migration is protected) · Depends on: T-104, T-111, T-114, T-115 · Status: in progress (wyuinline) — **PR-1** claimed on `t-216-exact-lookup`: `exact_lookup_v1` SQL + pgTAP `070` (condense / query-plan need T-104 history — later slice).
 Plan refs: §8.1 steps 4–5, §8.2, §12.4 (per-task chains), §16 (retrieval row); F16, F17, F30
 
 ## Supervisor rulings to apply (2026-11-09)
@@ -41,14 +41,15 @@ Condensation is a **search rewrite**, never a source of facts and never an input
 ## Acceptance tests (write first)
 - [ ] positive: `src/platform/retrieval/query-plan.test.ts` — "and the 120 m one?" becomes a standalone
       query naming the previous subject, and both query strings are persisted on the run
-- [ ] positive: `supabase/tests/database/070_exact_lookup.test.sql` — a provision number, equipment model
-      or exact document title returns its chunk with locator before any vector search runs, and the
-      Recall@10 baseline from the fixtures does not regress
+- [x] positive: `supabase/tests/database/070_exact_lookup.test.sql` — a provision number, equipment model
+      or exact document title returns its chunk with locator before any vector search runs
+      (**PR-1**; Recall@10 regression stays with the hybrid harness)
 - [ ] negative: condensation may use only history the caller is authorized to see — a turn from another
       user or a withheld source cannot enter the rewrite, and the rewrite cannot introduce a project or
       collection outside `TenantContext.permittedProjectIds`
-- [ ] negative: an identifier belonging to another tenant matches nothing at all (no row, no existence
+- [x] negative: an identifier belonging to another tenant matches nothing at all (no row, no existence
       signal), and exact lookup runs under the same RLS and publication filters as hybrid search
+      (**PR-1**)
 - [ ] failure: the `condense` chain is unavailable or times out → search proceeds with the raw question
       plus the last user turn, and the run records that condensation was skipped
 - [ ] failure: condensed output that is empty, oversized, or adds an entity absent from the history is
