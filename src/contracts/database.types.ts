@@ -905,6 +905,9 @@ isOneToOne: false
 "data_class_rank":
 { Args: { "p_data_class": string }; Returns: number
                            },
+"draft_eval_case_from_feedback_v1":
+{ Args: { "p_body": Json,"p_organisation_id": string }; Returns: string
+                           },
 "export_approved_eval_cases_v1":
 { Args: { "p_organisation_id": string }; Returns: {
               "approved_at": string,"approved_by": string,"case_key": string,"data_class": string,"expert_key": string,"id": string,"origin": string,"payload": Json,"question": string
