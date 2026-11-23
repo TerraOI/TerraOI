@@ -98,14 +98,28 @@ create policy knowledge_submissions_author_read on public.knowledge_submissions
   );
 
 -- Reviewers can see open proposals in collections they can read.
+-- Permission is inlined (same predicate as user_may_review_knowledge): that helper is revoked from
+-- authenticated, and RLS expressions run as the request role, so a call would 42501 (#60).
 create policy knowledge_submissions_reviewer_read on public.knowledge_submissions
   for select to authenticated
   using (
     organisation_id = public.current_organisation_id()
     and public.is_active_member(organisation_id)
     and state = 'submitted'
-    and public.user_may_review_knowledge(organisation_id)
     and public.collection_is_readable(collection_id)
+    and exists (
+      select 1
+        from public.organisation_memberships m
+        join public.membership_roles mr on mr.membership_id = m.id
+        join public.role_permissions rp
+          on rp.role_id = mr.role_id
+         and rp.organisation_id = m.organisation_id
+         and rp.area in ('knowledge.write', 'knowledge.admin')
+         and rp.level in ('write', 'admin')
+       where m.organisation_id = knowledge_submissions.organisation_id
+         and m.user_id = auth.uid()
+         and m.status = 'active'
+    )
   );
 
 revoke all on public.knowledge_submissions from anon, authenticated;
