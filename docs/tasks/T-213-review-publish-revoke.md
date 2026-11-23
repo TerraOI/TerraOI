@@ -1,6 +1,6 @@
 # T-213 Review queue, publication policy, revoke and derived-output invalidation
 
-Lane: 2 · Week: 2 · Protected: yes (`supabase/migrations/`, `src/app/api/knowledge/`) · Depends on: T-104, T-111, T-112, T-113, T-114 · Status: ready
+Lane: 2 · Week: 2 · Protected: yes (`supabase/migrations/`, `src/app/api/knowledge/`) · Depends on: T-104, T-111, T-112, T-113, T-114 · Status: in progress (wyuinline) — **PR-1** (this branch) review/publish/revoke SQL + `050` (no derived-output invalidation; that waits on T-104 / #178)
 Plan refs: §7.2 steps 7–9, §7.5 (revocation within 60 s), §6.2, §16 (tenant/source ACL row); F13, F14, F27
 
 ## Supervisor rulings to apply (2026-11-09)
