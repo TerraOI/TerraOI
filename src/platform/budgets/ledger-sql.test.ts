@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { createBoundMeterPortFromBudgetLedger } from "./meter";
-import { createBudgetLedgerExecFromSql, type BudgetSql } from "./ledger-sql";
+import {
+  createBudgetLedgerExecFromSql,
+  createMeterPortFromBudgetDb,
+  type BudgetSql,
+} from "./ledger-sql";
 
 const ORG = "11111111-1111-4111-8111-111111111111";
 const RUN = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1";
@@ -104,6 +108,40 @@ describe("createBudgetLedgerExecFromSql — BUDGET_DB Hyperdrive carrier", () =>
   it("wires through MeterPort: unbound ledger is not silently substituted", async () => {
     expect(createBudgetLedgerExecFromSql({})).toBeNull();
     // Callers must fail closed at the MeterPort seam when null — covered by call.ts budget_authority_unavailable.
+  });
+
+  it("createMeterPortFromBudgetDb returns null when unbound (fail closed, no infinite free meter)", () => {
+    expect(createMeterPortFromBudgetDb({})).toBeNull();
+    expect(createMeterPortFromBudgetDb({ binding: null })).toBeNull();
+  });
+
+  it("createMeterPortFromBudgetDb composes SQL exec into a MeterPort", async () => {
+    const { sql, calls } = recordingSql(async (call) => {
+      if (call.sql.includes("reserve_v1")) return [{ id: RES }];
+      return [];
+    });
+    const meter = createMeterPortFromBudgetDb({ openSql: () => sql });
+    expect(meter).not.toBeNull();
+
+    const { reservationId } = await meter!.reserve({
+      organisationId: ORG,
+      runId: RUN,
+      attemptId: "compose:factory:1",
+      task: "compose",
+      providerKey: "local_box",
+      maxInputUnits: 5,
+      maxOutputUnits: 5,
+    });
+    expect(reservationId).toBe(RES);
+    await meter!.reconcile({
+      attemptId: "compose:factory:1",
+      reservationId,
+      outcome: "released",
+    });
+    expect(calls.map((c) => c.sql)).toEqual([
+      expect.stringContaining("reserve_v1"),
+      expect.stringContaining("reconcile_v1"),
+    ]);
   });
 
   it("createBoundMeterPortFromBudgetLedger works over the SQL exec", async () => {

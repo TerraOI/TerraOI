@@ -1,6 +1,13 @@
 import postgres from "postgres";
 
-import type { BudgetLedgerExec, ReconcileBudgetArgs, ReserveBudgetArgs } from "./meter";
+import type { MeterPort } from "@/platform/gateway/call";
+
+import {
+  createBoundMeterPortFromBudgetLedger,
+  type BudgetLedgerExec,
+  type ReconcileBudgetArgs,
+  type ReserveBudgetArgs,
+} from "./meter";
 
 /**
  * T-313 PR-8: Hyperdrive-backed `BudgetLedgerExec` over `BUDGET_DB` (#134 / T-004).
@@ -126,4 +133,19 @@ export function createBudgetLedgerExecFromSql(deps: BudgetDbDeps): BudgetLedgerE
       });
     },
   };
+}
+
+/**
+ * T-313 PR-9: compose `BUDGET_DB` → MeterPort for gateway deps.
+ *
+ * Returns `null` when unbound — the call site must not invent an in-memory ceiling or skip
+ * reservation (call.ts maps a missing/throwing meter to `budget_authority_unavailable`).
+ */
+export function createMeterPortFromBudgetDb(
+  deps: BudgetDbDeps,
+  options: { userIdForRun?: (runId: string) => string | null } = {},
+): MeterPort | null {
+  const exec = createBudgetLedgerExecFromSql(deps);
+  if (exec === null) return null;
+  return createBoundMeterPortFromBudgetLedger(exec, options);
 }
