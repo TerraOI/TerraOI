@@ -196,7 +196,11 @@ select is_empty($$
            -- T-213 PR-1 (`20261124130000_review_publish.sql`): review / publish / revoke.
            ('public.review_decision_v1(uuid, uuid, text, text)'::regprocedure),
            ('public.publish_knowledge_version_v1(uuid, uuid)'::regprocedure),
-           ('public.revoke_source_v1(uuid, uuid, text)'::regprocedure)
+           ('public.revoke_source_v1(uuid, uuid, text)'::regprocedure),
+           -- T-302b PR-1 (`20261124140000_knowledge_submissions.sql`): F15 submit / review / withdraw.
+           ('public.submit_employee_knowledge_v1(uuid, uuid, text, text, text, uuid[], uuid, timestamptz)'::regprocedure),
+           ('public.review_knowledge_submission_v1(uuid, uuid, text, text)'::regprocedure),
+           ('public.withdraw_knowledge_submission_v1(uuid, uuid)'::regprocedure)
          ) as allowed(proc)
      )
 $$, '32 no function in public is executable by authenticated beyond the named allow-list (§4.3, #60)');

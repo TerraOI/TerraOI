@@ -36,15 +36,17 @@ review functions (call them).
   corroboration of the sources it cited (§7.4).
 
 ## Acceptance tests (write first)
-- [ ] positive: a member submits; a non-author reviewer approves; a `note` source version is created
-      and enters the pipeline
-- [ ] negative: RLS — another tenant, another project, a deactivated member
-- [ ] negative: the author cannot approve their own submission
-- [ ] negative: a submission's class is never lower than its inputs, and a collection that does not
-      clear it is refused
-- [ ] privileges ([#60](https://github.com/TerraOI/TerraOI/issues/60)): functions revoked and granted
-      by name
-- [ ] failure: a duplicate review request does not create a second source
+- [x] positive: a member submits; a non-author reviewer approves; a `note` source version is created
+      and enters the pipeline (**PR-1** / `087`)
+- [x] negative: RLS — another tenant, another project, a deactivated member (**PR-1** / `087`)
+- [x] negative: the author cannot approve their own submission (**PR-1** / `087`)
+- [x] negative: a submission's class is never lower than its inputs, and a collection that does not
+      clear it is refused (**PR-1** / `087`)
+- [x] privileges ([#60](https://github.com/TerraOI/TerraOI/issues/60)): functions revoked and granted
+      by name (**PR-1** / `001` allow-list)
+- [x] failure: a duplicate review request does not create a second source (**PR-1** / `087`)
+- [ ] positive: HTTP routes + loopback (PR-2)
+- [ ] contract ADR for submission payload (PR-2)
 
 ## Done evidence
 `pnpm verify`; the CI `database` job green with `087_knowledge_submissions.test.sql`; loopback route
