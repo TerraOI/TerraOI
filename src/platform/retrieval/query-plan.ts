@@ -10,7 +10,7 @@ import type {
 
 /**
  * T-216 PR-2: query planning — exact identifier lookup before hybrid search (plan §8.1 steps 4–5).
- * Condensation (F30) is a later slice (needs T-104 conversation history).
+ * Callers pass `searchedQuery` from F30 `condenseQuery` (PR-3); history stays with F17 / Lane 1.
  *
  * Both the original question and the searched query are recorded on every result so audit / eval
  * can see what ran. Exact hits short-circuit hybrid; a miss or a soft exact failure falls through.
