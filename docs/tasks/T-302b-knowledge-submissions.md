@@ -1,6 +1,6 @@
 # T-302b Knowledge submissions: table, routes and promotion (F15 data path)
 
-Lane: 2 · Week: 3 · Protected: yes (`supabase/migrations/`, `src/app/api/knowledge/`, `src/contracts/`) · Depends on: T-213 · Status: ready
+Lane: 2 · Week: 3 · Protected: yes (`supabase/migrations/`, `src/app/api/knowledge/`, `src/contracts/`) · Depends on: T-213 · Status: in progress (wyuinline) — **PR-1** (this branch) `knowledge_submissions` SQL + `087` (stacked on T-213 #268); routes/contracts ADR remain PR-2
 Plan refs: §6.1 (line 329), §6.2, §7.4, §9 route table, §11 F15; FAQ-0005; decided in [#73](https://github.com/TerraOI/TerraOI/issues/73)
 
 ## Goal
