@@ -3,7 +3,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(32);
+select plan(41);
 
 -- ---------------------------------------------------------------- fixture helpers
 -- Prefer `set local` (same pattern as 010/013) so auth.uid() and role stick for the transaction.
@@ -313,6 +313,123 @@ select is(
   )),
   '42501',
   '32 company2 cannot attach a company1 case id to an eval run');
+
+-- ---------------------------------------------------------------- 33–40 draft_eval_case_from_feedback_v1 (#102)
+select pg_temp.set_jwt('00000000-0000-4000-8000-0000000000a1');
+select ok(
+  has_function_privilege(
+    'authenticated',
+    'public.draft_eval_case_from_feedback_v1(uuid, jsonb)',
+    'execute'
+  )
+  and not has_function_privilege(
+    'anon',
+    'public.draft_eval_case_from_feedback_v1(uuid, jsonb)',
+    'execute'
+  ),
+  '33 draft_eval_case_from_feedback_v1 is granted to authenticated only'
+);
+
+create temporary table t_fb on commit drop as
+  select public.draft_eval_case_from_feedback_v1(
+    '11111111-1111-4111-8111-111111111111',
+    jsonb_build_object(
+      'expert_key', 'uav-expert',
+      'question', 'Synthetic pilot question used only for feedback-draft pgTAP.',
+      'data_class', 'client_confidential',
+      'case_type', 'must_refuse',
+      'rating', 'incorrect',
+      'derived_from_run_id', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',
+      'derived_from_message_id', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1'
+    )
+  ) as case_id;
+
+select ok((select case_id from t_fb) is not null, '34 feedback RPC returns a case id');
+
+select is(
+  (select origin || ':' || status || ':' || data_class
+     from public.eval_cases where id = (select case_id from t_fb)),
+  'pilot:drafted:client_confidential',
+  '35 feedback draft is origin=pilot, drafted, with caller data_class'
+);
+
+select ok(
+  (select derived_from_run_id is not null
+      and derived_from_message_id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1'::uuid
+     from public.eval_cases where id = (select case_id from t_fb)),
+  '36 provenance columns are set from the rating event'
+);
+
+select is(
+  pg_temp.try_sql($$
+    select public.draft_eval_case_from_feedback_v1(
+      '11111111-1111-4111-8111-111111111111',
+      jsonb_build_object(
+        'expert_key', 'uav-expert',
+        'question', 'Duplicate rating should not create a second pilot draft.',
+        'data_class', 'internal',
+        'rating', 'suggest_correction',
+        'derived_from_run_id', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',
+        'derived_from_message_id', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1'
+      )
+    )
+  $$),
+  '23505',
+  '37 duplicate derived_from_message_id is refused'
+);
+
+select is(
+  pg_temp.try_sql($$
+    select public.draft_eval_case_from_feedback_v1(
+      '11111111-1111-4111-8111-111111111111',
+      jsonb_build_object(
+        'expert_key', 'uav-expert',
+        'question', 'Missing provenance must fail closed.',
+        'data_class', 'internal',
+        'rating', 'incorrect'
+      )
+    )
+  $$),
+  '22023',
+  '38 missing derived_from ids are refused'
+);
+
+select pg_temp.set_jwt('00000000-0000-4000-8000-0000000000b1');
+select is(
+  pg_temp.try_sql($$
+    select public.draft_eval_case_from_feedback_v1(
+      '11111111-1111-4111-8111-111111111111',
+      jsonb_build_object(
+        'expert_key', 'uav-expert',
+        'question', 'Cross-tenant feedback draft must not land.',
+        'data_class', 'internal',
+        'rating', 'incorrect',
+        'derived_from_run_id', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2',
+        'derived_from_message_id', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2'
+      )
+    )
+  $$),
+  '28000',
+  '39 company2 member cannot draft into company1'
+);
+
+select pg_temp.set_jwt('00000000-0000-4000-8000-0000000000a2');
+select lives_ok(
+  format(
+    $$ select public.review_eval_case_v1('11111111-1111-4111-8111-111111111111', %L::uuid, 'approve', '{}'::jsonb) $$,
+    (select case_id from t_fb)
+  ),
+  '40 feedback pilot draft can be approved by a non-author reviewer'
+);
+
+select pg_temp.set_jwt('00000000-0000-4000-8000-0000000000a1');
+select ok(
+  not exists (
+    select 1 from public.export_approved_eval_cases_v1('11111111-1111-4111-8111-111111111111')
+     where id = (select case_id from t_fb)
+  ),
+  '41 export still omits approved origin=pilot feedback drafts (#102)'
+);
 
 select * from finish();
 rollback;

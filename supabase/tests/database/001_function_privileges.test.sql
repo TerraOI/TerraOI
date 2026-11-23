@@ -201,7 +201,9 @@ select is_empty($$
            ('public.list_eval_cases_v1(uuid, text)'::regprocedure),
            ('public.export_approved_eval_cases_v1(uuid)'::regprocedure),
            -- T-312 PR-5 (`20261121230000_eval_run_writers.sql`): append-only F35 run writer.
-           ('public.record_eval_run_v1(uuid, jsonb, jsonb)'::regprocedure)
+           ('public.record_eval_run_v1(uuid, jsonb, jsonb)'::regprocedure),
+           -- T-312 PR-9 (`20261123160000_draft_eval_case_from_feedback.sql`): #102 pilot loop.
+           ('public.draft_eval_case_from_feedback_v1(uuid, jsonb)'::regprocedure)
          ) as allowed(proc)
      )
 $$, '32 no function in public is executable by authenticated beyond the named allow-list (§4.3, #60)');
