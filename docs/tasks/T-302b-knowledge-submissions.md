@@ -45,8 +45,8 @@ review functions (call them).
 - [x] privileges ([#60](https://github.com/TerraOI/TerraOI/issues/60)): functions revoked and granted
       by name (**PR-1** / `001` allow-list)
 - [x] failure: a duplicate review request does not create a second source (**PR-1** / `087`)
-- [ ] positive: HTTP routes + loopback (PR-2)
-- [ ] contract ADR for submission payload (PR-2)
+- [x] positive: HTTP routes + loopback (PR-2) — `submission-rpc*.test.ts`, `submission-handlers.test.ts`
+- [x] contract ADR for submission payload (PR-2) — ADR-0013 + `src/contracts/knowledge-submission.ts`
 
 ## Done evidence
 `pnpm verify`; the CI `database` job green with `087_knowledge_submissions.test.sql`; loopback route
