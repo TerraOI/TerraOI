@@ -78,7 +78,7 @@ select m.organisation_id, m.id, '31000000-0000-4000-8000-0000000000d1'::uuid
 insert into public.knowledge_collections (
   id, organisation_id, key, service_key, project_id, name, data_class, auto_publish, review_independent
 ) values (
-  '51000000-0000-4000-8000-0000000000ap',
+  '51000000-0000-4000-8000-0000000000a5',
   '11111111-1111-4111-8111-111111111111',
   'auto-notes', 'uav', null, 'Auto notes', 'internal', true, false
 );
@@ -87,7 +87,7 @@ insert into public.knowledge_collections (
 insert into public.knowledge_sources (
   id, organisation_id, collection_id, kind, external_id, owner_user_id
 ) values (
-  '61000000-0000-4000-8000-0000000000rv',
+  '61000000-0000-4000-8000-0000000000a6',
   '11111111-1111-4111-8111-111111111111',
   '51000000-0000-4000-8000-000000000001',
   'upload', 'synthetic-review-0001', '00000000-0000-4000-8000-0000000000a1'
@@ -97,24 +97,24 @@ insert into public.source_versions (
   id, organisation_id, source_id, collection_id, version_number, uploaded_by, data_class,
   content_hash, object_ref, state, parser_generation, body_text, published_at
 ) values (
-  '71000000-0000-4000-8000-0000000000rv',
+  '71000000-0000-4000-8000-0000000000a6',
   '11111111-1111-4111-8111-111111111111',
-  '61000000-0000-4000-8000-0000000000rv',
+  '61000000-0000-4000-8000-0000000000a6',
   '51000000-0000-4000-8000-000000000001',
   1,
   '00000000-0000-4000-8000-0000000000a1',
   'public',
   'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-  'knowledge/11111111-1111-4111-8111-111111111111/61000000-0000-4000-8000-0000000000rv/v1.pdf',
+  'knowledge/11111111-1111-4111-8111-111111111111/61000000-0000-4000-8000-0000000000a6/v1.pdf',
   'awaiting_review', 'v1', null, null
 );
 
 insert into public.knowledge_chunks (
   id, organisation_id, source_version_id, chunk_index, locator, body_text, data_class, token_count
 ) values (
-  '81000000-0000-4000-8000-0000000000rv',
+  '81000000-0000-4000-8000-0000000000a6',
   '11111111-1111-4111-8111-111111111111',
-  '71000000-0000-4000-8000-0000000000rv',
+  '71000000-0000-4000-8000-0000000000a6',
   0,
   '{"page": 1}',
   'Synthetic review fixture: rotor clear of personnel during spool-up.',
@@ -130,9 +130,9 @@ update public.knowledge_collections
 insert into public.knowledge_sources (
   id, organisation_id, collection_id, kind, external_id, owner_user_id
 ) values (
-  '61000000-0000-4000-8000-0000000000ap',
+  '61000000-0000-4000-8000-0000000000a5',
   '11111111-1111-4111-8111-111111111111',
-  '51000000-0000-4000-8000-0000000000ap',
+  '51000000-0000-4000-8000-0000000000a5',
   'note', null, '00000000-0000-4000-8000-0000000000a2'
 );
 
@@ -140,15 +140,15 @@ insert into public.source_versions (
   id, organisation_id, source_id, collection_id, version_number, uploaded_by, data_class,
   content_hash, object_ref, state, parser_generation, body_text, published_at
 ) values (
-  '71000000-0000-4000-8000-0000000000ap',
+  '71000000-0000-4000-8000-0000000000a5',
   '11111111-1111-4111-8111-111111111111',
-  '61000000-0000-4000-8000-0000000000ap',
-  '51000000-0000-4000-8000-0000000000ap',
+  '61000000-0000-4000-8000-0000000000a5',
+  '51000000-0000-4000-8000-0000000000a5',
   1,
   '00000000-0000-4000-8000-0000000000a2',
   'internal',
   'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-  'knowledge/11111111-1111-4111-8111-111111111111/61000000-0000-4000-8000-0000000000ap/v1.json',
+  'knowledge/11111111-1111-4111-8111-111111111111/61000000-0000-4000-8000-0000000000a5/v1.json',
   'awaiting_review', 'v1',
   'Synthetic auto-publish note body for T-213.',
   null
@@ -157,9 +157,9 @@ insert into public.source_versions (
 insert into public.knowledge_chunks (
   id, organisation_id, source_version_id, chunk_index, locator, body_text, data_class, token_count
 ) values (
-  '81000000-0000-4000-8000-0000000000ap',
+  '81000000-0000-4000-8000-0000000000a5',
   '11111111-1111-4111-8111-111111111111',
-  '71000000-0000-4000-8000-0000000000ap',
+  '71000000-0000-4000-8000-0000000000a5',
   0,
   '{"page": 1}',
   'Synthetic auto-publish note body for T-213.',
@@ -182,7 +182,7 @@ set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
 select is(pg_temp.try_review(
   '11111111-1111-4111-8111-111111111111',
-  '71000000-0000-4000-8000-0000000000rv',
+  '71000000-0000-4000-8000-0000000000a6',
   'approve', null), '42501',
   '4 uploader cannot approve own version when review_independent (#8)');
 reset role;
@@ -191,7 +191,7 @@ set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000b1';
 select is(pg_temp.try_review(
   '11111111-1111-4111-8111-111111111111',
-  '71000000-0000-4000-8000-0000000000rv',
+  '71000000-0000-4000-8000-0000000000a6',
   'approve', null), '28000',
   '5 company2 owner cannot establish company1 scope to review');
 reset role;
@@ -200,7 +200,7 @@ set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a3';
 select is(pg_temp.try_review(
   '11111111-1111-4111-8111-111111111111',
-  '71000000-0000-4000-8000-0000000000rv',
+  '71000000-0000-4000-8000-0000000000a6',
   'approve', null), '28000',
   '6 suspended membership cannot review');
 reset role;
@@ -210,29 +210,29 @@ set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a2';
 select is(pg_temp.try_review(
   '11111111-1111-4111-8111-111111111111',
-  '71000000-0000-4000-8000-0000000000rv',
+  '71000000-0000-4000-8000-0000000000a6',
   'approve', 'looks good'), 'ok',
   '7 non-author publisher can approve');
 select is(pg_temp.try_review(
   '11111111-1111-4111-8111-111111111111',
-  '71000000-0000-4000-8000-0000000000rv',
+  '71000000-0000-4000-8000-0000000000a6',
   'approve', 'again'), 'ok',
   '8 duplicate approve is a no-op');
 select is(pg_temp.try_publish(
   '11111111-1111-4111-8111-111111111111',
-  '71000000-0000-4000-8000-0000000000rv'), 'ok',
+  '71000000-0000-4000-8000-0000000000a6'), 'ok',
   '9 publish after approve succeeds');
 reset role;
 
 select is((select state from public.source_versions
-            where id = '71000000-0000-4000-8000-0000000000rv'), 'published',
+            where id = '71000000-0000-4000-8000-0000000000a6'), 'published',
   '10 version is published');
 select is((select current_version_id from public.knowledge_sources
-            where id = '61000000-0000-4000-8000-0000000000rv'),
-  '71000000-0000-4000-8000-0000000000rv'::uuid,
+            where id = '61000000-0000-4000-8000-0000000000a6'),
+  '71000000-0000-4000-8000-0000000000a6'::uuid,
   '11 source current_version_id points at the published version');
 select is((select count(*)::int from public.knowledge_review_decisions
-            where source_version_id = '71000000-0000-4000-8000-0000000000rv'), 1,
+            where source_version_id = '71000000-0000-4000-8000-0000000000a6'), 1,
   '12 only one review decision row');
 
 -- ---------------------------------------------------------------- 13-15 auto-publish note
@@ -240,12 +240,12 @@ set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
 select is(pg_temp.try_publish(
   '11111111-1111-4111-8111-111111111111',
-  '71000000-0000-4000-8000-0000000000ap'), 'ok',
+  '71000000-0000-4000-8000-0000000000a5'), 'ok',
   '13 auto_publish note publishes without a prior review decision');
 reset role;
 
 select is((select state from public.source_versions
-            where id = '71000000-0000-4000-8000-0000000000ap'), 'published',
+            where id = '71000000-0000-4000-8000-0000000000a5'), 'published',
   '14 auto-published note is published');
 
 -- Incomplete publish refused: strip chunks from a fresh awaiting_review copy via privileged path.
@@ -253,15 +253,15 @@ insert into public.source_versions (
   id, organisation_id, source_id, collection_id, version_number, uploaded_by, data_class,
   content_hash, object_ref, state, parser_generation, body_text, published_at
 ) values (
-  '71000000-0000-4000-8000-0000000000ix',
+  '71000000-0000-4000-8000-0000000000a7',
   '11111111-1111-4111-8111-111111111111',
-  '61000000-0000-4000-8000-0000000000ap',
-  '51000000-0000-4000-8000-0000000000ap',
+  '61000000-0000-4000-8000-0000000000a5',
+  '51000000-0000-4000-8000-0000000000a5',
   2,
   '00000000-0000-4000-8000-0000000000a2',
   'internal',
   'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
-  'knowledge/11111111-1111-4111-8111-111111111111/61000000-0000-4000-8000-0000000000ap/v2.json',
+  'knowledge/11111111-1111-4111-8111-111111111111/61000000-0000-4000-8000-0000000000a5/v2.json',
   'awaiting_review', 'v1', 'incomplete', null
 );
 
@@ -269,7 +269,7 @@ set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
 select is(pg_temp.try_publish(
   '11111111-1111-4111-8111-111111111111',
-  '71000000-0000-4000-8000-0000000000ix'), '22023',
+  '71000000-0000-4000-8000-0000000000a7'), '22023',
   '15 publish without chunks is refused (embedding incomplete)');
 reset role;
 
@@ -278,22 +278,22 @@ set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
 select is(pg_temp.try_revoke(
   '11111111-1111-4111-8111-111111111111',
-  '61000000-0000-4000-8000-0000000000rv'), 'ok',
+  '61000000-0000-4000-8000-0000000000a6'), 'ok',
   '16 owner can revoke a published source');
 select is(pg_temp.try_revoke(
   '11111111-1111-4111-8111-111111111111',
-  '61000000-0000-4000-8000-0000000000rv'), 'ok',
+  '61000000-0000-4000-8000-0000000000a6'), 'ok',
   '17 duplicate revoke is a no-op');
 reset role;
 
 select is((select lifecycle_state from public.knowledge_sources
-            where id = '61000000-0000-4000-8000-0000000000rv'), 'revoked',
+            where id = '61000000-0000-4000-8000-0000000000a6'), 'revoked',
   '18 source lifecycle is revoked');
 select is((select state from public.source_versions
-            where id = '71000000-0000-4000-8000-0000000000rv'), 'revoked',
+            where id = '71000000-0000-4000-8000-0000000000a6'), 'revoked',
   '19 published version is revoked');
 select is((select current_version_id from public.knowledge_sources
-            where id = '61000000-0000-4000-8000-0000000000rv'), null,
+            where id = '61000000-0000-4000-8000-0000000000a6'), null,
   '20 revoked source clears current_version_id');
 
 -- search_corpus must not return the revoked version (state filter).
@@ -302,7 +302,7 @@ select is((
     from public.knowledge_chunks c
     join public.source_versions v on v.id = c.source_version_id
     join public.knowledge_sources s on s.id = v.source_id
-   where v.id = '71000000-0000-4000-8000-0000000000rv'
+   where v.id = '71000000-0000-4000-8000-0000000000a6'
      and v.state = 'published'
      and s.lifecycle_state = 'active'
 ), 0, '21 revoked version is invisible to the published+active retrieval predicate');
@@ -317,7 +317,7 @@ set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a4';
 -- a4 is a member of company1 without knowledge.write in the seed (unless publisher was granted).
 select is(pg_temp.try_review(
   '11111111-1111-4111-8111-111111111111',
-  '71000000-0000-4000-8000-0000000000ix',
+  '71000000-0000-4000-8000-0000000000a7',
   'approve', null), '42501',
   '23 member without knowledge.write|admin cannot review');
 reset role;
@@ -334,9 +334,9 @@ select is(has_function_privilege('anon',
 insert into public.knowledge_chunks (
   id, organisation_id, source_version_id, chunk_index, locator, body_text, data_class, token_count
 ) values (
-  '81000000-0000-4000-8000-0000000000i2',
+  '81000000-0000-4000-8000-0000000000a8',
   '11111111-1111-4111-8111-111111111111',
-  '71000000-0000-4000-8000-0000000000ix',
+  '71000000-0000-4000-8000-0000000000a7',
   0,
   '{"page": 1}',
   'Second auto note version body.',
@@ -347,16 +347,16 @@ set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
 select is(pg_temp.try_publish(
   '11111111-1111-4111-8111-111111111111',
-  '71000000-0000-4000-8000-0000000000ix'), 'ok',
+  '71000000-0000-4000-8000-0000000000a7'), 'ok',
   '26 second version publishes');
 reset role;
 
 select is((select state from public.source_versions
-            where id = '71000000-0000-4000-8000-0000000000ap'), 'superseded',
+            where id = '71000000-0000-4000-8000-0000000000a5'), 'superseded',
   '27 prior published version is superseded');
 select is((select current_version_id from public.knowledge_sources
-            where id = '61000000-0000-4000-8000-0000000000ap'),
-  '71000000-0000-4000-8000-0000000000ix'::uuid,
+            where id = '61000000-0000-4000-8000-0000000000a5'),
+  '71000000-0000-4000-8000-0000000000a7'::uuid,
   '28 source pointer moves to the new published version');
 
 select * from finish();
