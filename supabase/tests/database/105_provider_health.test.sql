@@ -60,6 +60,9 @@ insert into public.model_providers (
   ('workers_ai', 'large', 2, 'internal', 1, true)
 on conflict (provider_key) do nothing;
 
+-- 100's idiom: SET ROLE only works for roles the session is a member of.
+grant toi_gateway_config to postgres;
+
 create or replace function pg_temp.try_record(
   p_role text,
   p_key text,
