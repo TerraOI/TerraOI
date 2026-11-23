@@ -62,18 +62,24 @@ $$;
 
 -- Synthetic ceilings for company1; company2 gets a tiny daily ceiling for isolation proof.
 set local role toi_budget_ledger;
-select lives_ok(
-  $$ select budget_ledger.ensure_account_v1(
-       '11111111-1111-4111-8111-111111111111',
-       1000, 10000, 2, 2
-     ) $$,
+select is(
+  pg_temp.try_sql($$
+    select budget_ledger.ensure_account_v1(
+      '11111111-1111-4111-8111-111111111111',
+      1000, 10000, 2, 2
+    )
+  $$),
+  'ok',
   '9 ensure company1 budget account'
 );
-select lives_ok(
-  $$ select budget_ledger.ensure_account_v1(
-       '22222222-2222-4222-8222-222222222222',
-       50, 10000, 2, 2
-     ) $$,
+select is(
+  pg_temp.try_sql($$
+    select budget_ledger.ensure_account_v1(
+      '22222222-2222-4222-8222-222222222222',
+      50, 10000, 2, 2
+    )
+  $$),
+  'ok',
   '10 ensure company2 budget account with a low daily ceiling'
 );
 reset role;
@@ -114,8 +120,8 @@ select is(
   '13 duplicate attempt_id is idempotent'
 );
 
-select lives_ok(
-  format(
+select is(
+  pg_temp.try_sql(format(
     $$ select budget_ledger.reconcile_v1(
          '11111111-1111-4111-8111-111111111111',
          'attempt-1',
@@ -124,7 +130,8 @@ select lives_ok(
          null
        ) $$,
     (select reservation_id from t_res)
-  ),
+  )),
+  'ok',
   '14 unused reservation releases liability'
 );
 
