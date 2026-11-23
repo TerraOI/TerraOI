@@ -5,6 +5,10 @@ import { ProgressEvent, type TierChangeReason } from "@/contracts/chat";
 import type { ProviderKey } from "@/contracts/keys";
 
 import {
+  createInMemoryRunAuditStore,
+  type RunAuditStore,
+} from "@/platform/audit/run-audit";
+import {
   createFreeAllowanceBook,
   type FreeAllowanceBook,
 } from "@/platform/budgets/free-allowance";
@@ -66,12 +70,21 @@ function baseInput(
   };
 }
 
+const RUN_AUDIT_META = {
+  expertKey: "uav-expert",
+  expertVersions: ["uav-expert@1"],
+  corpusGenerations: [2],
+  policyRevision: 4,
+  policyRevisionDelivered: 4,
+} as const;
+
 function harness(
   scripts: Record<string, AdapterCallOutcome[]>,
   options: {
     config?: ReturnType<typeof testConfiguration>;
     book?: CircuitBook;
     freeAllowances?: FreeAllowanceBook;
+    runAudit?: RunAuditStore;
   } = {},
 ): {
   adapters: ReturnType<typeof fakeAdapter>[];
@@ -97,6 +110,7 @@ function harness(
       health: book,
       meter,
       freeAllowances: options.freeAllowances,
+      runAudit: options.runAudit,
       onProgress: (event) => events.push(event),
     },
   };
@@ -271,6 +285,51 @@ describe("metering every attempt (plan §12.3, F19 reserve-only)", () => {
       expect(h.meter.byAttempt.get(first.attemptId)?.reconciled, kind).toBe("ambiguous");
       expect(h.meter.byAttempt.get(first.attemptId)?.reserved, kind).toBe(true);
     }
+  });
+
+  it("commits F22 audit before returning an answer when runAudit is bound", async () => {
+    const runAudit = createInMemoryRunAuditStore();
+    const h = harness(
+      { local_box: [answered(JSON.stringify({ answer: "ok" }), "open-weights-alpha")] },
+      { runAudit },
+    );
+    const result = await callModelGateway(
+      baseInput({ chain: ["local_box"], runAuditMeta: RUN_AUDIT_META }),
+      h.deps,
+    );
+    expect(result.ok).toBe(true);
+    expect(runAudit.commits()).toHaveLength(1);
+    expect(runAudit.commits()[0]?.attempts[0]?.providerKey).toBe("local_box");
+  });
+
+  it("fails closed with audit_persist_failed and does not return the answer text", async () => {
+    const runAudit = createInMemoryRunAuditStore({ failCommit: true });
+    const h = harness(
+      { local_box: [answered(JSON.stringify({ answer: "secret" }), "open-weights-alpha")] },
+      { runAudit },
+    );
+    const result = await callModelGateway(
+      baseInput({ chain: ["local_box"], runAuditMeta: RUN_AUDIT_META }),
+      h.deps,
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected unavailable");
+    expect(result.reason).toBe("audit_persist_failed");
+    expect(result).not.toHaveProperty("text");
+    expect(runAudit.commits()).toHaveLength(0);
+  });
+
+  it("refuses a runAudit binding without runAuditMeta rather than inventing expert stamps", async () => {
+    const runAudit = createInMemoryRunAuditStore();
+    const h = harness(
+      { local_box: [answered(JSON.stringify({ answer: "ok" }), "open-weights-alpha")] },
+      { runAudit },
+    );
+    const result = await callModelGateway(baseInput({ chain: ["local_box"] }), h.deps);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected unavailable");
+    expect(result.reason).toBe("misconfigured_call");
+    expect(runAudit.commits()).toHaveLength(0);
   });
 
   it("predicted free-tier exhaustion skips the free call and reserves the paid tier before it runs", async () => {
