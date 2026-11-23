@@ -55,11 +55,15 @@ Derived-output invalidation reads the `data_class` and source-version dependency
       (waits on #178)
 - [x] failure: a duplicate review decision is a no-op; publishing a version whose embedding is incomplete
       is refused (**PR-1**)
+- [x] positive: `src/platform/knowledge/review-rpc*.test.ts` + `review-handlers.test.ts` — `withTenantRpc`
+      carries the context org only; loopback proves the user bearer and no privileged canary; handlers
+      refuse origin mismatch / missing session and never take org from the body (**PR-2**)
 
 ## Done evidence
 `pnpm db:test` (CI `database` job where the machine has no Docker), `pnpm verify`; staging: publish one
 synthetic Company1 PDF through the queue, ask the expert and get a cited answer, revoke it, then re-run
-the search **and** re-open the old citation within 60 seconds and show both refused.
+the search **and** re-open the old citation within 60 seconds and show both refused. Route adapters stay
+unbound (503) until #37 — same seam as uploads.
 
 ## Out of scope
 Reviewer UI polish (T-202/T-302), retention and legal hold, export purge (no exports in M1, §20.5),
