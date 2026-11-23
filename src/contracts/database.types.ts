@@ -23,7 +23,53 @@ export type Database = {
           }
         },"public": {
           Tables: {
-            "chunk_embeddings": {
+            "budget_accounts": {
+                  Row: {
+                    "burst_per_user": number,"concurrent_run_cap": number,"daily_ceiling_units": number,"day_key": string,"day_reserved_units": number,"day_settled_units": number,"month_key": string,"month_reserved_units": number,"month_settled_units": number,"monthly_ceiling_units": number,"organisation_id": string,"updated_at": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "burst_per_user": number,"concurrent_run_cap": number,"daily_ceiling_units": number,"day_key": string,"day_reserved_units"?: number,"day_settled_units"?: number,"month_key": string,"month_reserved_units"?: number,"month_settled_units"?: number,"monthly_ceiling_units": number,"organisation_id": string,"updated_at"?: string
+                  }
+                  Update: {
+                    "burst_per_user"?: number,"concurrent_run_cap"?: number,"daily_ceiling_units"?: number,"day_key"?: string,"day_reserved_units"?: number,"day_settled_units"?: number,"month_key"?: string,"month_reserved_units"?: number,"month_settled_units"?: number,"monthly_ceiling_units"?: number,"organisation_id"?: string,"updated_at"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "budget_accounts_organisation_id_fkey"
+      columns: ["organisation_id"]
+isOneToOne: true
+      referencedRelation: "organisations"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"budget_reservations": {
+                  Row: {
+                    "attempt_id": string,"created_at": string,"id": string,"max_units": number,"organisation_id": string,"provider_key": string,"reconciled_at": string | null,"run_id": string,"state": string,"task": string,"used_units": number | null,"user_id": string | null
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "attempt_id": string,"created_at"?: string,"id"?: string,"max_units": number,"organisation_id": string,"provider_key": string,"reconciled_at"?: string | null,"run_id": string,"state": string,"task": string,"used_units"?: number | null,"user_id"?: string | null
+                  }
+                  Update: {
+                    "attempt_id"?: string,"created_at"?: string,"id"?: string,"max_units"?: number,"organisation_id"?: string,"provider_key"?: string,"reconciled_at"?: string | null,"run_id"?: string,"state"?: string,"task"?: string,"used_units"?: number | null,"user_id"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "budget_reservations_organisation_id_fkey"
+      columns: ["organisation_id"]
+isOneToOne: false
+      referencedRelation: "organisations"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "budget_reservations_user_id_fkey"
+      columns: ["user_id"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"chunk_embeddings": {
                   Row: {
                     "chunk_id": string,"created_at": string,"embedding": string,"id": string,"index_generation": number,"index_id": string,"organisation_id": string
                   }
