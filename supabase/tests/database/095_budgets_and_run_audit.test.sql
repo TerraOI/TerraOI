@@ -4,7 +4,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(18);
+select plan(21);
 
 select has_schema('budget_ledger', '1 budget_ledger schema exists');
 select has_role('toi_budget_ledger', '2 toi_budget_ledger NOLOGIN role exists');
@@ -204,6 +204,64 @@ select ok(
      from public.budget_accounts
     where organisation_id = '11111111-1111-4111-8111-111111111111') < 1000,
   '18 company1 account is not charged by company2 reservations'
+);
+
+-- company1 was ensure'd with concurrent_run_cap=2 and burst_per_user=2 (§12.3).
+select ok(
+  pg_temp.reserve_id(
+    '11111111-1111-4111-8111-111111111111',
+    'cccccccc-cccc-4ccc-8ccc-ccccccccccc1',
+    'conc-a',
+    '00000000-0000-4000-8000-0000000000a1',
+    'compose',
+    'local_box',
+    10,
+    10
+  ) ~ '^[0-9a-f-]{36}$'
+  and pg_temp.reserve_id(
+    '11111111-1111-4111-8111-111111111111',
+    'cccccccc-cccc-4ccc-8ccc-ccccccccccc2',
+    'conc-b',
+    '00000000-0000-4000-8000-0000000000a1',
+    'compose',
+    'local_box',
+    10,
+    10
+  ) ~ '^[0-9a-f-]{36}$',
+  '19 company1 admits exactly concurrent_run_cap open runs'
+);
+
+select is(
+  pg_temp.reserve_id(
+    '11111111-1111-4111-8111-111111111111',
+    'cccccccc-cccc-4ccc-8ccc-ccccccccccc3',
+    'conc-c',
+    '00000000-0000-4000-8000-0000000000a1',
+    'compose',
+    'local_box',
+    10,
+    10
+  ),
+  'P0001',
+  '20 a third concurrent run at the cap is refused (§14)'
+);
+
+-- burst_per_user=2 and both open runs already belong to a1, so another attempt for a1 (same or
+-- new run) must hit the per-user burst before anything else. Use a fresh attempt on an existing
+-- open run: concurrent allows the same run_id, burst counts reserved rows for the user.
+select is(
+  pg_temp.reserve_id(
+    '11111111-1111-4111-8111-111111111111',
+    'cccccccc-cccc-4ccc-8ccc-ccccccccccc1',
+    'burst-extra',
+    '00000000-0000-4000-8000-0000000000a1',
+    'compose',
+    'local_box',
+    10,
+    10
+  ),
+  'P0001',
+  '21 per-user burst limit refuses a third reserved attempt for the same user'
 );
 
 select * from finish();
