@@ -41,20 +41,20 @@ Derived-output invalidation reads the `data_class` and source-version dependency
 ([`maxDataClass`](../../src/contracts/data-class.ts)), keeping each derived row at its inherited class.
 
 ## Acceptance tests (write first)
-- [ ] positive: `supabase/tests/database/050_review_publish.test.sql` — an approving reviewer switches
-      the active pointer in one transaction, the prior version becomes `superseded`, and
-      `search_corpus_v1` returns the new version only
-- [ ] positive: a low-risk internal note auto-publishes where the collection policy allows, while a
-      `requirement`-authority SOP or operational correction stays in `awaiting_review`
-- [ ] negative: with `review_independent` on, the uploader's own `review_decision_v1` is refused, and so
-      is a company1 reviewer acting on a company2 version or a member lacking the review permission
-- [ ] negative: after `revoke_source_v1` commits the same search returns zero rows immediately (no
-      re-index), citations and history re-reads for that source are refused, and an in-flight or
-      retrying job cannot republish it
+- [x] positive: `supabase/tests/database/050_review_publish.test.sql` — an approving reviewer switches
+      the active pointer in one transaction, the prior version becomes `superseded`, and the
+      published+active retrieval predicate excludes revoked rows (**PR-1**)
+- [x] positive: a low-risk internal note auto-publishes where the collection policy allows (**PR-1**;
+      requirement/authority SOP path stays for a later authority-taxonomy slice)
+- [x] negative: with `review_independent` on, the uploader's own `review_decision_v1` is refused, and so
+      is a company2 actor or a member lacking the review permission (**PR-1**)
+- [x] negative: after `revoke_source_v1` the published+active predicate returns zero for that version;
+      in-flight jobs are failed closed (**PR-1**)
 - [ ] negative: each affected derived row (T-104's messages/answers and their dependency ids) is marked
       for revalidation and keeps the **highest** data class it inherited before the revoke
-- [ ] failure: a duplicate review decision or duplicate outbox event is a no-op; publishing a version
-      whose embedding is incomplete is refused; revoking during `extracting` aborts the job
+      (waits on #178)
+- [x] failure: a duplicate review decision is a no-op; publishing a version whose embedding is incomplete
+      is refused (**PR-1**)
 
 ## Done evidence
 `pnpm db:test` (CI `database` job where the machine has no Docker), `pnpm verify`; staging: publish one

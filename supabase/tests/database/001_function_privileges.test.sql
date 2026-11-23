@@ -192,7 +192,11 @@ select is_empty($$
            ('public.revoke_membership_role_v1(uuid, uuid, uuid)'::regprocedure),
            ('public.create_project_v1(uuid, text, text, text)'::regprocedure),
            ('public.add_project_member_v1(uuid, uuid, uuid)'::regprocedure),
-           ('public.remove_project_member_v1(uuid, uuid, uuid)'::regprocedure)
+           ('public.remove_project_member_v1(uuid, uuid, uuid)'::regprocedure),
+           -- T-213 PR-1 (`20261124130000_review_publish.sql`): review / publish / revoke.
+           ('public.review_decision_v1(uuid, uuid, text, text)'::regprocedure),
+           ('public.publish_knowledge_version_v1(uuid, uuid)'::regprocedure),
+           ('public.revoke_source_v1(uuid, uuid, text)'::regprocedure)
          ) as allowed(proc)
      )
 $$, '32 no function in public is executable by authenticated beyond the named allow-list (§4.3, #60)');
