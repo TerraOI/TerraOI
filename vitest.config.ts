@@ -13,6 +13,8 @@ export default defineConfig({
       // collected - the vacuous-pass trap COORDINATION §6b now names for pgTAP.
       "workers/**/*.test.ts",
       "localbox/**/*.test.ts",
+      // T-315: drafted/approved case validators live next to the fixtures under `evals/`.
+      "evals/**/*.test.ts",
     ],
     environment: "node",
   },

@@ -38,17 +38,14 @@ a `SYNTH-*` fixture that exists in no corpus. A lead re-binds each case to a rea
   canonical expert key is still open — see Blank 1 in
   [`docs/contracts/eval-case-format.md`](../docs/contracts/eval-case-format.md). Undoing this is two folder
   renames plus the `expertKey` field in each file; nothing else here depends on it.
-- **No CI wiring, on purpose.** No `package.json` script, no `.github/` change, no validator in `scripts/`:
-  nobody owns the nightly eval schedule or its checks yet ([#74](https://github.com/TerraOI/TerraOI/issues/74)),
-  `.github/` is protected and no packet owns it, and the harness is T-312's. The validator the packets do
-  assign (`evals/**/*.test.ts`, T-315 "Owns") is **not** in this batch either — it belongs with the harness
-  work, so a case file can still be malformed until that lands. The batch was instead checked with a
-  throwaway script outside the repository; its output is in the PR.
+- **Validators (T-315).** `uav-expert/cases.test.ts` and `gpr-expert/cases.test.ts` parse every case
+  file, require SYNTH fixtures + a §14.1 case type, refuse client-identifying patterns, and assert the
+  six adversarial classes are present. They run under `pnpm test` / `pnpm eval:ci`.
 - **Counts are drafted, not approved.** §14.1's pilot-entry thresholds (≥ 40 approved per expert,
   ≥ 10 must-refuse/clarify, ≥ 5 cross-tenant/project bait) are measured on **approved** cases, so this
   batch contributes material for the leads' weeks 3–4 and passes no threshold.
-- `evals/LOADING.md` (the staging load runbook) and `evals/retrieval/`, `evals/verification/` (T-114, T-212,
-  T-215, T-216) are not part of this batch.
+- `evals/LOADING.md` is the staging load runbook (T-315). `evals/retrieval/` and `evals/verification/`
+  belong to T-114 / T-212 / T-215 / T-216.
 
 ## Data rule
 
