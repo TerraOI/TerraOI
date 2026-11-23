@@ -58,20 +58,20 @@ $fn$;
 
 -- Publisher role for field member a2 (write) — same pattern as 040.
 insert into public.organisation_roles (id, organisation_id, key, name) values
-  ('31000000-0000-4000-8000-0000000000r1', '11111111-1111-4111-8111-111111111111', 'publisher', 'Knowledge publisher')
+  ('31000000-0000-4000-8000-0000000000d1', '11111111-1111-4111-8111-111111111111', 'publisher', 'Knowledge publisher')
 on conflict (organisation_id, key) do nothing;
 insert into public.role_permissions (organisation_id, role_id, area, level) values
-  ('11111111-1111-4111-8111-111111111111', '31000000-0000-4000-8000-0000000000r1', 'knowledge.write', 'write')
+  ('11111111-1111-4111-8111-111111111111', '31000000-0000-4000-8000-0000000000d1', 'knowledge.write', 'write')
 on conflict (role_id, area) do nothing;
 insert into public.membership_roles (organisation_id, membership_id, role_id)
-select m.organisation_id, m.id, '31000000-0000-4000-8000-0000000000r1'::uuid
+select m.organisation_id, m.id, '31000000-0000-4000-8000-0000000000d1'::uuid
   from public.organisation_memberships m
  where m.user_id = '00000000-0000-4000-8000-0000000000a2'
    and m.organisation_id = '11111111-1111-4111-8111-111111111111'
   and not exists (
     select 1 from public.membership_roles mr
      where mr.membership_id = m.id
-       and mr.role_id = '31000000-0000-4000-8000-0000000000r1'
+       and mr.role_id = '31000000-0000-4000-8000-0000000000d1'
   );
 
 -- Auto-publish internal notes collection (tenant-wide).
