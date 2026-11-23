@@ -4,6 +4,12 @@ import type { CapabilityTier, ClearanceMatrix, TaskClass } from "@/contracts/pro
 import type { ProviderKey } from "@/contracts/keys";
 import type { TenantContext } from "@/contracts/tenant-context";
 
+import {
+  isFreeTierProvider,
+  planFreeTierAttempt,
+  type FreeAllowanceBook,
+} from "@/platform/budgets/free-allowance";
+
 import type { AdapterCallOutcome, ModelMessage, ProviderAdapter, ProviderFailureKind } from "./adapters";
 import type { GatewayConfiguration } from "./config";
 import type { HealthWriter } from "./circuit";
@@ -114,6 +120,12 @@ export interface GatewayDeps {
   };
   health: HealthReader & HealthWriter;
   meter: MeterPort;
+  /**
+   * Optional F19 free-tier unit book (T-313). When set, a free provider whose conservative max
+   * would exhaust the allowance is skipped and marked quota-exhausted so the next paid tier is
+   * reserved before it is called — never discovered by a 429 (§12.3).
+   */
+  freeAllowances?: FreeAllowanceBook;
   onProgress?: (event: ProgressEvent) => void;
   /** Injectable clock, so the audit trail and the tests agree on when something happened. */
   clock?: () => number;
@@ -298,6 +310,29 @@ export async function callModelGateway<T>(
       continue;
     }
 
+    const maxUnits = maxInputUnits + input.maxOutputUnits;
+    if (deps.freeAllowances !== undefined && isFreeTierProvider(entry.providerKey)) {
+      const afterCurrent = decision.eligible
+        .filter((e) => e.chainPosition > entry.chainPosition)
+        .map((e) => e.providerKey);
+      const freePlan = planFreeTierAttempt({
+        book: deps.freeAllowances,
+        providerKey: entry.providerKey,
+        maxUnits,
+        eligibleChainAfterCurrent: afterCurrent,
+        setQuotaExhausted: (providerKey, exhausted) => {
+          deps.health.noteQuotaExhausted(providerKey, exhausted);
+        },
+      });
+      if (freePlan.skipFreeProvider) {
+        // Predicted exhaustion: do not call or reserve the free tier; walk on so the next paid
+        // attempt is reserved before its network call (§12.3).
+        previousPosition = entry.chainPosition;
+        advanceReason = "quota_exhausted";
+        continue;
+      }
+    }
+
     // The tag is only meaningful for a verify; a non-verify call is already named by its task.
     const attemptId = attemptIdOf(
       input.runId,
@@ -364,6 +399,16 @@ export async function callModelGateway<T>(
         continue;
       }
       await reconcile(deps, attempt, reservationId, outcome, "settled");
+      if (
+        deps.freeAllowances !== undefined &&
+        isFreeTierProvider(entry.providerKey) &&
+        outcome.usage !== undefined
+      ) {
+        deps.freeAllowances.settle(
+          entry.providerKey,
+          outcome.usage.inputUnits + outcome.usage.outputUnits,
+        );
+      }
       deps.health.recordSuccess(entry.providerKey, clock());
       return {
         ok: true,
