@@ -4,7 +4,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(21);
+select plan(25);
 
 select has_schema('budget_ledger', '1 budget_ledger schema exists');
 select has_role('toi_budget_ledger', '2 toi_budget_ledger NOLOGIN role exists');
@@ -262,6 +262,103 @@ select is(
   ),
   'P0001',
   '21 per-user burst limit refuses a third reserved attempt for the same user'
+);
+
+-- Free the two open concurrent reservations so ambiguous/retry can run under the same account.
+-- Resolve reservation ids as postgres (toi_budget_ledger has no table SELECT).
+create temporary table t_conc on commit drop as
+  select
+    (select id::text from public.budget_reservations
+      where organisation_id = '11111111-1111-4111-8111-111111111111'
+        and attempt_id = 'conc-a') as conc_a,
+    (select id::text from public.budget_reservations
+      where organisation_id = '11111111-1111-4111-8111-111111111111'
+        and attempt_id = 'conc-b') as conc_b;
+
+select is(
+  pg_temp.as_ledger(format(
+    $$ select budget_ledger.reconcile_v1(
+         '11111111-1111-4111-8111-111111111111',
+         'conc-a',
+         %L::uuid,
+         'released',
+         null
+       ) $$,
+    (select conc_a from t_conc)
+  )),
+  'ok',
+  '22 release concurrent fixture conc-a before ambiguous retry'
+);
+select is(
+  pg_temp.as_ledger(format(
+    $$ select budget_ledger.reconcile_v1(
+         '11111111-1111-4111-8111-111111111111',
+         'conc-b',
+         %L::uuid,
+         'released',
+         null
+       ) $$,
+    (select conc_b from t_conc)
+  )),
+  'ok',
+  '23 release concurrent fixture conc-b before ambiguous retry'
+);
+
+create temporary table t_ambig on commit drop as
+  select pg_temp.reserve_id(
+    '11111111-1111-4111-8111-111111111111',
+    'dddddddd-dddd-4ddd-8ddd-ddddddddddd1',
+    'compose:timeout:1',
+    null,
+    'compose',
+    'workers_ai',
+    40,
+    60
+  ) as reservation_id;
+
+select is(
+  pg_temp.as_ledger(format(
+    $$ select budget_ledger.reconcile_v1(
+         '11111111-1111-4111-8111-111111111111',
+         'compose:timeout:1',
+         %L::uuid,
+         'ambiguous',
+         null
+       ) $$,
+    (select reservation_id from t_ambig)
+  )),
+  'ok',
+  '24 ambiguous timeout keeps the first attempt billed'
+);
+
+select ok(
+  (select state from public.budget_reservations
+    where id = (select reservation_id from t_ambig)::uuid) = 'ambiguous'
+  and (select used_units from public.budget_reservations
+    where id = (select reservation_id from t_ambig)::uuid) = 100
+  and pg_temp.reserve_id(
+    '11111111-1111-4111-8111-111111111111',
+    'dddddddd-dddd-4ddd-8ddd-ddddddddddd1',
+    'compose:timeout:2',
+    null,
+    'compose',
+    'claude',
+    40,
+    60
+  ) ~ '^[0-9a-f-]{36}$'
+  and pg_temp.as_ledger(format(
+    $$ select budget_ledger.reconcile_v1(
+         '11111111-1111-4111-8111-111111111111',
+         'compose:timeout:1',
+         %L::uuid,
+         'ambiguous',
+         null
+       ) $$,
+    (select reservation_id from t_ambig)
+  )) = 'ok'
+  and (select used_units from public.budget_reservations
+    where id = (select reservation_id from t_ambig)::uuid) = 100,
+  '25 retry books a new attempt; duplicate ambiguous reconcile does not double-book'
 );
 
 select * from finish();

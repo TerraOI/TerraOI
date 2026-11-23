@@ -93,7 +93,11 @@ export function createInMemoryBudgetLedger(options: {
   dailyCeiling: number;
   concurrentRunCap?: number;
   burstPerUser?: number;
-}): BudgetLedgerExec & { reservedUnits: () => number } {
+}): BudgetLedgerExec & {
+  reservedUnits: () => number;
+  settledUnits: () => number;
+  stateOf: (organisationId: string, attemptId: string) => string | undefined;
+} {
   const concurrentRunCap = options.concurrentRunCap ?? 100;
   const burstPerUser = options.burstPerUser ?? 100;
   const reservations = new Map<
@@ -101,17 +105,22 @@ export function createInMemoryBudgetLedger(options: {
     { id: string; org: string; runId: string; userId: string | null; max: number; state: string }
   >();
   let reservedUnits = 0;
+  let settledUnits = 0;
   let nextId = 1;
 
   return {
     reservedUnits: () => reservedUnits,
+    settledUnits: () => settledUnits,
+    stateOf: (organisationId, attemptId) =>
+      reservations.get(`${organisationId}:${attemptId}`)?.state,
     async reserve(args) {
       const key = `${args.organisationId}:${args.attemptId}`;
       const existing = reservations.get(key);
       if (existing) return existing.id;
 
       const max = args.maxInputUnits + args.maxOutputUnits;
-      if (reservedUnits + max > options.dailyCeiling) {
+      // Ambiguous and settled liability still counts against the daily ceiling (§12.3).
+      if (reservedUnits + settledUnits + max > options.dailyCeiling) {
         throw new Error("daily budget ceiling exceeded");
       }
       const openRuns = new Set(
@@ -145,9 +154,14 @@ export function createInMemoryBudgetLedger(options: {
       const key = `${args.organisationId}:${args.attemptId}`;
       const row = reservations.get(key);
       if (!row || row.id !== args.reservationId) throw new Error("reservation not found");
-      if (row.state !== "reserved") return;
+      if (row.state !== "reserved") return; // idempotent: first outcome sticks
       row.state = args.outcome;
       reservedUnits = Math.max(0, reservedUnits - row.max);
+      if (args.outcome === "settled" || args.outcome === "ambiguous") {
+        const used =
+          args.usedUnits !== null && args.usedUnits !== undefined ? args.usedUnits : row.max;
+        settledUnits += used;
+      }
     },
   };
 }
