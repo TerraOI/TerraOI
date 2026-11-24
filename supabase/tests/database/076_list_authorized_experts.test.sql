@@ -45,12 +45,9 @@ select has_function(
 );
 
 select is(
-  (select p.prosecdef
-     from pg_proc p
-     join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = 'public'
-      and p.proname = 'list_authorized_experts_v1'
-      and pg_get_function_identity_arguments(p.oid) = 'uuid'),
+  (select prosecdef
+     from pg_proc
+    where oid = 'public.list_authorized_experts_v1(uuid)'::regprocedure),
   true,
   '2 list_authorized_experts_v1 is SECURITY DEFINER (expert_definitions has no request-role SELECT)'
 );
@@ -74,60 +71,58 @@ select is(
 
 select is_empty(
   $$
-    select col
+    select p.proargnames[i] as col
       from pg_proc p
-      join pg_namespace n on n.oid = p.pronamespace
-      cross join lateral unnest(p.proargnames, p.proargmodes) as u(col, mode)
-     where n.nspname = 'public'
-       and p.proname = 'list_authorized_experts_v1'
-       and pg_get_function_identity_arguments(p.oid) = 'uuid'
-       and u.mode = 't'
-       and u.col in ('model_chains', 'collection_bindings', 'vocabulary_override',
-                     'prompt_template_id', 'refusal_templates', 'limits')
+      cross join lateral generate_subscripts(p.proargnames, 1) as i
+     where p.oid = 'public.list_authorized_experts_v1(uuid)'::regprocedure
+       and p.proargmodes[i] = 't'
+       and p.proargnames[i] in ('model_chains', 'collection_bindings', 'vocabulary_override',
+                                'prompt_template_id', 'refusal_templates', 'limits')
   $$,
   '5 return columns never expose model_chains, collection_bindings or other definition secrets (#221 N1)'
 );
 
+-- Index-loop over proargnames/modes (026 brand_config idiom): parallel unnest can miss TABLE modes.
 select results_eq(
   $$
-    select col::text
+    select p.proargnames[i]::text
       from pg_proc p
-      join pg_namespace n on n.oid = p.pronamespace
-      cross join lateral unnest(p.proargnames, p.proargmodes) with ordinality as u(col, mode, ord)
-     where n.nspname = 'public'
-       and p.proname = 'list_authorized_experts_v1'
-       and pg_get_function_identity_arguments(p.oid) = 'uuid'
-       and u.mode = 't'
-     order by u.ord
+      cross join lateral generate_subscripts(p.proargnames, 1) as i
+     where p.oid = 'public.list_authorized_experts_v1(uuid)'::regprocedure
+       and p.proargmodes[i] = 't'
+     order by i
   $$,
   $$ values ('expert_key'), ('expert_version'), ('service_key'), ('status') $$,
   '6 return shape is exactly expert_key, expert_version, service_key, status'
 );
 
 -- ---------------------------------------------------------------- 7-12 entitle + scoped reads
+-- Test-only grants (rolled back): pgTAP lives in `extensions`, which toi_control_plane has no
+-- USAGE on — same pattern as 030_pilot_inquiries for inquiry_writer.
 grant toi_control_plane to postgres;
+grant usage on schema extensions to toi_control_plane;
 set local role toi_control_plane;
 select lives_ok(
-  $$
+  $sql$
     select 1 from toi_control.entitle_tenant_service_v1(
       '11111111-1111-4111-8111-111111111111',
       'uav-compliance', 'uav-expert', '1.0.0',
       array['51000000-0000-4000-8000-000000000001']::uuid[],
       '076 list read fixture', 'supervisor@terraoi.test'
     )
-  $$,
-  '7 control plane entitles company1 uav-expert with a collection binding'
+  $sql$::text,
+  '7 control plane entitles company1 uav-expert with a collection binding'::text
 );
 select lives_ok(
-  $$
+  $sql$
     select 1 from toi_control.entitle_tenant_service_v1(
       '22222222-2222-4222-8222-222222222222',
       'gpr', 'gpr-expert', '1.0.0',
       '{}'::uuid[],
       '076 list read fixture company2', 'supervisor@terraoi.test'
     )
-  $$,
-  '8 control plane entitles company2 gpr-expert'
+  $sql$::text,
+  '8 control plane entitles company2 gpr-expert'::text
 );
 reset role;
 
