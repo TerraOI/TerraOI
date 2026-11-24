@@ -131,8 +131,8 @@ describe("localbox/box-extractor.ts — BoxExtractorPort (T-211 PR-3f)", () => {
     expect(call.command).toBe("ocr-engine --json");
     expect(call.stdin).toEqual(bytes);
     expect(call.timeoutMs).toBe(5_000);
-    // Media type may be forwarded as metadata; never a credential.
-    expect(call.env).toBeUndefined();
+    // Runner request is command/stdin/timeout only — never a credential env bag.
+    expect(Object.keys(call).sort()).toEqual(["command", "stdin", "timeoutMs"]);
   });
 
   it("createCommandBoxExtractor aborts quality_failed when the command exits non-zero", async () => {
