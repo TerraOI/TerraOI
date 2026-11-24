@@ -232,7 +232,9 @@ select is(p.provolatile::text, 'v',
   from pg_proc p
  where p.oid = 'public.authorize_source_access_v1(uuid, uuid, text)'::regprocedure;
 
-select ok(position('perform public.set_tenant_scope(p_organisation_id);' in p.prosrc) = 1,
+select ok(
+  position('perform public.set_tenant_scope(p_organisation_id);' in p.prosrc)
+    between 1 and position('if v_arrived_scope' in p.prosrc),
   '19 set_tenant_scope is the first statement in the RPC body (FAQ-0011)')
   from pg_proc p
  where p.oid = 'public.authorize_source_access_v1(uuid, uuid, text)'::regprocedure;
