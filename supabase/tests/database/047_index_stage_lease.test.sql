@@ -102,7 +102,7 @@ insert into public.ingestion_jobs (
    '11111111-1111-4111-8111-111111111111',
    '71000000-0000-4000-8000-000000004701',
    'index', 'cloud_worker', 'queued', 'internal',
-   'v1', 1, 0, 0, now() - interval '5 minutes');
+   'v1', 1, 1, 0, now() - interval '5 minutes');
 
 insert into public.extraction_artifacts (
   organisation_id, source_version_id, job_id, stage, parser_generation, index_generation,
@@ -203,7 +203,7 @@ insert into public.ingestion_jobs (
   '11111111-1111-4111-8111-111111111111',
   '71000000-0000-4000-8000-000000004701',
   'extract', 'local_box', 'queued', 'internal',
-  'v1-box', 1, 0, 0, now()
+  'v1-box', 1, 1, 0, now()
 );
 
 set local role toi_job_api;
