@@ -61,6 +61,14 @@ begin
 end;
 $fn$;
 
+-- Void wrapper: bare `select try_owner_sql(...)` returns the literal `ok`, which prove reads as TAP.
+create function pg_temp.owner_sql(p_sql text) returns void
+language plpgsql security definer set search_path = public, pg_temp as $fn$
+begin
+  perform pg_temp.try_owner_sql(p_sql);
+end;
+$fn$;
+
 -- Temp tables must be writable under `set local role authenticated` (041/045 idiom): either create
 -- them as that role, or grant INSERT/SELECT. Grants keep owner-side DO blocks able to fill t_out.
 create temp table t_out (case_name text, result text);
@@ -69,7 +77,7 @@ grant insert, select on t_out to authenticated;
 grant insert, select on t_count to authenticated;
 
 -- ---------------------------------------------------------------- fixtures: extra project for dual-binding cases
-select pg_temp.try_owner_sql(
+select pg_temp.owner_sql(
   'insert into public.projects (id, organisation_id, key, name, visibility, status) values '
   || '(''43000000-0000-4000-8000-000000000001'', ''11111111-1111-4111-8111-111111111111'', '
   || '''bind-b'', ''Binding fixture B'', ''project'', ''active'') on conflict (id) do nothing');
@@ -127,7 +135,7 @@ select is((select result from t_out where case_name = 'b1_auth_c1'), '28000',
   '9 and the authorize RPC inherits that refusal on the first statement');
 
 -- remove Site A membership for a1 (setup only — not a counted assertion)
-select pg_temp.try_owner_sql(
+select pg_temp.owner_sql(
   'delete from public.project_memberships where project_id = '
   || '''41000000-0000-4000-8000-000000000001'' and user_id = '
   || '''00000000-0000-4000-8000-0000000000a1''');
@@ -141,13 +149,13 @@ select is(pg_temp.try_authorize('11111111-1111-4111-8111-111111111111',
 reset role;
 
 -- restore membership for later cases
-select pg_temp.try_owner_sql(
+select pg_temp.owner_sql(
   'insert into public.project_memberships (organisation_id, project_id, user_id) values '
   || '(''11111111-1111-4111-8111-111111111111'', ''41000000-0000-4000-8000-000000000001'', '
   || '''00000000-0000-4000-8000-0000000000a1'') on conflict (project_id, user_id) do nothing');
 
 -- ---------------------------------------------------------------- 11-12 dual binding audience
-select pg_temp.try_owner_sql(
+select pg_temp.owner_sql(
   'insert into public.source_acl_bindings (organisation_id, source_id, project_id) values '
   || '(''11111111-1111-4111-8111-111111111111'', ''61000000-0000-4000-8000-000000000001'', '
   || '''41000000-0000-4000-8000-000000000001''), '
@@ -161,7 +169,7 @@ select is(public.source_is_readable('61000000-0000-4000-8000-000000000001'), fal
   '11 a source bound to two projects stays invisible to a member of neither (bindings do not widen from a tenant-wide collection)');
 
 -- membership insert as owner (definer); stay authenticated as …a2 for the follow-up read
-select pg_temp.try_owner_sql(
+select pg_temp.owner_sql(
   'insert into public.project_memberships (organisation_id, project_id, user_id) values '
   || '(''11111111-1111-4111-8111-111111111111'', ''43000000-0000-4000-8000-000000000001'', '
   || '''00000000-0000-4000-8000-0000000000a2'') on conflict (project_id, user_id) do nothing');
@@ -171,7 +179,7 @@ select is(public.source_is_readable('61000000-0000-4000-8000-000000000001'), tru
 reset role;
 
 -- ---------------------------------------------------------------- 13-14 archived project
-select pg_temp.try_owner_sql(
+select pg_temp.owner_sql(
   'update public.projects set status = ''archived'' where id = '
   || '''41000000-0000-4000-8000-000000000001''');
 
@@ -188,7 +196,7 @@ select is((select n from t_count where case_name = 'archived_grid'), 0,
   '14 and search returns zero evidence rows for the same query');
 
 -- restore project for cleanliness
-select pg_temp.try_owner_sql(
+select pg_temp.owner_sql(
   'update public.projects set status = ''active'' where id = '
   || '''41000000-0000-4000-8000-000000000001''');
 
