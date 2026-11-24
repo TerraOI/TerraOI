@@ -82,17 +82,15 @@ select is_empty(
   '5 return columns never expose model_chains, collection_bindings or other definition secrets (#221 N1)'
 );
 
--- Index-loop over proargnames/modes (026 brand_config idiom): parallel unnest can miss TABLE modes.
-select results_eq(
-  $$
-    select p.proargnames[i]::text
-      from pg_proc p
-      cross join lateral generate_subscripts(p.proargnames, 1) as i
-     where p.oid = 'public.list_authorized_experts_v1(uuid)'::regprocedure
-       and p.proargmodes[i] = 't'
-     order by i
-  $$,
-  $$ values ('expert_key'), ('expert_version'), ('service_key'), ('status') $$,
+-- Index-loop + string_agg (026 brand_config idiom). Avoid results_eq here: comparing name
+-- columns from pg_proc trips "could not determine which collation to use" on CI.
+select is(
+  (select string_agg(p.proargnames[i], ',' order by i)
+     from pg_proc p
+     cross join lateral generate_subscripts(p.proargnames, 1) as i
+    where p.oid = 'public.list_authorized_experts_v1(uuid)'::regprocedure
+      and p.proargmodes[i] = 't'),
+  'expert_key,expert_version,service_key,status',
   '6 return shape is exactly expert_key, expert_version, service_key, status'
 );
 
