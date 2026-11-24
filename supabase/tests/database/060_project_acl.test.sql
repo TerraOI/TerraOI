@@ -73,7 +73,7 @@ select pg_temp.try_owner_sql(
 -- ---------------------------------------------------------------- 1-6 Site A member vs non-member
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
-perform public.set_tenant_scope('11111111-1111-4111-8111-111111111111');
+select public.set_tenant_scope('11111111-1111-4111-8111-111111111111');
 
 select is(public.source_is_readable('61000000-0000-4000-8000-000000000002'), true,
   '1 a Site A member can read the project-scoped site source (§6.2)');
@@ -88,7 +88,7 @@ reset role;
 
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a2';
-perform public.set_tenant_scope('11111111-1111-4111-8111-111111111111');
+select public.set_tenant_scope('11111111-1111-4111-8111-111111111111');
 
 select is(public.source_is_readable('61000000-0000-4000-8000-000000000002'), false,
   '3 a company1 member outside Site A cannot read the site source');
@@ -112,7 +112,7 @@ set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000b1';
 insert into t_out values ('b1_scope_c1', pg_temp.try_scope('11111111-1111-4111-8111-111111111111'));
 insert into t_out values ('b1_auth_c1', pg_temp.try_authorize('11111111-1111-4111-8111-111111111111',
   '61000000-0000-4000-8000-000000000002', 'retrieve'));
-perform public.set_tenant_scope('22222222-2222-4222-8222-222222222222');
+select public.set_tenant_scope('22222222-2222-4222-8222-222222222222');
 select is(public.source_is_readable('61000000-0000-4000-8000-000000000002'), false,
   '7 a company2 member never reads a company1 source under company2 scope');
 reset role;
@@ -131,7 +131,7 @@ select is(pg_temp.try_owner_sql(
 
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
-perform public.set_tenant_scope('11111111-1111-4111-8111-111111111111');
+select public.set_tenant_scope('11111111-1111-4111-8111-111111111111');
 select is(pg_temp.try_authorize('11111111-1111-4111-8111-111111111111',
          '61000000-0000-4000-8000-000000000002', 'history'), 'false',
   '10 after project membership is removed, the next authorize call withholds (§6.2)');
@@ -153,10 +153,11 @@ select pg_temp.try_owner_sql(
 
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a2';
-perform public.set_tenant_scope('11111111-1111-4111-8111-111111111111');
+select public.set_tenant_scope('11111111-1111-4111-8111-111111111111');
 select is(public.source_is_readable('61000000-0000-4000-8000-000000000001'), false,
-  '11 a source bound to two projects stays invisible to a member of neither');
+  '11 a source bound to two projects stays invisible to a member of neither (bindings do not widen from a tenant-wide collection)');
 
+-- membership insert as owner (definer); stay authenticated as …a2 for the follow-up read
 select pg_temp.try_owner_sql(
   'insert into public.project_memberships (organisation_id, project_id, user_id) values '
   || '(''11111111-1111-4111-8111-111111111111'', ''43000000-0000-4000-8000-000000000001'', '
@@ -173,7 +174,7 @@ select pg_temp.try_owner_sql(
 
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
-perform public.set_tenant_scope('11111111-1111-4111-8111-111111111111');
+select public.set_tenant_scope('11111111-1111-4111-8111-111111111111');
 select is(public.source_is_readable('61000000-0000-4000-8000-000000000002'), false,
   '13 archiving the collection''s project stops source readability');
 insert into t_count values ('archived_grid', pg_temp.try_search_rows(

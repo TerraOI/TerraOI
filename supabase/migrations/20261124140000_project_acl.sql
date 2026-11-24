@@ -73,8 +73,11 @@ comment on function public.collection_is_readable(uuid) is
   'Tenant scope + project audience for the knowledge read path; archived projects stop collection visibility (T-214).';
 
 /**
- * Union audience for a source: collection project rules when no bindings exist; when bindings exist,
- * the caller must satisfy at least one active bound project **or** the collection audience (§6.2).
+ * Project audience for a source (T-214, §6.2):
+ * - no bindings → collection rules (null project = tenant-wide; else active project membership)
+ * - with bindings → member of an active bound project, OR of the collection's project when that
+ *   project is set. A tenant-wide collection alone does not widen past the bindings (a source
+ *   shared into two projects stays invisible to a member of neither).
  */
 create or replace function public.source_audience_allows(p_source_id uuid)
 returns boolean language sql stable security definer set search_path = public, pg_temp as $$
@@ -94,16 +97,19 @@ returns boolean language sql stable security definer set search_path = public, p
          and b.organisation_id = public.current_organisation_id()
     ) as v
   ),
+  collection_project_ok as (
+    select exists (
+      select 1
+        from public.projects p
+       where p.id = (select collection_project_id from src)
+         and p.status = 'active'
+         and public.is_project_member(p.id)
+    ) as ok
+  ),
   collection_ok as (
     select case
       when (select collection_project_id from src) is null then true
-      else exists (
-        select 1
-          from public.projects p
-         where p.id = (select collection_project_id from src)
-           and p.status = 'active'
-           and public.is_project_member(p.id)
-      )
+      else (select ok from collection_project_ok)
     end as ok
   ),
   binding_ok as (
@@ -121,14 +127,18 @@ returns boolean language sql stable security definer set search_path = public, p
   select case
     when not exists (select 1 from src) then false
     when (select v from has_bindings) then
-      (select ok from binding_ok) or (select ok from collection_ok)
+      (select ok from binding_ok)
+      or (
+        (select collection_project_id from src) is not null
+        and (select ok from collection_project_ok)
+      )
     else
       (select ok from collection_ok)
   end;
 $$;
 
 comment on function public.source_audience_allows(uuid) is
-  'Project audience union for one source: bindings OR collection project (T-214). SECURITY DEFINER; not granted to request roles.';
+  'Project audience for one source (T-214): with bindings, active bound project or the collection''s set project; without bindings, collection rules. SECURITY DEFINER; not granted to request roles.';
 
 revoke execute on function public.source_audience_allows(uuid)
   from public, anon, authenticated, service_role;
