@@ -138,4 +138,103 @@ describe("runExpertEvalAndPersist", () => {
     expect(result.persist.ok).toBe(false);
     expect(dialed).toBe(false);
   });
+
+  it("loads caseIdToUuid via list_eval_cases_v1 when the map is omitted", async () => {
+    const adapter = fakeAdapter("local_box", [answered('{"status":"answered"}', "box")]);
+    const book = new CircuitBook({ openAfterFailures: 2, cooldownMs: 30_000 });
+    const sent: { url: string; body: string }[] = [];
+    const fetchImpl: FetchImpl = async (input, init) => {
+      sent.push({
+        url: input,
+        body: typeof init?.body === "string" ? init.body : "",
+      });
+      if (input.includes("/rpc/list_eval_cases_v1")) {
+        return new Response(
+          JSON.stringify([
+            {
+              id: CASE_A,
+              case_key: "UAV-E001",
+              expert_key: "uav-expert",
+              status: "approved",
+            },
+          ]),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify("cccccccc-cccc-4ccc-8ccc-cccccccccccc"), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    const result = await runExpertEvalAndPersist({
+      context: syntheticContext({ organisationId: ORG }),
+      accessToken: TOKEN,
+      expertKey: "uav-expert",
+      expertVersion: "1.0.0-test",
+      chainConfig: { compose: FULL_COMPOSE_CHAIN },
+      corpusGeneration: "gen-list",
+      cases: [approvedFixture()],
+      evalRunId: RUN_ID,
+      gatewayDeps: {
+        config: testConfiguration(),
+        adapters: registryOf(adapter),
+        health: book,
+        meter: recordingMeter(),
+      },
+      recordDeps: { postgrestBaseUrl: "http://127.0.0.1:1", fetchImpl },
+    });
+
+    expect(result.run.status).toBe("completed");
+    expect(result.persist.ok).toBe(true);
+    expect(sent.map((s) => s.url)).toEqual([
+      expect.stringMatching(/\/rpc\/list_eval_cases_v1$/),
+      expect.stringMatching(/\/rpc\/record_eval_run_v1$/),
+    ]);
+    const listBody = JSON.parse(sent[0]?.body ?? "{}") as Record<string, unknown>;
+    expect(listBody.p_status).toBe("approved");
+    expect(listBody.p_organisation_id).toBe(ORG);
+    const recordBody = JSON.parse(sent[1]?.body ?? "{}") as { p_results: { case_id: string }[] };
+    expect(recordBody.p_results[0]?.case_id).toBe(CASE_A);
+  });
+
+  it("fails persist (without inventing uuids) when list_eval_cases_v1 fails", async () => {
+    const adapter = fakeAdapter("local_box", [answered('{"status":"answered"}', "box")]);
+    const book = new CircuitBook({ openAfterFailures: 2, cooldownMs: 30_000 });
+    let recordDialed = false;
+    const fetchImpl: FetchImpl = async (input) => {
+      if (input.includes("/rpc/record_eval_run_v1")) {
+        recordDialed = true;
+        return new Response("{}", { status: 500 });
+      }
+      return new Response(JSON.stringify({ code: "42501", message: "permission denied" }), {
+        status: 403,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    const result = await runExpertEvalAndPersist({
+      context: syntheticContext({ organisationId: ORG }),
+      accessToken: TOKEN,
+      expertKey: "uav-expert",
+      expertVersion: "1.0.0-test",
+      chainConfig: {},
+      corpusGeneration: "gen-a",
+      cases: [approvedFixture()],
+      evalRunId: RUN_ID,
+      gatewayDeps: {
+        config: testConfiguration(),
+        adapters: registryOf(adapter),
+        health: book,
+        meter: recordingMeter(),
+      },
+      recordDeps: { postgrestBaseUrl: "http://127.0.0.1:1", fetchImpl },
+    });
+
+    expect(result.run.results).toHaveLength(1);
+    expect(result.persist.ok).toBe(false);
+    if (result.persist.ok) return;
+    expect(result.persist.reason).toBe("tenancy");
+    expect(recordDialed).toBe(false);
+  });
 });
