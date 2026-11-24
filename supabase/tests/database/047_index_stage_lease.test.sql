@@ -1,7 +1,11 @@
 -- T-113 follow-up: index-stage lease + artifacts_for_lease_v1
 -- (supabase/migrations/20261124120000_index_stage_lease.sql).
 -- Plan §7.2; #134 credential compare; FAQ-0010 privilege surface.
--- Synthetic fixtures only; runtime as toi_job_api. Seed collections/profiles assumed.
+-- Synthetic fixtures only. Privileged paths run as the test role (postgres), matching
+-- 045's idiom: job_api RPCs are SECURITY DEFINER and EXECUTE is granted only to
+-- toi_job_api — request-role negatives use `set local role authenticated` + try_* helpers.
+-- Do not `set local role toi_job_api` here: the test runner is not IN ROLE toi_job_api
+-- (see 100_lifecycle's explicit `grant … to postgres` pattern; 045 never needs it).
 
 begin;
 create extension if not exists pgtap with schema extensions;
@@ -122,11 +126,9 @@ create temp table t_lease (
 );
 create temp table t_out (case_name text, result text);
 
-set local role toi_job_api;
 insert into t_lease
   select o_found, o_job_id, o_stage, o_lease_token, o_fence
     from job_api.lease_parse_job_v1(pg_temp.syn_hash('cloud-c1'), 'index', 300);
-reset role;
 
 select is((select found::text from t_lease), 'true',
   '4 cloud_worker credential leases an index job');
@@ -135,11 +137,9 @@ select is((select stage from t_lease), 'index',
 select is((select job_id::text from t_lease), '95000000-0000-4000-8000-000000004702',
   '6 it is the queued index job, not the succeeded extract row');
 
-set local role toi_job_api;
 insert into t_out
   select 'box_index', case when o_found then 'found' else 'empty' end
     from job_api.lease_parse_job_v1(pg_temp.syn_hash('box-c1'), 'index', 300);
-reset role;
 select is((select result from t_out where case_name = 'box_index'), 'empty',
   '7 local_box credential finds no index work (index is cloud_worker only)');
 
@@ -148,7 +148,6 @@ insert into t_out values
 select is((select result from t_out where case_name = 'publish'), '22023',
   '8 publish stage remains refused at the lease gate');
 
-set local role toi_job_api;
 create temp table t_art as
   select o_found, o_artifact_index, o_body_text, o_locator
     from job_api.artifacts_for_lease_v1(
@@ -157,7 +156,6 @@ create temp table t_art as
       (select lease_token from t_lease),
       (select fence from t_lease)
     );
-reset role;
 
 select is((select o_found::text from t_art limit 1), 'true',
   '9 artifacts_for_lease_v1 returns extract rows for the leased index job');
@@ -168,7 +166,6 @@ select is((select o_body_text from t_art), 'Synthetic extract body for the index
 select is((select (o_locator ->> 'page') from t_art), '1',
   '12 locator page survives the read');
 
-set local role toi_job_api;
 create temp table t_art_bad as
   select o_found
     from job_api.artifacts_for_lease_v1(
@@ -177,7 +174,6 @@ create temp table t_art_bad as
       (select lease_token from t_lease),
       (select fence from t_lease) + 1
     );
-reset role;
 select is((select o_found::text from t_art_bad), 'false',
   '13 a superseded fence answers o_found = false with no existence signal');
 
@@ -206,11 +202,9 @@ insert into public.ingestion_jobs (
   'v1-box', 1, 1, 0, now()
 );
 
-set local role toi_job_api;
 insert into t_lease
   select o_found, o_job_id, o_stage, o_lease_token, o_fence
     from job_api.lease_parse_job_v1(pg_temp.syn_hash('box-c1'), 'extract', 300);
-reset role;
 select is((select found::text from t_lease), 'true',
   '15 extract lease path is unchanged for local_box');
 select is((select stage from t_lease), 'extract',
