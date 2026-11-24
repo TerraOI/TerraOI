@@ -23,6 +23,10 @@ import type {
   RetargetOutcome,
   RetargetReason,
 } from "./ocr-pull";
+import type {
+  PublishJobApiPort,
+  PublishVersionOutcome,
+} from "./publish-pull";
 
 /**
  * Hyperdrive-backed `JobApiPort` for `toi_job_api` over `JOB_DB` (ADR-0005 §6, #134; T-211 PR-3a).
@@ -331,8 +335,8 @@ export type DispatchOutboxResult = {
 };
 
 /**
- * Drain pending `extract_succeeded` outbox rows into index-stage jobs (#99 stage key).
- * Separate from `JobApiPort` — the pull loop never calls this; the cron does.
+ * Drain pending `extract_succeeded` → index and `index_succeeded` → publish outbox rows
+ * (#99 stage key). Separate from `JobApiPort` — the pull loop never calls this; the cron does.
  */
 export async function dispatchOutboxEvents(
   deps: JobDbDeps,
@@ -514,6 +518,139 @@ export function createIndexJobApi(deps: JobDbDeps): IndexJobApiPort | null {
         return { outcome: "refused" };
       } catch (err) {
         if (isPgCode(err, "42501")) return { outcome: "refused" };
+        throw err;
+      }
+    },
+  };
+}
+
+/**
+ * Publish-stage Job API over `JOB_DB` (T-113): lease `publish` and call
+ * `job_api.publish_version_v1` by RPC name. `#219` owns the SQL body on the merge train —
+ * this adapter does not vendor it; unit tests mock the port / SQL rows.
+ */
+export function createPublishJobApi(deps: JobDbDeps): PublishJobApiPort | null {
+  const open: (() => JobSql) | null =
+    deps.openSql ?? (deps.binding ? () => openFromBinding(deps.binding as JobDbBinding) : null);
+  if (open === null) return null;
+  const openSql = open;
+
+  async function withSql<T>(run: (sql: JobSql) => Promise<T>): Promise<T> {
+    const sql = openSql();
+    try {
+      return await run(sql);
+    } finally {
+      await sql.end({ timeout: 5 });
+    }
+  }
+
+  return {
+    async lease({ credential, stage, leaseSeconds }) {
+      const tokenHash = digestOf(credential);
+      const rows = await withSql(async (sql) =>
+        sql`
+          select o_found, o_job_id, o_organisation_id, o_source_version_id, o_stage, o_executor,
+                 o_parser_generation, o_index_generation, o_data_class, o_lease_token, o_fence, o_attempt
+            from job_api.lease_parse_job_v1(${tokenHash}, ${stage}, ${leaseSeconds})
+        `,
+      );
+      const row = rows[0];
+      if (!row) return null;
+      return mapLeaseRow(row);
+    },
+
+    async renew({ credential, jobId, leaseToken, fence, leaseSeconds }) {
+      const tokenHash = digestOf(credential);
+      const rows = await withSql(async (sql) =>
+        sql<{ o_outcome: string; o_expires_at: Date | string | null; o_fence: number | null }>`
+          select o_outcome, o_expires_at, o_fence
+            from job_api.renew_parse_lease_v1(
+              ${tokenHash}, ${jobId}::uuid, ${leaseToken}, ${fence}, ${leaseSeconds}
+            )
+        `,
+      );
+      const row = rows[0];
+      if (!row || row.o_outcome !== "renewed") return { outcome: "refused" };
+      const expiresAt = expiresAtIso(row.o_expires_at);
+      if (expiresAt === null || typeof row.o_fence !== "number") return { outcome: "refused" };
+      return { outcome: "renewed", expiresAt, fence: row.o_fence } satisfies RenewOutcome;
+    },
+
+    async abort({ credential, jobId, leaseToken, fence, reason }) {
+      const tokenHash = digestOf(credential);
+      const rows = await withSql(async (sql) =>
+        sql<{ o_outcome: string }>`
+          select o_outcome
+            from job_api.abort_parse_job_v1(
+              ${tokenHash}, ${jobId}::uuid, ${leaseToken}, ${fence}, ${reason}
+            )
+        `,
+      );
+      const row = rows[0];
+      if (!row || row.o_outcome !== "aborted") return { outcome: "refused" } satisfies AbortOutcome;
+      return { outcome: "aborted" };
+    },
+
+    async publishVersion(args) {
+      const tokenHash = digestOf(args.credential);
+      // Call by SQL name (no generated Database types required). #219 owns the function body.
+      try {
+        const rows = await withSql(async (sql) =>
+          sql<{
+            o_outcome: string;
+            o_source_id: string | null;
+            o_source_version_id: string | null;
+            o_previous_version_id: string | null;
+            o_published_at: Date | string | null;
+            o_event_id: string | null;
+          }>`
+            select o_outcome, o_source_id, o_source_version_id, o_previous_version_id,
+                   o_published_at, o_event_id
+              from job_api.publish_version_v1(
+                ${tokenHash},
+                ${args.jobId}::uuid,
+                ${args.leaseToken},
+                ${args.fence},
+                ${args.sourceVersionId}::uuid,
+                ${args.indexGeneration}
+              )
+          `,
+        );
+        const row = rows[0];
+        if (!row) return { outcome: "refused" } satisfies PublishVersionOutcome;
+        if (
+          row.o_outcome === "published" &&
+          typeof row.o_source_id === "string" &&
+          typeof row.o_source_version_id === "string"
+        ) {
+          const publishedAt = expiresAtIso(row.o_published_at);
+          if (publishedAt === null) return { outcome: "refused" };
+          return {
+            outcome: "published",
+            sourceId: row.o_source_id,
+            sourceVersionId: row.o_source_version_id,
+            previousVersionId:
+              typeof row.o_previous_version_id === "string" ? row.o_previous_version_id : null,
+            publishedAt,
+            eventId: typeof row.o_event_id === "string" ? row.o_event_id : null,
+          };
+        }
+        if (
+          row.o_outcome === "already_published" &&
+          typeof row.o_source_id === "string" &&
+          typeof row.o_source_version_id === "string"
+        ) {
+          return {
+            outcome: "already_published",
+            sourceId: row.o_source_id,
+            sourceVersionId: row.o_source_version_id,
+            previousVersionId:
+              typeof row.o_previous_version_id === "string" ? row.o_previous_version_id : null,
+          };
+        }
+        return { outcome: "refused" };
+      } catch (err) {
+        if (isPgCode(err, "42501") || isPgCode(err, "42883")) return { outcome: "refused" };
         throw err;
       }
     },
