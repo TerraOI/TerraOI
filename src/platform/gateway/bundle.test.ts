@@ -20,7 +20,7 @@ function recordingSql(): { sql: ConfigSql; calls: string[] } {
       calls.push(strings.join(""));
       return [];
     },
-    { end: async (_options?: { timeout?: number }) => undefined },
+    { end: async () => undefined },
   ) as ConfigSql;
   return { sql, calls };
 }

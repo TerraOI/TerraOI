@@ -94,7 +94,7 @@ describe("createRecordProviderHealthExecFromSql — CONFIG_DB Hyperdrive carrier
       async () => {
         throw new Error(`connect ECONNREFUSED ${sentinel} ${uriLike}`);
       },
-      { end: async (_options?: { timeout?: number }) => undefined },
+      { end: async () => undefined },
     ) as ConfigSql;
 
     const exec = createRecordProviderHealthExecFromSql({
