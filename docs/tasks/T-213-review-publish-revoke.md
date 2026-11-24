@@ -1,6 +1,6 @@
 # T-213 Review queue, publication policy, revoke and derived-output invalidation
 
-Lane: 2 · Week: 2 · Protected: yes (`supabase/migrations/`, `src/app/api/knowledge/`) · Depends on: T-104, T-111, T-112, T-113, T-114 · Status: in progress (wyuinline) — **PR-1** [#267](https://github.com/TerraOI/TerraOI/pull/267) SQL + `050`; **PR-2** [#268](https://github.com/TerraOI/TerraOI/pull/268) review API; **PR-3** (this branch) `review_reclass_v1` (#21) (no derived-output invalidation; that waits on T-104 / #178)
+Lane: 2 · Week: 2 · Protected: yes (`supabase/migrations/`, `src/app/api/knowledge/`) · Depends on: T-104, T-111, T-112, T-113, T-114 · Status: in progress (wyuinline) — **PR-1** [#267](https://github.com/TerraOI/TerraOI/pull/267) SQL + `050`; **PR-2** [#268](https://github.com/TerraOI/TerraOI/pull/268) review API; **PR-3** [#271](https://github.com/TerraOI/TerraOI/pull/271) `review_reclass_v1` (#21); **PR-4** (this branch) reclass HTTP + `withTenantRpc` client (no derived-output invalidation; that waits on T-104 / #178)
 Plan refs: §7.2 steps 7–9, §7.5 (revocation within 60 s), §6.2, §16 (tenant/source ACL row); F13, F14, F27
 
 ## Supervisor rulings to apply (2026-11-09)
@@ -62,6 +62,9 @@ Derived-output invalidation reads the `data_class` and source-version dependency
       row records counts; E2 index without the new class loses its vectors (**PR-3** / #21)
 - [x] negative: raise to `restricted` and tenant-wide raise to `client_confidential` refused; another
       tenant refused; lowering refused (**PR-3** / #21)
+- [x] positive: reclass HTTP client + handlers — `reclassCollection` / `review_reclass_v1` through
+      `withTenantRpc`; restricted refused at the client with the SQL message; handlers refuse origin
+      mismatch / missing session and never take org from the body (**PR-4**)
 
 ## Done evidence
 `pnpm db:test` (CI `database` job where the machine has no Docker), `pnpm verify`; staging: publish one

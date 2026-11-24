@@ -9,7 +9,7 @@ import {
 } from "@/platform/tenancy/tenant-rpc";
 
 /**
- * Typed client for T-213 review/publish/revoke RPCs (F13/F14, FAQ-0011, plan §7.2 steps 7–9).
+ * Typed client for T-213 review/publish/revoke/reclass RPCs (F13/F14/#21, FAQ-0011, plan §7.2 steps 7–9).
  *
  * Every call goes through `withTenantRpc`: `p_organisation_id` comes only from `TenantContext`.
  * PostgREST bodies never reach employee copy.
@@ -18,6 +18,12 @@ import {
 const UUID = z.uuid();
 const DECISION = z.enum(["approve", "reject"]);
 const REASON = z.string().trim().min(1).max(2000);
+/** M1-ingestible raise targets only; `restricted` is refused at the client (mirrors SQL #21). */
+const RECLASS_DATA_CLASS = z.enum(["public", "internal", "client_confidential"]);
+
+/** Mirrors `review_reclass_v1` SQL refusal for restricted (#21 / 23514). */
+export const RESTRICTED_RECLASS_MESSAGE =
+  "raising to restricted is refused in M1; revoke the sources instead";
 
 export interface ReviewRpcDeps {
   postgrestBaseUrl?: string;
@@ -113,10 +119,19 @@ export interface RevokeSourceInput {
   reason?: string | null;
 }
 
+export interface ReclassCollectionInput {
+  context: TenantContext;
+  accessToken: string;
+  collectionId: string;
+  /** Runtime-validated; `restricted` is refused client-side with the SQL message. */
+  newDataClass: string;
+}
+
 export interface ReviewRpcClient {
   reviewDecision(input: ReviewDecisionInput): Promise<ReviewIdOutcome>;
   publishKnowledgeVersion(input: PublishVersionInput): Promise<ReviewIdOutcome>;
   revokeSource(input: RevokeSourceInput): Promise<ReviewVoidOutcome>;
+  reclassCollection(input: ReclassCollectionInput): Promise<ReviewIdOutcome>;
 }
 
 export function createReviewRpcClient(deps: ReviewRpcDeps): ReviewRpcClient {
@@ -190,6 +205,32 @@ export function createReviewRpcClient(deps: ReviewRpcDeps): ReviewRpcClient {
       );
       if (!outcome.ok) return mapTenantRpcFailure(outcome);
       return { ok: true };
+    },
+
+    async reclassCollection(input) {
+      if (!UUID.safeParse(input.collectionId).success) {
+        return { ok: false, kind: "validation", message: SAFE_REVIEW_RPC_MESSAGE.validation };
+      }
+      // Refuse restricted before the enum parse so the message mirrors SQL (#21).
+      if (input.newDataClass === "restricted") {
+        return { ok: false, kind: "validation", message: RESTRICTED_RECLASS_MESSAGE };
+      }
+      const dataClass = RECLASS_DATA_CLASS.safeParse(input.newDataClass);
+      if (!dataClass.success) {
+        return { ok: false, kind: "validation", message: SAFE_REVIEW_RPC_MESSAGE.validation };
+      }
+      const outcome = await withTenantRpc(
+        input.context,
+        "review_reclass_v1",
+        {
+          p_collection_id: input.collectionId,
+          p_new_data_class: dataClass.data,
+        },
+        input.accessToken,
+        config,
+      );
+      if (!outcome.ok) return mapTenantRpcFailure(outcome);
+      return parseUuidReturn(outcome.data);
     },
   };
 }

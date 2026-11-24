@@ -10,7 +10,7 @@ import {
 } from "./review-rpc";
 
 /**
- * HTTP handlers for T-213 review/publish/revoke (F13/F14, plan §7.2 steps 7–9, FAQ-0005).
+ * HTTP handlers for T-213 review/publish/revoke/reclass (F13/F14/#21, plan §7.2 steps 7–9, FAQ-0005).
  *
  * Tenant and actor come only from `resolveContext` + the signed-in access token. Request bodies
  * never carry an organisation id. Routes stay thin; adapters may leave deps unbound (503) until
@@ -27,6 +27,11 @@ const PublishBody = z.object({ sourceVersionId: UUID });
 const RevokeBody = z.object({
   sourceId: UUID,
   reason: z.string().trim().min(1).max(2000).optional(),
+});
+/** Handler accepts the four data-class strings; the RPC client refuses `restricted` with the SQL message. */
+const ReclassBody = z.object({
+  collectionId: UUID,
+  newDataClass: z.enum(["public", "internal", "client_confidential", "restricted"]),
 });
 
 const MAX_REQUEST_BODY_BYTES = 8_192;
@@ -202,4 +207,22 @@ export async function handleRevokeSource(request: Request, deps: ReviewDeps): Pr
   });
   if (!outcome.ok) return mapRpcFailure(outcome.kind, outcome.message);
   return reply(200, "ok", { ok: true });
+}
+
+export async function handleReclassCollection(request: Request, deps: ReviewDeps): Promise<Response> {
+  const gated = await gate(request, deps);
+  if (!gated.ok) return gated.response;
+  const body = await readJsonBody(request);
+  if (!body.ok) return body.response;
+  const parsed = ReclassBody.safeParse(body.value);
+  if (!parsed.success) return reply(400, "invalid_request");
+
+  const outcome = await deps.client.reclassCollection({
+    context: gated.context,
+    accessToken: gated.token,
+    collectionId: parsed.data.collectionId,
+    newDataClass: parsed.data.newDataClass,
+  });
+  if (!outcome.ok) return mapRpcFailure(outcome.kind, outcome.message);
+  return reply(200, "ok", { auditId: outcome.id });
 }

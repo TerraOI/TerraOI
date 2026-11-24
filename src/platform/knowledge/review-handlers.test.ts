@@ -5,6 +5,7 @@ import type { TenantResolution } from "@/platform/tenancy/resolve-tenant-context
 
 import {
   handlePublishKnowledgeVersion,
+  handleReclassCollection,
   handleReviewDecision,
   handleRevokeSource,
   type ReviewDeps,
@@ -16,6 +17,8 @@ const USER = "00000000-0000-4000-8000-0000000000a1";
 const VERSION = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1";
 const SOURCE = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1";
 const DECISION_ID = "cccccccc-cccc-4ccc-8ccc-ccccccccccc1";
+const COLLECTION = "dddddddd-dddd-4ddd-8ddd-ddddddddddd1";
+const AUDIT_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1";
 const TOKEN = "eyJhbGciOiJFUzI1NiJ9.eyJzdWIiOiJ1In0.sig";
 const ORIGIN = "https://company1.terraoi.test";
 
@@ -55,6 +58,7 @@ function deps(overrides?: {
     reviewDecision: async () => ({ ok: true, id: DECISION_ID }),
     publishKnowledgeVersion: async () => ({ ok: true, id: VERSION }),
     revokeSource: async () => ({ ok: true }),
+    reclassCollection: async () => ({ ok: true, id: AUDIT_ID }),
     ...overrides?.client,
   };
   return {
@@ -141,5 +145,54 @@ describe("review handlers", () => {
     );
     expect(revoked.status).toBe(200);
     expect(await revoked.json()).toEqual({ ok: true });
+  });
+
+  it("reclass returns the audit id, refuses origin/session, and never takes org from the body", async () => {
+    let seenOrg: string | undefined;
+    let seenClass: string | undefined;
+    const d = deps({
+      client: {
+        reclassCollection: async (input) => {
+          seenOrg = input.context.organisationId;
+          seenClass = input.newDataClass;
+          return { ok: true, id: AUDIT_ID };
+        },
+      },
+    });
+    const res = await handleReclassCollection(
+      request("/api/knowledge/review/reclass", {
+        collectionId: COLLECTION,
+        newDataClass: "internal",
+        organisationId: "22222222-2222-4222-8222-222222222222",
+      }),
+      d,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ auditId: AUDIT_ID });
+    expect(seenOrg).toBe(ORG);
+    expect(seenClass).toBe("internal");
+
+    const badOrigin = await handleReclassCollection(
+      request(
+        "/api/knowledge/review/reclass",
+        { collectionId: COLLECTION, newDataClass: "internal" },
+        "https://evil.test",
+      ),
+      deps(),
+    );
+    expect(badOrigin.status).toBe(403);
+    expect((await badOrigin.json()).error.code).toBe("origin_mismatch");
+
+    const noSession = await handleReclassCollection(
+      request("/api/knowledge/review/reclass", { collectionId: COLLECTION, newDataClass: "public" }),
+      deps({ resolution: { ok: false, reason: "no_session" } }),
+    );
+    expect(noSession.status).toBe(401);
+
+    const invalid = await handleReclassCollection(
+      request("/api/knowledge/review/reclass", { collectionId: "nope", newDataClass: "internal" }),
+      deps(),
+    );
+    expect(invalid.status).toBe(400);
   });
 });
