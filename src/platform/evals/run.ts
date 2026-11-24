@@ -6,6 +6,9 @@ import {
   narrowClearance,
   type ClearanceMatrix,
 } from "@/contracts/provider-route";
+import type { TenantContext } from "@/contracts/tenant-context";
+
+import type { GatewayDeps } from "@/platform/gateway/call";
 
 import { orderEvalCases } from "./order-cases";
 import { scoreEvalCase, type EvalCaseObservation, type EvalCaseScore } from "./score";
@@ -35,10 +38,26 @@ export interface EvalCaseAskContext {
  * Injectable case asker (gateway in production, mock in tests).
  * Must honour `clearance` — never call a provider outside the cleared list for the case data class.
  */
-export type EvalCaseAsker = (ctx: EvalCaseAskContext) => EvalCaseObservation & {
+export type EvalCaseObservationResult = EvalCaseObservation & {
   /** If set and differs from the run's corpusGeneration, the whole run is discarded. */
   observedCorpusGeneration?: string;
 };
+
+export type EvalCaseAsker = (
+  ctx: EvalCaseAskContext,
+) => EvalCaseObservationResult | Promise<EvalCaseObservationResult>;
+
+/** Wired by PR-10 when `askCase` is omitted; see `createEvalGatewayAsker` (dynamic import avoids a cycle). */
+export interface EvalGatewayWire {
+  context: TenantContext;
+  runId: string;
+  gatewayDeps: GatewayDeps;
+  composeChain?: readonly ProviderKey[];
+  tenantPolicy?: Partial<ClearanceMatrix>;
+  maxOutputUnits?: number;
+  callTimeoutMs?: number;
+  stageDeadlineMs?: number;
+}
 
 export interface RunExpertEvalInput {
   expertKey: ExpertKey;
@@ -48,6 +67,8 @@ export interface RunExpertEvalInput {
   cases: readonly EvalCase[];
   /** Optional asker; when omitted, the run only binds order/metadata (PR-3 behaviour). */
   askCase?: EvalCaseAsker;
+  /** When set (and `askCase` omitted), installs the default gateway asker for this run. */
+  gatewayWire?: EvalGatewayWire;
   tenantPolicy?: Partial<ClearanceMatrix>;
   platformClearance?: ClearanceMatrix;
 }
@@ -56,7 +77,7 @@ export interface RunExpertEvalInput {
  * F35 `runExpertEval` — binds the run row, deterministic order, optional per-case scoring.
  * Results are bound to `corpusGeneration`; drift mid-run discards the run.
  */
-export function runExpertEval(input: RunExpertEvalInput): EvalRunRow {
+export async function runExpertEval(input: RunExpertEvalInput): Promise<EvalRunRow> {
   if (input.expertVersion.trim().length === 0) {
     throw new Error("runExpertEval: expertVersion is required");
   }
@@ -83,7 +104,14 @@ export function runExpertEval(input: RunExpertEvalInput): EvalRunRow {
     caseOrder,
   };
 
-  if (!input.askCase) {
+  let askCase = input.askCase;
+  if (askCase === undefined && input.gatewayWire !== undefined) {
+    // Dynamic import: `ask-case-gateway.ts` types reference `EvalCaseAsker` from this module.
+    const { createEvalGatewayAsker } = await import("./ask-case-gateway");
+    askCase = createEvalGatewayAsker(input.gatewayWire);
+  }
+
+  if (!askCase) {
     return { ...base, status: "completed", results: [] };
   }
 
@@ -94,7 +122,7 @@ export function runExpertEval(input: RunExpertEvalInput): EvalRunRow {
       tenantPolicy: input.tenantPolicy,
       platform: input.platformClearance,
     });
-    const observation = input.askCase({
+    const observation = await askCase({
       evalCase,
       clearance,
       corpusGeneration: input.corpusGeneration,
