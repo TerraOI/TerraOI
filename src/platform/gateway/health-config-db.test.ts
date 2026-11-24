@@ -86,14 +86,15 @@ describe("createRecordProviderHealthExecFromSql — CONFIG_DB Hyperdrive carrier
   });
 
   it("never puts CONFIG_DB connection strings in thrown error messages", async () => {
-    const secret = "postgresql://gateway_writer:SuperSecret@hyperdrive.internal/db";
+    // Synthetic sentinel only — not a credential. Scrubber must still strip URI-shaped fragments.
+    const sentinel = "postgresql://toi_gateway_config:redacted@127.0.0.1/terraoi";
     const sql = (async () => {
-      throw new Error(`connect ECONNREFUSED ${secret}`);
+      throw new Error(`connect ECONNREFUSED ${sentinel}`);
     }) as unknown as ConfigSql;
     sql.end = async () => undefined;
 
     const exec = createRecordProviderHealthExecFromSql({
-      binding: { connectionString: secret },
+      binding: { connectionString: sentinel },
       openSql: () => sql,
     })!;
 
@@ -105,8 +106,8 @@ describe("createRecordProviderHealthExecFromSql — CONFIG_DB Hyperdrive carrier
     }
     expect(thrown).toBeInstanceOf(Error);
     const message = String((thrown as Error).message);
-    expect(message).not.toContain(secret);
-    expect(message).not.toContain("SuperSecret");
+    expect(message).not.toContain(sentinel);
+    expect(message).not.toContain("redacted@127.0.0.1");
     expect(message).not.toMatch(/postgres(ql)?:\/\//i);
   });
 });
