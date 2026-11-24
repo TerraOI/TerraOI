@@ -15,7 +15,8 @@ import {
  * HTTP handlers for T-302b F15 submissions (plan §9, FAQ-0005, ADR-0013).
  *
  * Tenant and actor come only from `resolveContext` + the signed-in access token. Bodies never
- * carry an organisation id. Adapters may leave deps unbound (503) until #37 — same seam as uploads.
+ * carry an organisation id. Production routes open deps via `submissionDepsForRequest` (#37(b));
+ * missing bindings still fail closed with 503 — same seam as uploads.
  */
 
 /** Proposed text can be up to 200k; allow a small JSON envelope on top. */
