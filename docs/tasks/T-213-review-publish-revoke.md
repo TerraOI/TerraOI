@@ -58,6 +58,10 @@ Derived-output invalidation reads the `data_class` and source-version dependency
 - [x] positive: `src/platform/knowledge/review-rpc*.test.ts` + `review-handlers.test.ts` — `withTenantRpc`
       carries the context org only; loopback proves the user bearer and no privileged canary; handlers
       refuse origin mismatch / missing session and never take org from the body (**PR-2**)
+- [x] positive: `051_review_reclass.test.sql` — cascade raises collection, versions and chunks; audit
+      row records counts; E2 index without the new class loses its vectors (**PR-3** / #21)
+- [x] negative: raise to `restricted` and tenant-wide raise to `client_confidential` refused; another
+      tenant refused; lowering refused (**PR-3** / #21)
 
 ## Done evidence
 `pnpm db:test` (CI `database` job where the machine has no Docker), `pnpm verify`; staging: publish one
