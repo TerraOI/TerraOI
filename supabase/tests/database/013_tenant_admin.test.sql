@@ -1189,8 +1189,9 @@ select is((select count(*)::int from pg_trigger tr
              join pg_proc p on p.oid = tr.tgfoid
              join pg_namespace n on n.oid = c.relnamespace
             where n.nspname = 'public' and p.proname = 'bump_policy_revision'
-              and not tr.tgisinternal), 15::int,
-  '148 five tables x (insert, update, delete): the count is pinned so a fourth table or a dropped '
+              and not tr.tgisinternal), 18::int,
+  '148 six tables x (insert, update, delete): five tenancy tables from T-202 plus '
+  || 'source_acl_bindings from T-214; the count is pinned so a seventh table or a dropped '
   || 'event fails by number rather than by a reviewer noticing an absent row');
 
 select is((select coalesce(obj_description('public.organisations'::regclass), '')),

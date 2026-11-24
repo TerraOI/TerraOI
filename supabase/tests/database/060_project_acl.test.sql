@@ -61,8 +61,12 @@ begin
 end;
 $fn$;
 
+-- Temp tables must be writable under `set local role authenticated` (041/045 idiom): either create
+-- them as that role, or grant INSERT/SELECT. Grants keep owner-side DO blocks able to fill t_out.
 create temp table t_out (case_name text, result text);
 create temp table t_count (case_name text, n int);
+grant insert, select on t_out to authenticated;
+grant insert, select on t_count to authenticated;
 
 -- ---------------------------------------------------------------- fixtures: extra project for dual-binding cases
 select pg_temp.try_owner_sql(
