@@ -192,7 +192,9 @@ select is_empty($$
            ('public.revoke_membership_role_v1(uuid, uuid, uuid)'::regprocedure),
            ('public.create_project_v1(uuid, text, text, text)'::regprocedure),
            ('public.add_project_member_v1(uuid, uuid, uuid)'::regprocedure),
-           ('public.remove_project_member_v1(uuid, uuid, uuid)'::regprocedure)
+           ('public.remove_project_member_v1(uuid, uuid, uuid)'::regprocedure),
+           -- T-214 PR-1 (`20261124140000_project_acl.sql`): shared source access decision (F08).
+           ('public.authorize_source_access_v1(uuid, uuid, text)'::regprocedure)
          ) as allowed(proc)
      )
 $$, '32 no function in public is executable by authenticated beyond the named allow-list (§4.3, #60)');
