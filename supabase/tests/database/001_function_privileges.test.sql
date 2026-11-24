@@ -192,7 +192,11 @@ select is_empty($$
            ('public.revoke_membership_role_v1(uuid, uuid, uuid)'::regprocedure),
            ('public.create_project_v1(uuid, text, text, text)'::regprocedure),
            ('public.add_project_member_v1(uuid, uuid, uuid)'::regprocedure),
-           ('public.remove_project_member_v1(uuid, uuid, uuid)'::regprocedure)
+           ('public.remove_project_member_v1(uuid, uuid, uuid)'::regprocedure),
+           -- T-311 PR-4 (#221 N1): scoped Auto/routing expert list. SECURITY DEFINER so
+           -- expert_definitions.status is readable without granting the table (#143 B8).
+           -- Returns only key/version/service/status — no model_chains or collection_bindings.
+           ('public.list_authorized_experts_v1(uuid)'::regprocedure)
          ) as allowed(proc)
      )
 $$, '32 no function in public is executable by authenticated beyond the named allow-list (§4.3, #60)');

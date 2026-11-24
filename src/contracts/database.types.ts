@@ -936,6 +936,11 @@ isOneToOne: false
 "is_project_member":
 { Args: { "p_project_id": string }; Returns: boolean
                            },
+"list_authorized_experts_v1":
+{ Args: { "p_organisation_id": string }; Returns: {
+              "expert_key": string,"expert_version": string,"service_key": string,"status": string
+            }[]
+                           },
 "load_public_brand":
 { Args: { "p_host": string }; Returns: {
               "accent_color": string,"descriptor": string,"display_name": string,"document_prefix": string,"email_sender_name": string,"favicon_bytes": number,"favicon_path": string,"logo_bytes": number,"logo_path": string,"mode": string,"on_primary_color": string,"primary_color": string,"report_owner": string,"show_powered_by": boolean,"support_label": string,"support_url": string,"tagline": string
