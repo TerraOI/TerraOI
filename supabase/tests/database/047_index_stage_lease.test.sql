@@ -177,6 +177,8 @@ create temp table t_art_bad as
 select is((select o_found::text from t_art_bad), 'false',
   '13 a superseded fence answers o_found = false with no existence signal');
 
+-- pg_temp is session-local (045 idiom): grant so authenticated can record its own SQLSTATE.
+grant insert, select on t_out to authenticated;
 set local role authenticated;
 insert into t_out values (
   'auth_art',
