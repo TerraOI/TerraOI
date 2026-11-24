@@ -42,11 +42,11 @@ function transport(answer: () => Response) {
 describe("caseIdToUuidFromList", () => {
   it("maps case_key to id with first-wins on duplicates and skips empty keys", () => {
     const map = caseIdToUuidFromList([
-      { id: CASE_A, caseKey: "UAV-E001", expertKey: "uav-expert", status: "approved" },
-      { id: CASE_B, caseKey: "UAV-E001", expertKey: "uav-expert", status: "approved" },
-      { id: CASE_B, caseKey: "", expertKey: "uav-expert", status: "approved" },
-      { id: CASE_B, caseKey: "   ", expertKey: "uav-expert", status: "approved" },
-      { id: CASE_B, caseKey: "GPR-E001", expertKey: "gpr-expert", status: "approved" },
+      { id: CASE_A, caseKey: "UAV-E001" },
+      { id: CASE_B, caseKey: "UAV-E001" },
+      { id: CASE_B, caseKey: "" },
+      { id: CASE_B, caseKey: "   " },
+      { id: CASE_B, caseKey: "GPR-E001" },
     ]);
     expect(map).toEqual({
       "UAV-E001": CASE_A,
