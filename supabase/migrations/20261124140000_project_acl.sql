@@ -130,6 +130,9 @@ $$;
 comment on function public.source_audience_allows(uuid) is
   'Project audience union for one source: bindings OR collection project (T-214). SECURITY DEFINER; not granted to request roles.';
 
+revoke execute on function public.source_audience_allows(uuid)
+  from public, anon, authenticated, service_role;
+
 create or replace function public.source_is_readable(p_source_id uuid)
 returns boolean language sql stable security definer set search_path = public, pg_temp as $$
   select exists (
