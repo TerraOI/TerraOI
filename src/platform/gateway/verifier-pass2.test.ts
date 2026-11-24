@@ -137,6 +137,7 @@ describe("createSemanticVerifier", () => {
         skipped: [],
         matrixRevision: 7,
       },
+      composedWith: META_BASE.composedWith,
     });
 
     const claude = h.adapters.get("claude")!;
@@ -175,6 +176,7 @@ describe("createSemanticVerifier", () => {
         skipped: [],
         matrixRevision: 7,
       },
+      composedWith: META_BASE.composedWith,
     });
 
     expect(h.adapters.get("claude")!.calls.length).toBeGreaterThanOrEqual(1);
@@ -202,6 +204,7 @@ describe("createSemanticVerifier", () => {
         skipped: [],
         matrixRevision: 7,
       },
+      composedWith: META_BASE.composedWith,
     });
     expect(verdicts[0]?.status).toBe("unsupported");
   });
