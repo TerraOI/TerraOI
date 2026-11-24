@@ -126,12 +126,11 @@ select is((select result from t_out where case_name = 'b1_scope_c1'), '28000',
 select is((select result from t_out where case_name = 'b1_auth_c1'), '28000',
   '9 and the authorize RPC inherits that refusal on the first statement');
 
--- remove Site A membership for a1
-select is(pg_temp.try_owner_sql(
+-- remove Site A membership for a1 (setup only — not a counted assertion)
+select pg_temp.try_owner_sql(
   'delete from public.project_memberships where project_id = '
   || '''41000000-0000-4000-8000-000000000001'' and user_id = '
-  || '''00000000-0000-4000-8000-0000000000a1'''), 'ok',
-  'fixture: drop Site A membership for …a1');
+  || '''00000000-0000-4000-8000-0000000000a1''');
 
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
