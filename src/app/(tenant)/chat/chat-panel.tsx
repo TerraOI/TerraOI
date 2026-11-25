@@ -4,6 +4,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 
 import type { Answer } from "@/contracts/answer";
 import type { ProgressEvent } from "@/contracts/chat";
+import { AnswerFeedback } from "@/components/chat/feedback";
 import { readChatStream } from "@/platform/chat/stream";
 
 import styles from "./chat.module.css";
@@ -311,6 +312,7 @@ function AnswerBlock({ answer, reducedSearch: reduced }: { answer: Answer; reduc
           </ul>
         </details>
       )}
+      <AnswerFeedback answer={answer} />
     </div>
   );
 }

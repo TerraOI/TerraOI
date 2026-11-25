@@ -34,7 +34,7 @@ Baseline taken 2026-11-25 on `origin/main` = `a0a6b3c` plus the 75 open PRs (27 
 | T-215 verifier pass 2 | §12.1 | PRs #245/#246/#284 | partial | merge |
 | T-216 condense + exact lookup | F30 | PRs #247/#258/#266 | partial | merge |
 | T-301 forms | F33 | main + PR #220 | partial | merge |
-| T-302 feedback + save-as-knowledge UI | F15 | **none** (T-302b data path in PRs #269/#270/#289) | missing | **TOI-008** |
+| T-302 feedback + save-as-knowledge UI | F15 | `terraoi/build` (TOI-008) | partial | staging evidence |
 | T-303 eval review view | §14.1 | `terraoi/build` (TOI-006) | partial | staging evidence; nav entry (Q-08) |
 | T-304 kill switches, provisioning | F05 | main | done (code) | drill on staging |
 | T-311 experts, routeExpert | F29 | PRs #221/#239/#279/#290 | partial | merge |
@@ -60,7 +60,7 @@ Baseline taken 2026-11-25 on `origin/main` = `a0a6b3c` plus the 75 open PRs (27 
 | TOI-005 | Docker-free pgTAP + typegen harness in `scripts/db-shim/` | §16 Database row | DONE | run.sh reproduces 1664 pass; gentypes byte-identical |
 | TOI-006 | T-303 eval review view | T-303, §14.1 | VERIFY | [TOI-006](TerraOI-tasks/TOI-006-eval-review-view.md): pgTAP 091 30/30, unit +34; staging + supervisor review owed |
 | TOI-007 | T-203 chat UX (picker, evidence panel, citation open, history) | T-203 | VERIFY (partial) | [TOI-007](TerraOI-tasks/TOI-007-chat-ux.md): history/resume + evidence panel done; picker BLOCKED Q-11, citation open BLOCKED Q-10 |
-| TOI-008 | T-302 feedback controls + submission/review UI | T-302 | PENDING | — |
+| TOI-008 | T-302 feedback controls + submission/review UI | T-302 | VERIFY | [TOI-008](TerraOI-tasks/TOI-008-feedback-save-knowledge.md): pgTAP 085 22/22, unit +18; staging owed |
 | TOI-009 | T-402 agent-side red-team bait tests | T-402 | PENDING | — |
 | TOI-010 | T-401 local M1-subset evidence run | T-401, §20.5 | PENDING | — |
 | TOI-011 | Push `terraoi/build`, open draft PR, comment collisions on PRs | user brief | BLOCKED | GitHub integration is read-only (403 on create_branch; comment tool denied); `git push` has no credential — Q-07. Delivered as bundle + patches in session outputs |

@@ -2,13 +2,13 @@
 
 **Status:** integration branch green on every locally runnable check; T-303 built (VERIFY).
 **Branch:** `terraoi/build` (local only — GitHub is read-only from this session, Q-07).
-**Current task:** TOI-008 (T-302 feedback + save-as-knowledge UI) next.
+**Current task:** TOI-009 (T-402 agent-side red-team tests) next.
 
 ## Latest evidence (terraoi/build)
-lint pass · typecheck pass · unit 189 files / 2108 tests pass · pgTAP shim 35 files / 1694 pass · structure/docs pass · webpack build (font mock) compiles incl. /evals routes.
+lint pass · typecheck pass · unit 194 files / 2136 tests pass · pgTAP shim 36 files / 1716 pass · structure/docs pass.
 
 ## Blockers
 Owner-only: merges/approvals (Q-01), GitHub write (Q-07), staging/production + Company1 approvals (Q-06).
 
 ## Exact next action
-Read T-302 packet + T-302b routes (`src/app/api/knowledge/submissions`, `src/platform/knowledge/submission-*`) on this branch; build the four answer controls and the reviewer queue screen; the rating table needs a migration (`085_chat_feedback`).
+Read T-402 packet; add bait tests (cross-tenant/project ids, injected instructions in documents, forged chat history) against the integrated tree; fix what fails.

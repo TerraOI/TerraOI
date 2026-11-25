@@ -139,6 +139,38 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"chat_feedback": {
+                  Row: {
+                    "correction_text": string | null,"created_at": string,"id": string,"kind": string,"organisation_id": string,"run_id": string,"updated_at": string,"user_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "correction_text"?: string | null,"created_at"?: string,"id"?: string,"kind": string,"organisation_id": string,"run_id": string,"updated_at"?: string,"user_id": string
+                  }
+                  Update: {
+                    "correction_text"?: string | null,"created_at"?: string,"id"?: string,"kind"?: string,"organisation_id"?: string,"run_id"?: string,"updated_at"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "chat_feedback_organisation_fk"
+      columns: ["organisation_id"]
+isOneToOne: false
+      referencedRelation: "organisations"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "chat_feedback_run_fk"
+      columns: ["run_id","organisation_id"]
+isOneToOne: false
+      referencedRelation: "agent_runs"
+      referencedColumns: ["id","organisation_id"]
+    },{
+      foreignKeyName: "chat_feedback_user_id_fkey"
+      columns: ["user_id"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"chunk_embeddings": {
                   Row: {
                     "chunk_id": string,"created_at": string,"embedding": string,"id": string,"index_generation": number,"index_id": string,"organisation_id": string
@@ -1524,6 +1556,16 @@ isOneToOne: false
               "data_class": string,"default_collection_id": string,"description": string,"id": string,"json_schema": Json,"name": string,"organisation_id": string,"project_id": string,"published_at": string,"scope": string,"service_key": string,"status": string,"ui_hints": Json,"version": string
             }[]
                            },
+"list_knowledge_submissions_v1":
+{ Args: { "p_organisation_id": string,"p_state": string }; Returns: {
+              "author_is_caller": boolean,"cited_source_version_ids": (string)[],"collection_id": string,"collection_name": string,"created_at": string,"data_class": string,"id": string,"kind": string,"proposed_text": string,"reviewed_at": string,"state": string
+            }[]
+                           },
+"list_submission_collections_v1":
+{ Args: { "p_organisation_id": string }; Returns: {
+              "data_class": string,"id": string,"key": string,"name": string,"project_id": string
+            }[]
+                           },
 "load_public_brand":
 { Args: { "p_host": string }; Returns: {
               "accent_color": string,"descriptor": string,"display_name": string,"document_prefix": string,"email_sender_name": string,"favicon_bytes": number,"favicon_path": string,"logo_bytes": number,"logo_path": string,"mode": string,"on_primary_color": string,"primary_color": string,"report_owner": string,"show_powered_by": boolean,"support_label": string,"support_url": string,"tagline": string
@@ -1542,6 +1584,9 @@ isOneToOne: false
                            },
 "put_tenant_brand_v1":
 { Args: { "p_assets": Json,"p_brand": Json,"p_organisation_id": string }; Returns: number
+                           },
+"rate_answer_v1":
+{ Args: { "p_correction_text"?: string,"p_kind": string,"p_organisation_id": string,"p_run_id": string }; Returns: string
                            },
 "record_eval_run_v1":
 { Args: { "p_organisation_id": string,"p_results": Json,"p_run": Json }; Returns: string
