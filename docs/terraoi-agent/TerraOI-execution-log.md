@@ -7,3 +7,4 @@
 - 2026-11-25 TOI-006 T-303: migration 20261125100000 + pgTAP 091 (30) + client/service/UI (+34 unit). Guard spot-check done. Full suite: unit 2108, pgTAP 1694.
 - 2026-11-25 TOI-007 T-203 slices 1+3 (history/resume, evidence panel): +2 test files, chat suites 126 pass. Picker → Q-11, citation open → Q-10 (ADR-0011 boundary).
 - 2026-11-25 TOI-008 T-302: migration 20261125110000 + pgTAP 085 (22) + feedback/collections routes, controls, reviewer queue (+18 unit). Full: unit 2136, pgTAP 1716.
+- 2026-11-25 TOI-009 T-402 local legs: pgTAP 110 (24; 2 findings as todo R-1/R-2), R-3 noted. Mapped forged-history/spoofed-header boxes to existing tests.
