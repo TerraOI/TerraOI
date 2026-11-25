@@ -64,4 +64,5 @@ Baseline taken 2026-11-25 on `origin/main` = `a0a6b3c` plus the 75 open PRs (27 
 | TOI-009 | T-402 agent-side red-team bait tests | T-402 | VERIFY (local legs) | [TOI-009](TerraOI-tasks/TOI-009-red-team.md): pgTAP 110 22 pass + findings R-1/R-2 as todo; staging legs owed |
 | TOI-010 | T-401 local M1-subset evidence run | T-401, §20.5 | PENDING | — |
 | TOI-011 | Push `terraoi/build`, open draft PR, comment collisions on PRs | user brief | BLOCKED | GitHub integration is read-only (403 on create_branch; comment tool denied); `git push` has no credential — Q-07. Delivered as bundle + patches in session outputs |
-| TOI-013 | Check T-113 auto-publish against T-213 publication policy | §7.2, Q-05 | PENDING | — |
+| TOI-013 | Check T-113 auto-publish against T-213 publication policy | §7.2, Q-05 | VERIFY | [TOI-013](TerraOI-tasks/TOI-013-publish-review-gate.md): defect confirmed and fixed; pgTAP 049 14/14 |
+| TOI-014 | Restore #219 migration dropped by the T-113 stack merge | TOI-001 | DONE | Q-12; pgTAP 036 back (78) |

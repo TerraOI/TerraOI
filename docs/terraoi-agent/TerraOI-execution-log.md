@@ -8,3 +8,4 @@
 - 2026-11-25 TOI-007 T-203 slices 1+3 (history/resume, evidence panel): +2 test files, chat suites 126 pass. Picker → Q-11, citation open → Q-10 (ADR-0011 boundary).
 - 2026-11-25 TOI-008 T-302: migration 20261125110000 + pgTAP 085 (22) + feedback/collections routes, controls, reviewer queue (+18 unit). Full: unit 2136, pgTAP 1716.
 - 2026-11-25 TOI-009 T-402 local legs: pgTAP 110 (24; 2 findings as todo R-1/R-2), R-3 noted. Mapped forged-history/spoofed-header boxes to existing tests.
+- 2026-11-25 Found #219 migration silently dropped by T-113 stack merge → restored (TOI-014/Q-12). TOI-013: worker publish bypassed T-213 review → wrapper migration 20261125120000 + worker outcome; pgTAP 049 (14), workers +2.

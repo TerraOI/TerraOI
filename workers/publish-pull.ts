@@ -40,6 +40,11 @@ export type PublishVersionOutcome =
       sourceVersionId: string;
       previousVersionId: string | null;
     }
+  /**
+   * TOI-013: the version needs a T-213 review decision first. The job is finished and the version
+   * is parked in `awaiting_review`; no pointer moved. Not an error and not a publication.
+   */
+  | { outcome: "awaiting_review"; sourceId: string; sourceVersionId: string }
   | { outcome: "refused" };
 
 /** @deprecated Prefer `PublishVersionOutcome` — kept for call-site clarity in unit tests. */
@@ -75,6 +80,7 @@ export type PublishWorkerEvent =
   | { kind: "mutation_refused"; jobId: string; call: "publishVersion" | "abort" }
   | { kind: "published"; jobId: string; sourceVersionId: string }
   | { kind: "already_published"; jobId: string; sourceVersionId: string }
+  | { kind: "held_for_review"; jobId: string; sourceVersionId: string }
   | { kind: "aborted"; jobId: string; reason: AbortReason };
 
 export type PublishIterationOutcome =
@@ -84,6 +90,7 @@ export type PublishIterationOutcome =
   | { action: "lease_lost" }
   | { action: "published"; sourceVersionId: string }
   | { action: "already_published"; sourceVersionId: string }
+  | { action: "held_for_review"; sourceVersionId: string }
   | { action: "aborted"; reason: AbortReason }
   | { action: "refused" };
 
@@ -200,6 +207,11 @@ export async function runPublishWorkerIteration(
       sourceVersionId: published.sourceVersionId,
     });
     return { action: "already_published", sourceVersionId: published.sourceVersionId };
+  }
+
+  if (published.outcome === "awaiting_review") {
+    deps.log({ kind: "held_for_review", jobId: holder.jobId, sourceVersionId: published.sourceVersionId });
+    return { action: "held_for_review", sourceVersionId: published.sourceVersionId };
   }
 
   deps.log({ kind: "mutation_refused", jobId: holder.jobId, call: "publishVersion" });
