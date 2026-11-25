@@ -562,6 +562,75 @@ describe("verification selection (plan §12.1 rules (d)/(e), issue #9)", () => {
     expect(answer.refusalKey).toBeUndefined();
     assertNothingInternalLeaks(answer, "no eligible verifier");
   });
+
+  it("composition fails pass 2 materially → one retry on the next compose tier (exactly two compose attempts)", async () => {
+    const bad = candidate([
+      claimOf("c1", "requirement", "Grounding is mandatory.", [ref("chk-0003", VERSION_C, "Ground the aircraft")]),
+    ]);
+    const good = candidate([
+      claimOf("c2", "requirement", "Calibration is required before every survey.", [
+        ref("chk-0001", VERSION_A, "Calibrate the antenna"),
+      ]),
+    ]);
+    const semanticVerifier: SemanticVerifierPort = {
+      async verify({ claims }) {
+        return claims.map((claim) =>
+          claim.id === "c2"
+            ? { claimId: claim.id, status: "supported" as const, reason: "Span states it." }
+            : { claimId: claim.id, status: "unsupported" as const, reason: "Span does not state it." },
+        );
+      },
+    };
+    const h = depsOf(
+      {
+        local_box: [answered(bad, "open-weights-alpha")],
+        workers_ai: [answered(good, "hosted-beta")],
+        claude: [answered(good, "hosted-gamma")],
+      },
+      { semanticVerifier },
+    );
+    const { answer, audit } = await composeAnswer(input(), h.deps);
+    expect(audit.composeAttempts.filter((a) => a.outcome === "answered")).toHaveLength(2);
+    expect(audit.answeredBy?.providerKey).toBe("workers_ai");
+    expect(answer.claims.map((c) => c.id)).toEqual(["c2"]);
+    expect(answer.claims[0]?.verificationStatus).toBe("supported");
+    expect(answer.status).toBe("answered");
+    expect(adapterFor(h, "local_box").calls).toHaveLength(1);
+    expect(adapterFor(h, "workers_ai").calls).toHaveLength(1);
+    assertNothingInternalLeaks(answer, "compose retry after material pass-2 failure");
+  });
+
+  it("a second material pass-2 failure after the one retry returns refused or partial (still two compose attempts)", async () => {
+    const bad = candidate([
+      claimOf("c1", "requirement", "Grounding is mandatory.", [ref("chk-0003", VERSION_C, "Ground the aircraft")]),
+    ]);
+    const alsoBad = candidate([
+      claimOf("c3", "requirement", "Grounding is still mandatory.", [ref("chk-0003", VERSION_C, "Ground the aircraft")]),
+    ]);
+    const semanticVerifier: SemanticVerifierPort = {
+      async verify({ claims }) {
+        return claims.map((claim) => ({
+          claimId: claim.id,
+          status: "unsupported" as const,
+          reason: "Span does not state it.",
+        }));
+      },
+    };
+    const h = depsOf(
+      {
+        local_box: [answered(bad, "open-weights-alpha")],
+        workers_ai: [answered(alsoBad, "hosted-beta")],
+        claude: [answered(alsoBad, "hosted-gamma")],
+      },
+      { semanticVerifier },
+    );
+    const { answer, audit } = await composeAnswer(input(), h.deps);
+    expect(audit.composeAttempts.filter((a) => a.outcome === "answered")).toHaveLength(2);
+    expect(answer.claims).toEqual([]);
+    expect(answer.status).toBe("refused");
+    expect(answer.refusalKey).toBe("insufficient_support");
+    assertNothingInternalLeaks(answer, "compose retry exhausted");
+  });
 });
 
 describe("the refusal vocabulary (ADR-0009, #97)", () => {
@@ -629,11 +698,15 @@ describe("the refusal vocabulary (ADR-0009, #97)", () => {
         return [{ claimId: "c1", status: "unsupported", reason: "The cited span does not state it." }];
       },
     };
+    // Single compose tier: a material pass-2 failure with no next tier refuses without a retry.
     const h = depsOf(
       { local_box: [answered(payload, "open-weights-alpha")], claude: [answered(payload, "hosted-gamma")] },
       { semanticVerifier },
     );
-    const { answer, audit } = await composeAnswer(input(), h.deps);
+    const { answer, audit } = await composeAnswer(
+      input({ expert: { ...EXPERT, modelChains: { ...EXPERT.modelChains, compose: ["local_box"] } } }),
+      h.deps,
+    );
     expect(audit.droppedByVerifier).toEqual(["c1"]);
     expect(answer.status).toBe("refused");
     expect(answer.summary).toBe(EXPERT.refusalTemplates.insufficient_support);
