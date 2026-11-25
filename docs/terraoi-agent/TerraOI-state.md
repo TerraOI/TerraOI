@@ -1,7 +1,7 @@
 # TerraOI state (checkpoint)
 
 **Status:** all locally actionable work done; remaining items need owner/supervisor input (see backlog).
-**Branch:** `terraoi/build` (local only — GitHub write still denied: create_branch 403, no git token; Q-07). Delivered as `terraoi-build.bundle` + per-commit patches in session outputs.
+**Branch:** `terraoi/build` pushed to GitHub and re-synced with main f73458a; draft PR #291 (https://github.com/TerraOI/TerraOI/pull/291).
 **Current task:** none in progress.
 
 ## Latest evidence (terraoi/build, 2026-11-25, this sandbox)
@@ -14,4 +14,4 @@ TOI-001..005 integration + harness; TOI-006 T-303; TOI-007 T-203 (partial); TOI-
 Q-01 merges · Q-06 staging/production + Company1 approvals · Q-07 GitHub write · Q-10 citation-open ruling (proposal on branch) · R-4 Storage predicate grant (Lane 2) · Q-11/TOI-016 production chat composition · protected-path reviews (Q-05, Q-09, Q-13, R-2, R-3, R-5).
 
 ## Exact next action
-Owner: push the bundle and open the draft PR (PR-DESCRIPTION.md), or provide a GitHub token so the agent can. Agent (next session): resume here; first actionable item appears when a Q/R item is answered.
+Owner: have a non-author reviewer look at draft PR #291 (provenance guard), or merge the individual PRs in the documented order; answer the open Q/R items. Agent (next session): resume here; first actionable item appears when a Q/R item is answered.

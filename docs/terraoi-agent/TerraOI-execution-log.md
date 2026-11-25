@@ -12,3 +12,4 @@
 - 2026-11-25 TOI-015: #186 (T-201 PR-2) closed unmerged with rulings given → re-implemented to #179/#182-#185: migration 20261125130000, pgTAP 018 (27), identity TS wiring + tests.
 - 2026-11-25 TOI-013 park path hardened (advisor review); 018 owner pin; TOI-015 reframed as reference impl; TOI-016 chat composition left BLOCKED with packet proposal. Final: unit 2145, pgTAP 1864.
 - 2026-11-25 Push retried: still 403 / no token. TOI-017: F24 citation proposal (038, route), R-2 proposal, R-3 fence, R-5 /rest/v1 fix (sign-in + chat RPCs were 404ing), R-4 finding. TOI-016 left BLOCKED.
+- 2026-11-25 Owner supplied a token: pushed terraoi/build, merged origin/main f73458a (no conflicts; checks re-run green), opened draft PR #291. Q-07 resolved.
