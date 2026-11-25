@@ -45,6 +45,11 @@ function digestOf(credential: string): string {
   return createHash("sha256").update(credential, "utf8").digest("hex");
 }
 
+/** SHA-256 hex of a presented worker credential — what crosses the #170 binding hop. */
+export function digestWorkerCredential(credential: string): string {
+  return digestOf(credential);
+}
+
 function openFromBinding(binding: JobDbBinding): JobSql {
   return postgres(binding.connectionString, { prepare: false, max: 1 }) as unknown as JobSql;
 }
@@ -276,4 +281,40 @@ export function createJobApi(deps: JobDbDeps): JobApiPort | null {
       return { outcome: "retargeted" };
     },
   };
+}
+
+/**
+ * Lease compare using a credential **hash** already computed by the app Worker (#170).
+ * The service-binding hop must not carry the raw token; this is the only SQL entry that
+ * accepts the digest as-is.
+ */
+export async function lookupObjectRefByTokenHash(
+  deps: JobDbDeps,
+  args: { tokenHash: string; jobId: string; leaseToken: string; fence: number },
+): Promise<ObjectRefOutcome> {
+  const open: (() => JobSql) | null =
+    deps.openSql ?? (deps.binding ? () => openFromBinding(deps.binding as JobDbBinding) : null);
+  if (open === null) return { found: false };
+
+  const sql = open();
+  try {
+    const rows = await sql`
+      select o_found, o_object_ref, o_data_class, o_executor
+        from job_api.object_ref_for_lease_v1(
+          ${args.tokenHash}, ${args.jobId}::uuid, ${args.leaseToken}, ${args.fence}
+        )
+    `;
+    const row = rows[0];
+    if (!row || row.o_found !== true) return { found: false };
+    const dataClass = asDataClass(row.o_data_class);
+    const executor = asExecutor(row.o_executor);
+    if (typeof row.o_object_ref !== "string" || dataClass === null || executor === null) {
+      return { found: false };
+    }
+    return { found: true, objectRef: row.o_object_ref, dataClass, executor };
+  } catch {
+    return { found: false };
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
 }

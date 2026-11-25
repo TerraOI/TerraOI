@@ -1,14 +1,26 @@
 import type { IngestionStage } from "@/contracts/ingestion-job";
 
+import { digestWorkerCredential } from "./job-db";
+import {
+  SIGNED_URL_TTL_SECONDS,
+  type MintObjectUrlArgs,
+  type MintObjectUrlResult,
+} from "./mint-object-url";
 import type { AbortReason, ArtifactInput, JobApiPort } from "./ocr-pull";
 
 /**
- * Box-facing HTTP handlers for `src/app/api/jobs/*` (FAQ-0005, #152; T-211 PR-3a).
+ * Box-facing HTTP handlers for `src/app/api/jobs/*` (FAQ-0005, #152; T-211 PR-3a/3b).
  *
  * Speaks the same JSON shapes `localbox/ocr-pull.ts` `createHttpBoxJobApi` already posts and
- * parses. Identity is the `Authorization: Bearer <token>` header — hashed in the JOB_DB adapter
- * before SQL (#134). Responses never carry postgres detail, hosts, or pool names.
+ * parses. Identity is the `Authorization: Bearer <token>` header — hashed before SQL (#134) or
+ * before the #170 service-binding hop for `object-url`. Responses never carry postgres detail,
+ * hosts, pool names, or `object_ref`.
  */
+
+/** RPC surface the app Worker binds as `OBJECT_URL_MINT` (#170). */
+export type ObjectUrlMintBinding = {
+  mintObjectUrl(args: MintObjectUrlArgs): Promise<MintObjectUrlResult>;
+};
 
 const SAFE_JSON = { "content-type": "application/json", "cache-control": "no-store" } as const;
 
@@ -228,4 +240,34 @@ export async function handleJobAbort(request: Request, api: JobApiPort): Promise
   }
   const outcome = await api.abort({ credential, jobId, leaseToken, fence, reason });
   return ok(outcome);
+}
+
+/**
+ * Box-facing object URL (#170). Hashes the Bearer token, sends only the digest + lease
+ * identity over the binding, and returns `{ found, url?, expiresInSeconds? }`. The URL is
+ * never logged here — the handler test asserts it appears only in the response body.
+ */
+export async function handleJobObjectUrl(
+  request: Request,
+  mint: ObjectUrlMintBinding,
+): Promise<Response> {
+  const credential = bearerCredential(request);
+  if (credential === null) return unauthorized();
+  const body = await readJson(request);
+  if (body === null) return badRequest();
+  const jobId = stringOf(body, "jobId");
+  const leaseToken = stringOf(body, "leaseToken");
+  const fence = numberOf(body, "fence");
+  if (!isUuid(jobId) || leaseToken === null || fence === null || !Number.isInteger(fence)) {
+    return badRequest();
+  }
+
+  const tokenHash = digestWorkerCredential(credential);
+  const result = await mint.mintObjectUrl({ tokenHash, jobId, leaseToken, fence });
+  if (!result.ok) return ok({ found: false });
+  return ok({
+    found: true,
+    url: result.url,
+    expiresInSeconds: SIGNED_URL_TTL_SECONDS,
+  });
 }

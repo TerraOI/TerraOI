@@ -5,9 +5,13 @@ import {
   handleJobAbort,
   handleJobComplete,
   handleJobLease,
+  handleJobObjectUrl,
   handleJobRenew,
   jobApiUnavailableResponse,
+  type ObjectUrlMintBinding,
 } from "./job-api-http";
+import { digestWorkerCredential } from "./job-db";
+import { SIGNED_URL_TTL_SECONDS } from "./mint-object-url";
 
 const JOB = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const ORG = "11111111-1111-4111-8111-111111111111";
@@ -151,5 +155,64 @@ describe("job-api-http — box-facing /api/jobs surface (T-211 PR-3a)", () => {
     expect(response.status).toBe(400);
     const text = await response.text();
     expect(text).not.toMatch(/SyntaxError|postgres/i);
+  });
+});
+
+describe("job-api-http — object-url (#170)", () => {
+  const URL_ONLY = "https://storage.example.test/object/sign/knowledge/org/key.pdf?token=abc";
+
+  function mintStub(overrides: Partial<ObjectUrlMintBinding> = {}): ObjectUrlMintBinding {
+    return {
+      mintObjectUrl: async () => ({ ok: true, url: URL_ONLY }),
+      ...overrides,
+    };
+  }
+
+  it("forwards only the credential hash over the binding — never the raw Bearer token", async () => {
+    let seen: unknown = null;
+    const mint = mintStub({
+      mintObjectUrl: async (args) => {
+        seen = args;
+        return { ok: true, url: URL_ONLY };
+      },
+    });
+    await handleJobObjectUrl(
+      post("/api/jobs/object-url", { jobId: JOB, leaseToken: "lease-1", fence: 2 }, `Bearer ${TOKEN}`),
+      mint,
+    );
+    expect(seen).toEqual({
+      tokenHash: digestWorkerCredential(TOKEN),
+      jobId: JOB,
+      leaseToken: "lease-1",
+      fence: 2,
+    });
+    expect(JSON.stringify(seen)).not.toContain(TOKEN);
+  });
+
+  it("returns found:true with url and expiresInSeconds; URL appears only in the response body", async () => {
+    const response = await handleJobObjectUrl(
+      post("/api/jobs/object-url", { jobId: JOB, leaseToken: "lease-1", fence: 2 }, `Bearer ${TOKEN}`),
+      mintStub(),
+    );
+    expect(response.status).toBe(200);
+    const bodyText = await response.text();
+    expect(bodyText).toContain(URL_ONLY);
+    expect(JSON.parse(bodyText)).toEqual({
+      found: true,
+      url: URL_ONLY,
+      expiresInSeconds: SIGNED_URL_TTL_SECONDS,
+    });
+    // No side-channel: headers must not echo the URL (#170 test).
+    for (const [, value] of response.headers) {
+      expect(value).not.toContain(URL_ONLY);
+    }
+  });
+
+  it("maps a generic mint refusal to found:false with no existence signal", async () => {
+    const response = await handleJobObjectUrl(
+      post("/api/jobs/object-url", { jobId: JOB, leaseToken: "lease-1", fence: 2 }, `Bearer ${TOKEN}`),
+      mintStub({ mintObjectUrl: async () => ({ ok: false }) }),
+    );
+    expect(await bodyOf(response)).toEqual({ found: false });
   });
 });
