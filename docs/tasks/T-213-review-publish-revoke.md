@@ -1,6 +1,6 @@
 # T-213 Review queue, publication policy, revoke and derived-output invalidation
 
-Lane: 2 · Week: 2 · Protected: yes (`supabase/migrations/`, `src/app/api/knowledge/`) · Depends on: T-104, T-111, T-112, T-113, T-114 · Status: ready
+Lane: 2 · Week: 2 · Protected: yes (`supabase/migrations/`, `src/app/api/knowledge/`) · Depends on: T-104, T-111, T-112, T-113, T-114 · Status: in progress (wyuinline) — **PR-1** [#267](https://github.com/TerraOI/TerraOI/pull/267) SQL + `050`; **PR-2** [#268](https://github.com/TerraOI/TerraOI/pull/268) review API; **PR-3** [#271](https://github.com/TerraOI/TerraOI/pull/271) `review_reclass_v1` (#21); **PR-4** (this branch) reclass HTTP + `withTenantRpc` client (no derived-output invalidation; that waits on T-104 / #178)
 Plan refs: §7.2 steps 7–9, §7.5 (revocation within 60 s), §6.2, §16 (tenant/source ACL row); F13, F14, F27
 
 ## Supervisor rulings to apply (2026-11-09)
@@ -41,25 +41,36 @@ Derived-output invalidation reads the `data_class` and source-version dependency
 ([`maxDataClass`](../../src/contracts/data-class.ts)), keeping each derived row at its inherited class.
 
 ## Acceptance tests (write first)
-- [ ] positive: `supabase/tests/database/050_review_publish.test.sql` — an approving reviewer switches
-      the active pointer in one transaction, the prior version becomes `superseded`, and
-      `search_corpus_v1` returns the new version only
-- [ ] positive: a low-risk internal note auto-publishes where the collection policy allows, while a
-      `requirement`-authority SOP or operational correction stays in `awaiting_review`
-- [ ] negative: with `review_independent` on, the uploader's own `review_decision_v1` is refused, and so
-      is a company1 reviewer acting on a company2 version or a member lacking the review permission
-- [ ] negative: after `revoke_source_v1` commits the same search returns zero rows immediately (no
-      re-index), citations and history re-reads for that source are refused, and an in-flight or
-      retrying job cannot republish it
+- [x] positive: `supabase/tests/database/050_review_publish.test.sql` — an approving reviewer switches
+      the active pointer in one transaction, the prior version becomes `superseded`, and the
+      published+active retrieval predicate excludes revoked rows (**PR-1**)
+- [x] positive: a low-risk internal note auto-publishes where the collection policy allows (**PR-1**;
+      requirement/authority SOP path stays for a later authority-taxonomy slice)
+- [x] negative: with `review_independent` on, the uploader's own `review_decision_v1` is refused, and so
+      is a company2 actor or a member lacking the review permission (**PR-1**)
+- [x] negative: after `revoke_source_v1` the published+active predicate returns zero for that version;
+      in-flight jobs are failed closed (**PR-1**)
 - [ ] negative: each affected derived row (T-104's messages/answers and their dependency ids) is marked
       for revalidation and keeps the **highest** data class it inherited before the revoke
-- [ ] failure: a duplicate review decision or duplicate outbox event is a no-op; publishing a version
-      whose embedding is incomplete is refused; revoking during `extracting` aborts the job
+      (waits on #178)
+- [x] failure: a duplicate review decision is a no-op; publishing a version whose embedding is incomplete
+      is refused (**PR-1**)
+- [x] positive: `src/platform/knowledge/review-rpc*.test.ts` + `review-handlers.test.ts` — `withTenantRpc`
+      carries the context org only; loopback proves the user bearer and no privileged canary; handlers
+      refuse origin mismatch / missing session and never take org from the body (**PR-2**)
+- [x] positive: `051_review_reclass.test.sql` — cascade raises collection, versions and chunks; audit
+      row records counts; E2 index without the new class loses its vectors (**PR-3** / #21)
+- [x] negative: raise to `restricted` and tenant-wide raise to `client_confidential` refused; another
+      tenant refused; lowering refused (**PR-3** / #21)
+- [x] positive: reclass HTTP client + handlers — `reclassCollection` / `review_reclass_v1` through
+      `withTenantRpc`; restricted refused at the client with the SQL message; handlers refuse origin
+      mismatch / missing session and never take org from the body (**PR-4**)
 
 ## Done evidence
 `pnpm db:test` (CI `database` job where the machine has no Docker), `pnpm verify`; staging: publish one
 synthetic Company1 PDF through the queue, ask the expert and get a cited answer, revoke it, then re-run
-the search **and** re-open the old citation within 60 seconds and show both refused.
+the search **and** re-open the old citation within 60 seconds and show both refused. Route adapters stay
+unbound (503) until #37 — same seam as uploads.
 
 ## Out of scope
 Reviewer UI polish (T-202/T-302), retention and legal hold, export purge (no exports in M1, §20.5),

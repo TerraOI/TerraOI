@@ -228,7 +228,13 @@ select is_empty($$
            ('public.list_eval_cases_v1(uuid, text)'::regprocedure),
            ('public.export_approved_eval_cases_v1(uuid)'::regprocedure),
            -- T-214 PR-1 (`20261124140000_project_acl.sql`): shared source access decision (F08).
-           ('public.authorize_source_access_v1(uuid, uuid, text)'::regprocedure)
+           ('public.authorize_source_access_v1(uuid, uuid, text)'::regprocedure),
+           -- T-213 PR-1 (`20261124130000_review_publish.sql`): review / publish / revoke.
+           ('public.review_decision_v1(uuid, uuid, text, text)'::regprocedure),
+           ('public.publish_knowledge_version_v1(uuid, uuid)'::regprocedure),
+           ('public.revoke_source_v1(uuid, uuid, text)'::regprocedure),
+           -- T-213 PR-3 (`20261124135000_review_reclass.sql`): atomic data-class raise (#21).
+           ('public.review_reclass_v1(uuid, uuid, text)'::regprocedure)
          ) as allowed(proc)
      )
 $$, '32 no function in public is executable by authenticated beyond the named allow-list (§4.3, #60)');

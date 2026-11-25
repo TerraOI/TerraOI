@@ -536,14 +536,14 @@ isOneToOne: false
                   ]
                 },"knowledge_collections": {
                   Row: {
-                    "created_at": string,"data_class": string,"id": string,"key": string,"name": string,"organisation_id": string,"project_id": string | null,"service_key": string,"updated_at": string
+                    "auto_publish": boolean,"created_at": string,"data_class": string,"id": string,"key": string,"name": string,"organisation_id": string,"project_id": string | null,"review_independent": boolean,"service_key": string,"updated_at": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "created_at"?: string,"data_class": string,"id"?: string,"key": string,"name": string,"organisation_id": string,"project_id"?: string | null,"service_key": string,"updated_at"?: string
+                    "auto_publish"?: boolean,"created_at"?: string,"data_class": string,"id"?: string,"key": string,"name": string,"organisation_id": string,"project_id"?: string | null,"review_independent"?: boolean,"service_key": string,"updated_at"?: string
                   }
                   Update: {
-                    "created_at"?: string,"data_class"?: string,"id"?: string,"key"?: string,"name"?: string,"organisation_id"?: string,"project_id"?: string | null,"service_key"?: string,"updated_at"?: string
+                    "auto_publish"?: boolean,"created_at"?: string,"data_class"?: string,"id"?: string,"key"?: string,"name"?: string,"organisation_id"?: string,"project_id"?: string | null,"review_independent"?: boolean,"service_key"?: string,"updated_at"?: string
                   }
                   Relationships: [
                     {
@@ -557,6 +557,70 @@ isOneToOne: false
       columns: ["project_id","organisation_id"]
 isOneToOne: false
       referencedRelation: "projects"
+      referencedColumns: ["id","organisation_id"]
+    }
+                  ]
+                },"knowledge_reclass_audits": {
+                  Row: {
+                    "artifacts_raised": number,"chunks_raised": number,"collection_id": string,"decided_at": string,"embeddings_removed": number,"id": string,"new_data_class": string,"old_data_class": string,"organisation_id": string,"reviewer_user_id": string,"versions_raised": number
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "artifacts_raised": number,"chunks_raised": number,"collection_id": string,"decided_at"?: string,"embeddings_removed": number,"id"?: string,"new_data_class": string,"old_data_class": string,"organisation_id": string,"reviewer_user_id": string,"versions_raised": number
+                  }
+                  Update: {
+                    "artifacts_raised"?: number,"chunks_raised"?: number,"collection_id"?: string,"decided_at"?: string,"embeddings_removed"?: number,"id"?: string,"new_data_class"?: string,"old_data_class"?: string,"organisation_id"?: string,"reviewer_user_id"?: string,"versions_raised"?: number
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "knowledge_reclass_audits_collection_fk"
+      columns: ["collection_id","organisation_id"]
+isOneToOne: false
+      referencedRelation: "knowledge_collections"
+      referencedColumns: ["id","organisation_id"]
+    },{
+      foreignKeyName: "knowledge_reclass_audits_organisation_fk"
+      columns: ["organisation_id"]
+isOneToOne: false
+      referencedRelation: "organisations"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "knowledge_reclass_audits_reviewer_user_id_fkey"
+      columns: ["reviewer_user_id"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"knowledge_review_decisions": {
+                  Row: {
+                    "decided_at": string,"decision": string,"id": string,"organisation_id": string,"reason": string | null,"reviewer_user_id": string,"source_version_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "decided_at"?: string,"decision": string,"id"?: string,"organisation_id": string,"reason"?: string | null,"reviewer_user_id": string,"source_version_id": string
+                  }
+                  Update: {
+                    "decided_at"?: string,"decision"?: string,"id"?: string,"organisation_id"?: string,"reason"?: string | null,"reviewer_user_id"?: string,"source_version_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "knowledge_review_decisions_organisation_fk"
+      columns: ["organisation_id"]
+isOneToOne: false
+      referencedRelation: "organisations"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "knowledge_review_decisions_reviewer_user_id_fkey"
+      columns: ["reviewer_user_id"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "knowledge_review_decisions_version_fk"
+      columns: ["source_version_id","organisation_id"]
+isOneToOne: false
+      referencedRelation: "source_versions"
       referencedColumns: ["id","organisation_id"]
     }
                   ]
@@ -1362,6 +1426,8 @@ isOneToOne: false
                            },
 "member_has_evals_review":
 { Args: { "p_min_level": string,"p_organisation_id": string }; Returns: boolean
+"publish_knowledge_version_v1":
+{ Args: { "p_organisation_id": string,"p_source_version_id": string }; Returns: string
                            },
 "put_tenant_brand_v1":
 { Args: { "p_assets": Json,"p_brand": Json,"p_organisation_id": string }; Returns: number
@@ -1384,9 +1450,17 @@ isOneToOne: false
                            },
 "review_eval_case_v1":
 { Args: { "p_case_id": string,"p_decision": string,"p_edits": Json,"p_organisation_id": string }; Returns: undefined
+"review_decision_v1":
+{ Args: { "p_decision": string,"p_organisation_id": string,"p_reason"?: string,"p_source_version_id": string }; Returns: string
+                           },
+"review_reclass_v1":
+{ Args: { "p_collection_id": string,"p_new_data_class": string,"p_organisation_id": string }; Returns: string
                            },
 "revoke_membership_role_v1":
 { Args: { "p_organisation_id": string,"p_role_id": string,"p_user_id": string }; Returns: undefined
+                           },
+"revoke_source_v1":
+{ Args: { "p_organisation_id": string,"p_reason"?: string,"p_source_id": string }; Returns: undefined
                            },
 "save_form_draft_v1":
 { Args: { "p_organisation_id": string,"p_supersedes_submission_id"?: string,"p_template_id": string,"p_template_version": string,"p_values": Json }; Returns: string
@@ -1422,6 +1496,9 @@ isOneToOne: false
                            },
 "user_may_publish_into":
 { Args: { "p_collection_id": string }; Returns: boolean
+                           },
+"user_may_review_knowledge":
+{ Args: { "p_organisation_id": string }; Returns: boolean
                            }
           }
           Enums: {

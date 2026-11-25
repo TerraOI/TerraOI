@@ -1214,10 +1214,12 @@ select is((select count(*)::int from pg_trigger tr
             where n.nspname = 'public' and p.proname = 'bump_policy_revision'
               and c.relname in ('organisation_memberships', 'membership_roles',
                                 'role_permissions', 'project_memberships', 'organisations',
-                                'tenant_invitations', 'source_acl_bindings')
-              and not tr.tgisinternal), 21::int,
-  '148 seven tables x (insert, update, delete) = 21 (T-202 PR-1b tenant_invitations, T-214 source_acl_bindings): '
-  || 'the count is pinned so an eighth table or a dropped event fails by number rather than by a reviewer noticing an absent row');
+                                'tenant_invitations', 'source_acl_bindings',
+                                'knowledge_sources', 'source_versions')
+              and not tr.tgisinternal), 23::int,
+  '148 seven tables x (insert, update, delete) = 21 (T-202 PR-1b tenant_invitations, T-214 source_acl_bindings), '
+  || 'plus T-213 knowledge_sources and source_versions update-only bumps (#98 on publish/revoke) = 23: the count '
+  || 'is pinned so a new table or a dropped event fails by number rather than by a reviewer noticing an absent row');
 
 select is((select coalesce(obj_description('public.organisations'::regclass), '')),
   'Tenant root. Status is authoritative for every access decision. policy_revision is a monotonic stamp bumped on every access change; it is recorded for audit and used as a cache key. Access is always re-derived.',
