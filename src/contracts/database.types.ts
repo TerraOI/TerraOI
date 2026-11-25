@@ -1227,6 +1227,9 @@ isOneToOne: false
 "export_approved_eval_cases_v1":
 { Args: { "p_organisation_id": string }; Returns: {
               "approved_at": string,"approved_by": string,"case_key": string,"data_class": string,"expert_key": string,"id": string,"origin": string,"payload": Json,"question": string
+"exact_lookup_v1":
+{ Args: { "p_collection_ids": (string)[],"p_identifier": string,"p_limit": number,"p_organisation_id": string,"p_project_id": string,"p_service_keys": (string)[] }; Returns: {
+              "o_body_text": string,"o_chunk_id": string,"o_chunk_index": number,"o_collection_id": string,"o_content_hash": string,"o_data_class": string,"o_locator": Json,"o_match_kind": string,"o_organisation_id": string,"o_project_id": string,"o_published_at": string,"o_rank": number,"o_service_key": string,"o_source_id": string,"o_source_version_id": string
             }[]
                            },
 "form_submission_body_text":

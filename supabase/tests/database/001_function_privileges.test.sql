@@ -191,6 +191,11 @@ select is_empty($$
            ('public.search_corpus_v1(uuid, text[], uuid, uuid[], text, extensions.vector, uuid, date, text[], integer)'::regprocedure),
            ('public.list_form_templates_v1(uuid)'::regprocedure),
            ('public.get_form_template_v1(uuid, uuid)'::regprocedure),
+           -- T-216 PR-1 (`20261122190000_exact_lookup.sql`): deterministic identifier reader before
+           -- hybrid search. Revoked from public/anon/authenticated in the creating migration and
+           -- granted back to `authenticated` only (FAQ-0010). Takes `p_organisation_id` first and
+           -- sets the scope itself (FAQ-0011).
+           ('public.exact_lookup_v1(uuid, text[], uuid, uuid[], text, integer)'::regprocedure),
            ('public.save_form_draft_v1(uuid, uuid, text, jsonb, uuid)'::regprocedure),
            ('public.submit_form_v1(uuid, uuid)'::regprocedure),
            -- T-202 PR-1 (`20261120215000_tenant_admin_rpc.sql`): the five tenant-admin write RPCs,
