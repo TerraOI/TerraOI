@@ -1420,8 +1420,23 @@ isOneToOne: false
 "data_class_rank":
 { Args: { "p_data_class": string }; Returns: number
                            },
+"decide_eval_case_v1":
+{ Args: { "p_case_id": string,"p_decision": string,"p_edits": Json,"p_expected_updated_at": string,"p_organisation_id": string }; Returns: string
+                           },
 "draft_eval_case_from_feedback_v1":
 { Args: { "p_body": Json,"p_organisation_id": string }; Returns: string
+                           },
+"eval_case_max_source_class":
+{ Args: { "p_floor": string,"p_payload": Json }; Returns: string
+                           },
+"eval_case_source_version_ids":
+{ Args: { "p_payload": Json }; Returns: (string)[]
+                           },
+"eval_case_sources_valid":
+{ Args: { "p_payload": Json }; Returns: boolean
+                           },
+"eval_case_sources_visible":
+{ Args: { "p_payload": Json }; Returns: boolean
                            },
 "exact_lookup_v1":
 { Args: { "p_collection_ids": (string)[],"p_identifier": string,"p_limit": number,"p_organisation_id": string,"p_project_id": string,"p_service_keys": (string)[] }; Returns: {
@@ -1462,6 +1477,11 @@ isOneToOne: false
 "form_values_reject_reason":
 { Args: { "p_json_schema": Json,"p_values": Json }; Returns: string
                            },
+"get_eval_review_case_v1":
+{ Args: { "p_case_id": string,"p_organisation_id": string }; Returns: {
+              "approved_at": string,"approved_by": string,"author_is_caller": boolean,"case_key": string,"case_type": string,"data_class": string,"expert_key": string,"id": string,"last_decided_at": string,"last_decision": string,"origin": string,"payload": Json,"question": string,"sources_valid": boolean,"status": string,"updated_at": string
+            }[]
+                           },
 "get_form_template_v1":
 { Args: { "p_organisation_id": string,"p_template_id": string }; Returns: {
               "data_class": string,"default_collection_id": string,"description": string,"id": string,"json_schema": Json,"name": string,"organisation_id": string,"project_id": string,"published_at": string,"scope": string,"service_key": string,"status": string,"ui_hints": Json,"version": string
@@ -1492,6 +1512,11 @@ isOneToOne: false
 "list_eval_cases_v1":
 { Args: { "p_organisation_id": string,"p_status": string }; Returns: {
               "approved_at": string,"approved_by": string,"case_key": string,"case_type": string,"created_by": string,"data_class": string,"expert_key": string,"id": string,"origin": string,"question": string,"status": string
+            }[]
+                           },
+"list_eval_review_queue_v1":
+{ Args: { "p_organisation_id": string,"p_status": string }; Returns: {
+              "approved_at": string,"approved_by": string,"author_is_caller": boolean,"case_key": string,"case_type": string,"data_class": string,"expert_key": string,"id": string,"last_decided_at": string,"last_decision": string,"origin": string,"payload": Json,"question": string,"sources_valid": boolean,"status": string,"updated_at": string
             }[]
                            },
 "list_form_templates_v1":

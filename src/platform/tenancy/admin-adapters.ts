@@ -16,7 +16,7 @@ export interface AdminAdapterOptions {
   fetchImpl?: FetchImpl;
 }
 
-function resolvePostgrestBase(env: AdminEnv): string | undefined {
+export function resolvePostgrestBase(env: AdminEnv): string | undefined {
   const explicit = typeof env.POSTGREST_BASE_URL === "string" ? env.POSTGREST_BASE_URL.trim() : "";
   if (explicit.length > 0) return explicit;
   const supabase = typeof env.SUPABASE_URL === "string" ? env.SUPABASE_URL.trim().replace(/\/+$/, "") : "";

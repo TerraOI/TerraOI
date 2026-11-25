@@ -227,6 +227,12 @@ select is_empty($$
            ('public.review_eval_case_v1(uuid, uuid, text, jsonb)'::regprocedure),
            ('public.list_eval_cases_v1(uuid, text)'::regprocedure),
            ('public.export_approved_eval_cases_v1(uuid)'::regprocedure),
+           -- T-303 (`20261125100000_eval_review_queue.sql`): review queue read/decide and the RLS
+           -- predicate `eval_case_sources_visible` (policies invoke it, like member_has_evals_review).
+           ('public.eval_case_sources_visible(jsonb)'::regprocedure),
+           ('public.list_eval_review_queue_v1(uuid, text)'::regprocedure),
+           ('public.get_eval_review_case_v1(uuid, uuid)'::regprocedure),
+           ('public.decide_eval_case_v1(uuid, uuid, text, jsonb, timestamptz)'::regprocedure),
            -- T-214 PR-1 (`20261124140000_project_acl.sql`): shared source access decision (F08).
            ('public.authorize_source_access_v1(uuid, uuid, text)'::regprocedure),
            -- T-213 PR-1 (`20261124130000_review_publish.sql`): review / publish / revoke.

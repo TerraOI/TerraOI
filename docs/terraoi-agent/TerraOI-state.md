@@ -1,14 +1,14 @@
 # TerraOI state (checkpoint)
 
-**Status:** baseline done; integration branch green on every locally runnable check.
-**Branch:** `terraoi/build` (local; remote push via GitHub API, see TOI-011).
-**Current task:** TOI-005 harness commit → TOI-011 push → TOI-006 (T-303 eval review view).
+**Status:** integration branch green on every locally runnable check; T-303 built (VERIFY).
+**Branch:** `terraoi/build` (local only — GitHub is read-only from this session, Q-07).
+**Current task:** TOI-007 (T-203 chat UX) next.
 
-## Evidence
-See [TerraOI-todo.md](TerraOI-todo.md) baseline table and [TOI-001](TerraOI-tasks/TOI-001-integration.md).
+## Latest evidence (terraoi/build)
+lint pass · typecheck pass · unit 189 files / 2108 tests pass · pgTAP shim 35 files / 1694 pass · structure/docs pass · webpack build (font mock) compiles incl. /evals routes.
 
 ## Blockers
-Owner-only: merges/approvals (Q-01), staging/production accounts and Company1 approvals (Q-06).
+Owner-only: merges/approvals (Q-01), GitHub write (Q-07), staging/production + Company1 approvals (Q-06).
 
 ## Exact next action
-Commit TOI-005; push branch; open draft PR; then implement T-303 under `src/app/(tenant)/evals/` + `src/components/evals/` against `src/platform/evals/{list-eval-cases,review-eval-case}.ts`.
+Read T-203 packet + `src/app/(tenant)/chat/` and `src/components/chat/` on this branch; implement history list + evidence panel + citation route against existing chat RPCs.

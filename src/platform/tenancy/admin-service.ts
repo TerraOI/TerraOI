@@ -45,7 +45,7 @@ export type AdminFormView =
 
 export type AdminProjectsView = AdminFormView;
 
-type AuthenticatedAdminContext =
+export type AuthenticatedAdminContext =
   | { ok: true; host: string; context: TenantContext; accessToken: string }
   | { ok: false; kind: "redirect" | "no_access" | "not_found" | "unavailable"; message: string };
 
@@ -75,10 +75,11 @@ function mapTenantFailure(reason: TenantFailureReason): AuthenticatedAdminContex
   }
 }
 
-async function resolveAuthenticatedContext(input: {
+/** Shared by the eval review screens (T-303): host + session + membership → TenantContext. */
+export async function resolveAuthenticatedContext(input: {
   request: Request;
   hostOptions?: HostAdapterOptions;
-  ports: AdminPorts;
+  ports: Omit<AdminPorts, "adminRpc">;
 }): Promise<AuthenticatedAdminContext> {
   const { ports } = input;
   const parsed = parseHost(requestHost({ url: input.request.url }, input.hostOptions));
@@ -211,7 +212,7 @@ function jsonReply(status: number, body: Record<string, unknown>): Response {
   });
 }
 
-function originAllowed(request: Request, host: string): boolean {
+export function originAllowed(request: Request, host: string): boolean {
   const origin = request.headers.get("origin");
   if (origin === null) return false;
   if (origin === `https://${host}`) return true;
