@@ -1471,6 +1471,9 @@ isOneToOne: false
 "list_eval_cases_v1":
 { Args: { "p_organisation_id": string,"p_status": string }; Returns: {
               "approved_at": string,"approved_by": string,"case_key": string,"case_type": string,"created_by": string,"data_class": string,"expert_key": string,"id": string,"origin": string,"question": string,"status": string
+"list_authorized_experts_v1":
+{ Args: { "p_organisation_id": string }; Returns: {
+              "expert_key": string,"expert_version": string,"service_key": string,"status": string
             }[]
                            },
 "load_public_brand":

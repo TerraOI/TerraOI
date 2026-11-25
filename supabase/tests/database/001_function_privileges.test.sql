@@ -242,7 +242,11 @@ select is_empty($$
            -- T-302b PR-1 (`20261124140000_knowledge_submissions.sql`): F15 submit / review / withdraw.
            ('public.submit_employee_knowledge_v1(uuid, uuid, text, text, text, uuid[], uuid, timestamptz)'::regprocedure),
            ('public.review_knowledge_submission_v1(uuid, uuid, text, text)'::regprocedure),
-           ('public.withdraw_knowledge_submission_v1(uuid, uuid)'::regprocedure)
+           ('public.withdraw_knowledge_submission_v1(uuid, uuid)'::regprocedure),
+           -- T-311 PR-4 (#221 N1): scoped Auto/routing expert list. SECURITY DEFINER so
+           -- expert_definitions.status is readable without granting the table (#143 B8).
+           -- Returns only key/version/service/status — no model_chains or collection_bindings.
+           ('public.list_authorized_experts_v1(uuid)'::regprocedure)
          ) as allowed(proc)
      )
 $$, '32 no function in public is executable by authenticated beyond the named allow-list (§4.3, #60)');
