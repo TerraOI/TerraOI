@@ -237,6 +237,10 @@ select is_empty($$
            -- the invite claim (#179); both are pre-membership reads/writes for the signed-in caller.
            ('public.entra_allowed_issuers_v1(text)'::regprocedure),
            ('public.redeem_invitation_v1(text)'::regprocedure),
+           -- F24 (`20261125140000_citation_open.sql`): re-authorize a citation before streaming it.
+           ('public.cite_source_object_v1(uuid, uuid)'::regprocedure),
+           -- Storage RLS reader predicate (F24 proposal; policies run as the querying role).
+           ('public.user_may_read_published_object(text)'::regprocedure),
            -- T-302 (`20261125110000_chat_feedback.sql`): rating, audience picker, submission queue.
            ('public.rate_answer_v1(uuid, uuid, text, text)'::regprocedure),
            ('public.list_submission_collections_v1(uuid)'::regprocedure),

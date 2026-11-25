@@ -1,17 +1,17 @@
 # TerraOI state (checkpoint)
 
-**Status:** all locally actionable work done; remaining items are owner/supervisor-blocked (see backlog).
-**Branch:** `terraoi/build` (local only — GitHub write access denied from this session, Q-07). Delivered as `terraoi-build.bundle` + per-commit patches in the session outputs.
+**Status:** all locally actionable work done; remaining items need owner/supervisor input (see backlog).
+**Branch:** `terraoi/build` (local only — GitHub write still denied: create_branch 403, no git token; Q-07). Delivered as `terraoi-build.bundle` + per-commit patches in session outputs.
 **Current task:** none in progress.
 
 ## Latest evidence (terraoi/build, 2026-11-25, this sandbox)
-lint pass · typecheck pass · unit 196 files / 2145 tests pass · pgTAP (PG16 Supabase-shaped shim) 40 files / 1864 assertions pass, 2 findings recorded as `todo` (R-1, R-2) · structure/docs pass · `next build --webpack` with font mock compiles. Not run: Turbopack build (no font DNS), `supabase db test` on PG17, anything on staging.
+lint pass · typecheck pass · unit 198 files / 2153 tests pass · pgTAP (PG16 Supabase-shaped shim) 41 files / 1881 assertions pass, with R-1 and five R-4 Storage assertions recorded as `todo` · structure/docs pass. Not run: Turbopack build, `supabase db test` on PG17, staging.
 
-## Done this session
-TOI-001..005 integration of 75 PRs + harness; TOI-006 T-303; TOI-007 T-203 (partial); TOI-008 T-302; TOI-009 T-402 local legs; TOI-010 T-401 local matrix; TOI-013 publish review gate; TOI-014 restored #219 migration; TOI-015 T-201 PR-2 reference implementation.
+## Done
+TOI-001..005 integration + harness; TOI-006 T-303; TOI-007 T-203 (partial); TOI-008 T-302; TOI-009 T-402 local; TOI-010 T-401 local; TOI-013 publish review gate; TOI-014 #219 restore; TOI-015 T-201 PR-2 reference; TOI-017 F24 citation proposal, R-2 proposal, R-3 fence, R-5 fix, R-4 finding.
 
-## Blockers (owner / supervisor)
-Q-01 merges/approvals · Q-06 staging/production + Company1 approvals · Q-07 GitHub write · Q-10 citation-open ADR · Q-11/TOI-016 production chat composition · Q-09/Q-13/Q-05 protected-path reviews · R-1..R-3 Lane 2 fixes.
+## Blockers
+Q-01 merges · Q-06 staging/production + Company1 approvals · Q-07 GitHub write · Q-10 citation-open ruling (proposal on branch) · R-4 Storage predicate grant (Lane 2) · Q-11/TOI-016 production chat composition · protected-path reviews (Q-05, Q-09, Q-13, R-2, R-3, R-5).
 
 ## Exact next action
-Owner: push the bundle (`git fetch terraoi-build.bundle terraoi/build:terraoi/build && git push -u origin terraoi/build`), open the draft PR with `PR-DESCRIPTION.md`, then merge the 75 PRs in the documented order (or review agent patches individually). Agent (next session): resume from this file; first actionable item appears when any Q-item is answered.
+Owner: push the bundle and open the draft PR (PR-DESCRIPTION.md), or provide a GitHub token so the agent can. Agent (next session): resume here; first actionable item appears when a Q/R item is answered.

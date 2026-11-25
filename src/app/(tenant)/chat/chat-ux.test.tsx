@@ -139,8 +139,11 @@ describe("evidence panel (T-203)", () => {
     for (const forbidden of ["claude", "deepseek", "openrouter", "workers_ai", "local_box", "anthropic", RUN_ID]) {
       expect(text.toLowerCase()).not.toContain(forbidden);
     }
-    // No document link until citation opening is re-authorized server-side (F24).
-    expect(document.querySelectorAll("a")).toHaveLength(0);
+    // Citation links go only to the re-authorizing route (F24), never to Storage or a signed URL.
+    const links = [...document.querySelectorAll("a")];
+    expect(links.length).toBeGreaterThan(0);
+    for (const a of links) expect(a.getAttribute("href")).toMatch(/^\/api\/evidence\/[0-9a-f-]{36}$/);
+    expect(document.body.innerHTML).not.toMatch(/storage\/v1|token=|knowledge\//);
   });
 });
 

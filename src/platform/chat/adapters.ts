@@ -43,6 +43,16 @@ export type ChatEnv = Pick<
   "SUPABASE_URL" | "IDENTITY_SESSION_KEY" | "SESSION_TOKEN_KEY" | "SESSION_TOKEN_KEY_PREVIOUS" | "SESSION_DB"
 >;
 
+/**
+ * The PostgREST base for this deployment: `SUPABASE_URL` is the project root (Auth is at `/auth/v1`), and
+ * PostgREST is at `/rest/v1` (R-5 — chat used to dial `<root>/rpc/…`, which does not exist).
+ */
+export function chatPostgrestBase(env: Partial<Pick<IdentityEnv, "SUPABASE_URL">>): string | undefined {
+  const root = typeof env.SUPABASE_URL === "string" ? env.SUPABASE_URL.trim().replace(/\/+$/, "") : "";
+  if (root.length === 0) return undefined;
+  return root.endsWith("/rest/v1") ? root : `${root}/rest/v1`;
+}
+
 /** Bindings are absent under plain `next dev` and on staging before the human steps (ADR-0002). */
 export function chatEnv(): Partial<ChatEnv> {
   try {
@@ -196,7 +206,7 @@ export function buildChatHttpDeps(
 ): ChatHttpDeps {
   const session = buildSessionReader(env, options.hostOptions ?? DEV_HOST_OPTIONS);
   const gateway = chatGatewayBundle();
-  const postgrestBaseUrl = env.SUPABASE_URL;
+  const postgrestBaseUrl = chatPostgrestBase(env);
 
   return {
     session,

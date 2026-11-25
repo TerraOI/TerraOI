@@ -9,6 +9,7 @@ const readChatPageState = vi.fn();
 vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
 vi.mock("@/platform/chat/adapters", () => ({
   chatEnv: () => ({}),
+  chatPostgrestBase: () => undefined,
   DEV_HOST_OPTIONS: {},
   readChatPageState: (...args: unknown[]) => readChatPageState(...args),
 }));

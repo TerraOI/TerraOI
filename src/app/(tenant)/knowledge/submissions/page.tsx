@@ -1,7 +1,7 @@
 import { headers } from "next/headers";
 
 import { SubmissionReviewList } from "@/components/knowledge/submission-review";
-import { chatEnv, DEV_HOST_OPTIONS, readChatPageState } from "@/platform/chat/adapters";
+import { chatEnv, chatPostgrestBase, DEV_HOST_OPTIONS, readChatPageState } from "@/platform/chat/adapters";
 import { listSubmissionQueue } from "@/platform/knowledge/submission-queue";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +22,7 @@ export default async function KnowledgeSubmissionsPage() {
       </section>
     );
   }
-  const queue = await listSubmissionQueue(state.context, state.accessToken, "submitted", { postgrestBaseUrl: env.SUPABASE_URL });
+  const queue = await listSubmissionQueue(state.context, state.accessToken, "submitted", { postgrestBaseUrl: chatPostgrestBase(env) });
   return (
     <section aria-labelledby="submissions-heading">
       <h1 id="submissions-heading">Knowledge submissions</h1>

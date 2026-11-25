@@ -249,8 +249,8 @@ export function ChatPanel({ experts, notice, initial }: ChatPanelProps) {
 /**
  * One delivered answer and its evidence panel (T-203, plan §9.1, §12.1): the summary, status, data
  * class and freshness; each claim with the passage it rests on and its locator; and the answer's
- * unknowns, conflicts, limitations and truncation. Locators are opaque ids — opening a citation must
- * be re-authorized server-side (F24), so there is no link to a document here until that route exists.
+ * unknowns, conflicts, limitations and truncation. "Open source" goes to `/api/evidence/<chunkId>`, which
+ * re-authorizes on every click (F24); the answer itself holds no URL.
  */
 function AnswerBlock({ answer, reducedSearch: reduced }: { answer: Answer; reducedSearch: boolean }) {
   const limitations = answer.claims.flatMap((claim) => claim.limitations);
@@ -283,6 +283,16 @@ function AnswerBlock({ answer, reducedSearch: reduced }: { answer: Answer; reduc
                         <span className={styles.locator}>
                           {" "}
                           · characters {evidence.span.startChar}–{evidence.span.endChar}
+                          {UUID_SHAPE.test(evidence.chunkId) && (
+                            <>
+                              {" "}
+                              ·{" "}
+                              {/* F24: re-authorized on every click, streamed with the reader's token; no URL is stored. */}
+                              <a href={`/api/evidence/${evidence.chunkId}`} target="_blank" rel="noopener noreferrer">
+                                Open source
+                              </a>
+                            </>
+                          )}
                         </span>
                       )}
                     </li>
@@ -316,6 +326,8 @@ function AnswerBlock({ answer, reducedSearch: reduced }: { answer: Answer; reduc
     </div>
   );
 }
+
+const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function formatAsOf(iso: string): string {
   const parsed = new Date(iso);

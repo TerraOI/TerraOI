@@ -98,3 +98,7 @@ grant usage on schema graphql_public to postgres, anon, authenticated, service_r
 create or replace function graphql_public.graphql("operationName" text default null, query text default null, variables jsonb default null, extensions jsonb default null)
 returns jsonb language sql as $f$ select null::jsonb $f$;
 grant execute on function graphql_public.graphql(text, text, jsonb, jsonb) to postgres, anon, authenticated, service_role;
+grant usage, create on schema storage to supabase_storage_admin;
+-- As on Supabase: request roles hold table privileges on storage.objects; RLS policies are the gate.
+grant select, insert, update, delete on storage.objects to anon, authenticated, service_role;
+grant select on storage.buckets to anon, authenticated, service_role;

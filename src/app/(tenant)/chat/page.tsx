@@ -1,6 +1,6 @@
 import { headers } from "next/headers";
 
-import { chatEnv, DEV_HOST_OPTIONS, readChatPageState } from "@/platform/chat/adapters";
+import { chatEnv, chatPostgrestBase, DEV_HOST_OPTIONS, readChatPageState } from "@/platform/chat/adapters";
 import { readChatHistory } from "@/platform/chat/conversation-list";
 import { createChatStore } from "@/platform/chat/store";
 import { transcriptTurns } from "@/platform/chat/transcript";
@@ -55,7 +55,7 @@ export default async function ChatPage({
   // F17 (T-203): the caller's own history and, if asked for, one transcript — read with the user's own
   // token through the same store the chat route writes with. Nothing here is built in the browser.
   const history = await readChatHistory(
-    createChatStore({ accessToken: state.accessToken }, { postgrestBaseUrl: env.SUPABASE_URL }),
+    createChatStore({ accessToken: state.accessToken }, { postgrestBaseUrl: chatPostgrestBase(env) }),
     state.context,
     { conversationId: requested },
   );

@@ -68,3 +68,4 @@ Baseline taken 2026-11-25 on `origin/main` = `a0a6b3c` plus the 75 open PRs (27 
 | TOI-014 | Restore #219 migration dropped by the T-113 stack merge | TOI-001 | DONE | Q-12; pgTAP 036 back (78) |
 | TOI-015 | T-201 PR-2 reference implementation to rulings (#186 closed unmerged, no successor): invite claim, Entra host-keyed read, org-wide reset revocation | T-201, #179/#182-#185 | VERIFY | [TOI-015](TerraOI-tasks/TOI-015-auth-methods-pr2.md): pgTAP 018 28/28, identity unit 322; Lane 1 owner to adopt |
 | TOI-016 | Production chat composition root (catalog, search, gateway bundle) | TOI-05 exit, Q-11 | BLOCKED | [proposal](TerraOI-tasks/TOI-016-chat-composition-proposal.md): needs supervisor rulings + owner secrets |
+| TOI-017 | Follow-ups: F24 citation open (proposal), R-2 (proposal), R-3 fence, R-5 fix, R-4 finding | Q-10, R-2..R-5 | VERIFY | [TOI-017](TerraOI-tasks/TOI-017-followups.md) |

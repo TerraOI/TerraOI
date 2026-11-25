@@ -1,4 +1,4 @@
-import { buildSessionReader, chatEnv } from "@/platform/chat/adapters";
+import { buildSessionReader, chatEnv, chatPostgrestBase } from "@/platform/chat/adapters";
 import { handleChatFeedback } from "@/platform/chat/feedback";
 import { createChatStore } from "@/platform/chat/store";
 
@@ -10,7 +10,7 @@ export function POST(request: Request): Promise<Response> {
   const env = chatEnv();
   return handleChatFeedback(request, {
     session: buildSessionReader(env),
-    store: (accessToken) => createChatStore({ accessToken }, { postgrestBaseUrl: env.SUPABASE_URL }),
-    postgrestBaseUrl: env.SUPABASE_URL,
+    store: (accessToken) => createChatStore({ accessToken }, { postgrestBaseUrl: chatPostgrestBase(env) }),
+    postgrestBaseUrl: chatPostgrestBase(env),
   });
 }

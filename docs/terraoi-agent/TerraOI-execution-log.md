@@ -11,3 +11,4 @@
 - 2026-11-25 Found #219 migration silently dropped by T-113 stack merge → restored (TOI-014/Q-12). TOI-013: worker publish bypassed T-213 review → wrapper migration 20261125120000 + worker outcome; pgTAP 049 (14), workers +2.
 - 2026-11-25 TOI-015: #186 (T-201 PR-2) closed unmerged with rulings given → re-implemented to #179/#182-#185: migration 20261125130000, pgTAP 018 (27), identity TS wiring + tests.
 - 2026-11-25 TOI-013 park path hardened (advisor review); 018 owner pin; TOI-015 reframed as reference impl; TOI-016 chat composition left BLOCKED with packet proposal. Final: unit 2145, pgTAP 1864.
+- 2026-11-25 Push retried: still 403 / no token. TOI-017: F24 citation proposal (038, route), R-2 proposal, R-3 fence, R-5 /rest/v1 fix (sign-in + chat RPCs were 404ing), R-4 finding. TOI-016 left BLOCKED.

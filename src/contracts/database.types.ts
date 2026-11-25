@@ -1437,6 +1437,11 @@ isOneToOne: false
 "chunk_is_readable":
 { Args: { "p_chunk_id": string }; Returns: boolean
                            },
+"cite_source_object_v1":
+{ Args: { "p_chunk_id": string,"p_organisation_id": string }; Returns: {
+              "data_class": string,"object_ref": string
+            }[]
+                           },
 "clear_tenant_scope":
 { Args: Record<PropertyKey, never>; Returns: undefined
                            },
@@ -1671,6 +1676,9 @@ isOneToOne: false
 "source_is_readable":
 { Args: { "p_source_id": string }; Returns: boolean
                            },
+"source_readable_in":
+{ Args: { "p_organisation_id": string,"p_source_id": string }; Returns: boolean
+                           },
 "source_version_is_readable":
 { Args: { "p_source_version_id": string }; Returns: boolean
                            },
@@ -1691,6 +1699,9 @@ isOneToOne: false
                            },
 "user_may_publish_into":
 { Args: { "p_collection_id": string }; Returns: boolean
+                           },
+"user_may_read_published_object":
+{ Args: { "p_object_name": string }; Returns: boolean
                            },
 "user_may_review_knowledge":
 { Args: { "p_organisation_id": string }; Returns: boolean

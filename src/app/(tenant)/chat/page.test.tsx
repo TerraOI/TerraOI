@@ -162,7 +162,8 @@ describe("what the panel shows before an answer exists", () => {
     expect(screen.getByText("Answered from your documents")).toBeTruthy();
     // The citation is text, not a link: opening a document has to be re-authorized (T-203).
     expect(screen.getByText(/grid four of the sample site was surveyed twice/)).toBeTruthy();
-    expect(document.querySelectorAll("a")).toHaveLength(0);
+    // The only links are F24 citation opens: re-authorized on click, never a stored URL (T-203).
+    for (const a of document.querySelectorAll("a")) expect(a.getAttribute("href")).toMatch(/^\/api\/evidence\/[0-9a-f-]{36}$/);
   });
 
   it("shows what an answer does not cover, in the platform's words rather than the model's", async () => {

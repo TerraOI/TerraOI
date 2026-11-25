@@ -1,7 +1,7 @@
 -- T-402 red-team pass, database layer (slot 110 as the packet proposes). Each block is an attack
 -- across several merged surfaces at once — the composed tree, not one PR — and asserts the refusal.
 -- Known findings are recorded with pgTAP todo() so the suite stays green while they stay visible
--- (docs/terraoi-agent/TerraOI-backlog.md R-1, R-2). Fixtures are synthetic (AGENTS.md §4.7).
+-- (docs/terraoi-agent/TerraOI-backlog.md R-1; R-2 fixed by 20261125150000). Fixtures are synthetic (AGENTS.md §4.7).
 begin;
 create extension if not exists pgtap with schema extensions;
 
@@ -135,7 +135,6 @@ $q$, '20 no public column is shaped to hold a URL capability, secret or credenti
 select todo('R-1: embedding_indexes exposes provider_key/model to any scoped member; provider identity is tenant-admin-only (§9.3)', 1);
 select ok(not has_column_privilege('authenticated', 'public.embedding_indexes', 'provider_key', 'select'),
   '21 provider identity on embedding_indexes is not readable by members');
-select todo('R-2: ingestion_jobs.lease_token is selectable by members under scope; a lease token is a capability', 1);
 select ok(not has_column_privilege('authenticated', 'public.ingestion_jobs', 'lease_token', 'select'),
   '22 lease tokens are not readable by members');
 

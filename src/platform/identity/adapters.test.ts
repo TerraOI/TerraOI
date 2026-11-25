@@ -209,7 +209,7 @@ describe("buildIdentityPorts — limiter, secrets and the #37 seam", () => {
     const { calls, fetchImpl } = recorder({ ok: true, status: 200, json: async () => "redeemed" });
     const ports = buildIdentityPorts(env, { fetchImpl });
     await expect(ports.redeemInvitation({ host: "company1.terraoi.app", accessToken: "user-access-token" })).resolves.toBe("redeemed");
-    expect(calls[0]?.url).toBe(`${BASE}/rpc/redeem_invitation_v1`);
+    expect(calls[0]?.url).toBe(`${BASE}/rest/v1/rpc/redeem_invitation_v1`);
     expect(JSON.parse(calls[0]?.init.body ?? "{}")).toEqual({ p_host: "company1.terraoi.app" });
     expect(calls[0]?.init.headers.authorization).toBe("Bearer user-access-token");
   });
