@@ -214,7 +214,7 @@ select is_empty($$
            ('public.chat_load_conversation_v1(uuid, uuid)'::regprocedure),
            ('public.chat_list_conversations_v1(uuid, integer)'::regprocedure),
            ('public.chat_get_run_v1(uuid, uuid)'::regprocedure),
-           ('public.invite_member_v1(uuid, text, uuid)'::regprocedure)
+           ('public.invite_member_v1(uuid, text, uuid)'::regprocedure),
            -- T-312 PR-2 (`20261121220000_evals.sql`): draft/review/list/export RPCs plus the RLS
            -- predicate `member_has_evals_review` (granted like is_active_member — policies invoke it).
            ('public.member_has_evals_review(uuid, text)'::regprocedure),
