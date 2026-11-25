@@ -1364,6 +1364,9 @@ isOneToOne: false
 "find_upload_session_v1":
 { Args: { "p_organisation_id": string,"p_upload_session_id": string }; Returns: {
               "o_collection_id": string,"o_created_at": string,"o_created_by": string,"o_expires_at": string,"o_idempotency_key": string,"o_max_size_bytes": number,"o_object_ref": string,"o_organisation_id": string,"o_reason_code": string,"o_session_id": string,"o_source_id": string,"o_source_version_id": string,"o_state": string
+"draft_eval_case_from_feedback_v1":
+{ Args: { "p_body": Json,"p_organisation_id": string }; Returns: string
+                           },
 "export_approved_eval_cases_v1":
 { Args: { "p_organisation_id": string }; Returns: {
               "approved_at": string,"approved_by": string,"case_key": string,"data_class": string,"expert_key": string,"id": string,"origin": string,"payload": Json,"question": string
