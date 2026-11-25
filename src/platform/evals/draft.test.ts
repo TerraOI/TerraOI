@@ -104,7 +104,7 @@ describe("draftEvalCases (F34)", () => {
     expect(drafts).toEqual([]);
   });
 
-  it("F35 ignores F34 drafts until an eligible reviewer approves them", () => {
+  it("F35 ignores F34 drafts until an eligible reviewer approves them", async () => {
     const drafts = draftEvalCases({
       expertKey: "uav-expert",
       readableCollectionIds: new Set([COLLECTION_A]),
@@ -114,7 +114,8 @@ describe("draftEvalCases (F34)", () => {
       caseIdPrefix: "UAV-D",
     });
 
-    expect(() =>
+    // runExpertEval became async with the F35 gateway asker (T-312 PR-10), so the refusal is a rejection.
+    await expect(
       runExpertEval({
         expertKey: "uav-expert",
         expertVersion: "ev-0001",
@@ -122,7 +123,7 @@ describe("draftEvalCases (F34)", () => {
         corpusGeneration: "cg-0001",
         cases: drafts,
       }),
-    ).toThrow(/not approved/);
+    ).rejects.toThrow(/not approved/);
 
     const root = mkdtempSync(join(tmpdir(), "toi-f34-"));
     try {
