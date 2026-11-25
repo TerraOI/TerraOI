@@ -1,5 +1,5 @@
 -- T-113 follow-up: index-stage lease + artifacts_for_lease_v1
--- (supabase/migrations/20261124120000_index_stage_lease.sql).
+-- (supabase/migrations/20261124120500_index_stage_lease.sql).
 -- Plan §7.2; #134 credential compare; FAQ-0010 privilege surface.
 -- Synthetic fixtures only. Privileged paths run as the test role (postgres), matching
 -- 045's idiom: job_api RPCs are SECURITY DEFINER and EXECUTE is granted only to
@@ -143,7 +143,7 @@ insert into t_out
 select is((select result from t_out where case_name = 'box_index'), 'empty',
   '7 local_box credential finds no index work (index is cloud_worker only)');
 
--- Publish is opened by `20261124130000_publish_stage_lease` (048). With no queued publish
+-- Publish is opened by `20261124130500_publish_stage_lease` (048). With no queued publish
 -- fixture here, the cloud credential's answer is an empty lease (not a 22023 stage refuse).
 insert into t_out
   select 'publish_empty', case when o_found then 'found' else 'empty' end

@@ -1,5 +1,5 @@
 -- T-113 follow-up: publish-stage lease + index_succeeded → publish outbox drain
--- (supabase/migrations/20261124130000_publish_stage_lease.sql).
+-- (supabase/migrations/20261124130500_publish_stage_lease.sql).
 -- Plan §7.2; #134 credential compare; FAQ-0010 privilege surface.
 -- Synthetic fixtures only. Privileged paths run as the test role (postgres), matching
 -- 045/047 idiom: job_api RPCs are SECURITY DEFINER and EXECUTE is granted only to

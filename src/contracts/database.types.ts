@@ -75,7 +75,25 @@ isOneToOne: false
       referencedColumns: ["id","organisation_id"]
     },{
       foreignKeyName: "agent_runs_organisation_fk"
-            "budget_accounts": {
+      columns: ["organisation_id"]
+isOneToOne: false
+      referencedRelation: "organisations"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "agent_runs_requested_by_fkey"
+      columns: ["requested_by"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "agent_runs_user_message_fk"
+      columns: ["user_message_id","organisation_id"]
+isOneToOne: false
+      referencedRelation: "messages"
+      referencedColumns: ["id","organisation_id"]
+    }
+                  ]
+                },"budget_accounts": {
                   Row: {
                     "burst_per_user": number,"concurrent_run_cap": number,"daily_ceiling_units": number,"day_key": string,"day_reserved_units": number,"day_settled_units": number,"month_key": string,"month_reserved_units": number,"month_settled_units": number,"monthly_ceiling_units": number,"organisation_id": string,"updated_at": string
                   }
@@ -114,17 +132,6 @@ isOneToOne: false
       referencedRelation: "organisations"
       referencedColumns: ["id"]
     },{
-      foreignKeyName: "agent_runs_requested_by_fkey"
-      columns: ["requested_by"]
-isOneToOne: false
-      referencedRelation: "profiles"
-      referencedColumns: ["id"]
-    },{
-      foreignKeyName: "agent_runs_user_message_fk"
-      columns: ["user_message_id","organisation_id"]
-isOneToOne: false
-      referencedRelation: "messages"
-      referencedColumns: ["id","organisation_id"]
       foreignKeyName: "budget_reservations_user_id_fkey"
       columns: ["user_id"]
 isOneToOne: false
@@ -216,30 +223,6 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
-                },"expert_definitions": {
-                  Row: {
-                    "answer_schema_version": string,"clarification_policy": string,"created_at": string,"embedding_index_key": string,"evaluation_set_version": string,"expert_key": string,"instruction_template_version": string,"limits": NonNullable<Json>,"min_verifier_tier": string,"model_chains": NonNullable<Json>,"prompt_template_id": string,"prompt_template_version": string,"published_at": string | null,"refusal_templates": NonNullable<Json>,"retrieval_profile_version": string,"risk_class": string,"service_key": string,"status": string,"tool_keys": (string)[],"updated_at": string,"version": string,"withdrawn_at": string | null,"workflow_keys": (string)[]
-                  }
-                  ComputedFields: never
-                  Insert: {
-                    "answer_schema_version": string,"clarification_policy": string,"created_at"?: string,"embedding_index_key": string,"evaluation_set_version": string,"expert_key": string,"instruction_template_version": string,"limits": NonNullable<Json>,"min_verifier_tier": string,"model_chains": NonNullable<Json>,"prompt_template_id": string,"prompt_template_version": string,"published_at"?: string | null,"refusal_templates": NonNullable<Json>,"retrieval_profile_version": string,"risk_class": string,"service_key": string,"status"?: string,"tool_keys"?: (string)[],"updated_at"?: string,"version": string,"withdrawn_at"?: string | null,"workflow_keys"?: (string)[]
-                  }
-                  Update: {
-                    "answer_schema_version"?: string,"clarification_policy"?: string,"created_at"?: string,"embedding_index_key"?: string,"evaluation_set_version"?: string,"expert_key"?: string,"instruction_template_version"?: string,"limits"?: NonNullable<Json>,"min_verifier_tier"?: string,"model_chains"?: NonNullable<Json>,"prompt_template_id"?: string,"prompt_template_version"?: string,"published_at"?: string | null,"refusal_templates"?: NonNullable<Json>,"retrieval_profile_version"?: string,"risk_class"?: string,"service_key"?: string,"status"?: string,"tool_keys"?: (string)[],"updated_at"?: string,"version"?: string,"withdrawn_at"?: string | null,"workflow_keys"?: (string)[]
-                  }
-                  Relationships: [
-                    {
-      foreignKeyName: "expert_definitions_prompt_fk"
-      columns: ["prompt_template_id","prompt_template_version"]
-isOneToOne: false
-      referencedRelation: "prompt_templates"
-      referencedColumns: ["id","version"]
-    },{
-      foreignKeyName: "expert_definitions_service_key_fkey"
-      columns: ["service_key"]
-isOneToOne: false
-      referencedRelation: "service_definitions"
-      referencedColumns: ["service_key"]
                 },"eval_cases": {
                   Row: {
                     "approved_at": string | null,"approved_by": string | null,"case_key": string,"case_type": string,"created_at": string,"created_by": string,"data_class": string,"derived_from_message_id": string | null,"derived_from_run_id": string | null,"drafted_by": string,"drafted_on": string,"expert_key": string,"id": string,"organisation_id": string,"origin": string,"payload": NonNullable<Json>,"question": string,"status": string,"updated_at": string
@@ -354,6 +337,32 @@ isOneToOne: false
 isOneToOne: false
       referencedRelation: "organisations"
       referencedColumns: ["id"]
+    }
+                  ]
+                },"expert_definitions": {
+                  Row: {
+                    "answer_schema_version": string,"clarification_policy": string,"created_at": string,"embedding_index_key": string,"evaluation_set_version": string,"expert_key": string,"instruction_template_version": string,"limits": NonNullable<Json>,"min_verifier_tier": string,"model_chains": NonNullable<Json>,"prompt_template_id": string,"prompt_template_version": string,"published_at": string | null,"refusal_templates": NonNullable<Json>,"retrieval_profile_version": string,"risk_class": string,"service_key": string,"status": string,"tool_keys": (string)[],"updated_at": string,"version": string,"withdrawn_at": string | null,"workflow_keys": (string)[]
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "answer_schema_version": string,"clarification_policy": string,"created_at"?: string,"embedding_index_key": string,"evaluation_set_version": string,"expert_key": string,"instruction_template_version": string,"limits": NonNullable<Json>,"min_verifier_tier": string,"model_chains": NonNullable<Json>,"prompt_template_id": string,"prompt_template_version": string,"published_at"?: string | null,"refusal_templates": NonNullable<Json>,"retrieval_profile_version": string,"risk_class": string,"service_key": string,"status"?: string,"tool_keys"?: (string)[],"updated_at"?: string,"version": string,"withdrawn_at"?: string | null,"workflow_keys"?: (string)[]
+                  }
+                  Update: {
+                    "answer_schema_version"?: string,"clarification_policy"?: string,"created_at"?: string,"embedding_index_key"?: string,"evaluation_set_version"?: string,"expert_key"?: string,"instruction_template_version"?: string,"limits"?: NonNullable<Json>,"min_verifier_tier"?: string,"model_chains"?: NonNullable<Json>,"prompt_template_id"?: string,"prompt_template_version"?: string,"published_at"?: string | null,"refusal_templates"?: NonNullable<Json>,"retrieval_profile_version"?: string,"risk_class"?: string,"service_key"?: string,"status"?: string,"tool_keys"?: (string)[],"updated_at"?: string,"version"?: string,"withdrawn_at"?: string | null,"workflow_keys"?: (string)[]
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "expert_definitions_prompt_fk"
+      columns: ["prompt_template_id","prompt_template_version"]
+isOneToOne: false
+      referencedRelation: "prompt_templates"
+      referencedColumns: ["id","version"]
+    },{
+      foreignKeyName: "expert_definitions_service_key_fkey"
+      columns: ["service_key"]
+isOneToOne: false
+      referencedRelation: "service_definitions"
+      referencedColumns: ["service_key"]
     }
                   ]
                 },"extraction_artifacts": {
@@ -1048,7 +1057,6 @@ isOneToOne: false
       referencedColumns: ["id","organisation_id"]
     }
                   ]
-<<<<<<< HEAD
                 },"service_definitions": {
                   Row: {
                     "created_at": string,"description": string,"display_name": string,"manifest_version": string,"service_key": string,"status": string,"updated_at": string
@@ -1062,7 +1070,7 @@ isOneToOne: false
                   }
                   Relationships: [
                     
-=======
+                  ]
                 },"source_acl_bindings": {
                   Row: {
                     "created_at": string,"id": string,"organisation_id": string,"project_id": string,"source_id": string
@@ -1094,7 +1102,6 @@ isOneToOne: false
       referencedRelation: "knowledge_sources"
       referencedColumns: ["id","organisation_id"]
     }
->>>>>>> origin/t-214-project-acl-sql
                   ]
                 },"source_versions": {
                   Row: {
@@ -1226,6 +1233,18 @@ isOneToOne: false
       referencedColumns: ["expert_key","version","service_key"]
     },{
       foreignKeyName: "tenant_experts_organisation_id_fkey"
+      columns: ["organisation_id"]
+isOneToOne: false
+      referencedRelation: "organisations"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "tenant_experts_service_fk"
+      columns: ["organisation_id","service_key"]
+isOneToOne: false
+      referencedRelation: "tenant_services"
+      referencedColumns: ["organisation_id","service_key"]
+    }
+                  ]
                 },"tenant_invitations": {
                   Row: {
                     "created_at": string,"email": string,"expires_at": string,"id": string,"invited_by": string,"organisation_id": string,"role_id": string,"status": string
@@ -1251,11 +1270,6 @@ isOneToOne: false
       referencedRelation: "organisations"
       referencedColumns: ["id"]
     },{
-      foreignKeyName: "tenant_experts_service_fk"
-      columns: ["organisation_id","service_key"]
-isOneToOne: false
-      referencedRelation: "tenant_services"
-      referencedColumns: ["organisation_id","service_key"]
       foreignKeyName: "tenant_invitations_role_id_organisation_id_fkey"
       columns: ["role_id","organisation_id"]
 isOneToOne: false
@@ -1406,6 +1420,14 @@ isOneToOne: false
 "data_class_rank":
 { Args: { "p_data_class": string }; Returns: number
                            },
+"draft_eval_case_from_feedback_v1":
+{ Args: { "p_body": Json,"p_organisation_id": string }; Returns: string
+                           },
+"exact_lookup_v1":
+{ Args: { "p_collection_ids": (string)[],"p_identifier": string,"p_limit": number,"p_organisation_id": string,"p_project_id": string,"p_service_keys": (string)[] }; Returns: {
+              "o_body_text": string,"o_chunk_id": string,"o_chunk_index": number,"o_collection_id": string,"o_content_hash": string,"o_data_class": string,"o_locator": Json,"o_match_kind": string,"o_organisation_id": string,"o_project_id": string,"o_published_at": string,"o_rank": number,"o_service_key": string,"o_source_id": string,"o_source_version_id": string
+            }[]
+                           },
 "expert_chain_follows_order":
 { Args: { "p_chain": Json,"p_order": (string)[] }; Returns: boolean
                            },
@@ -1417,18 +1439,15 @@ isOneToOne: false
                            },
 "expert_refusal_templates_are_valid":
 { Args: { "p_templates": Json }; Returns: boolean
-"find_upload_session_v1":
-{ Args: { "p_organisation_id": string,"p_upload_session_id": string }; Returns: {
-              "o_collection_id": string,"o_created_at": string,"o_created_by": string,"o_expires_at": string,"o_idempotency_key": string,"o_max_size_bytes": number,"o_object_ref": string,"o_organisation_id": string,"o_reason_code": string,"o_session_id": string,"o_source_id": string,"o_source_version_id": string,"o_state": string
-"draft_eval_case_from_feedback_v1":
-{ Args: { "p_body": Json,"p_organisation_id": string }; Returns: string
                            },
 "export_approved_eval_cases_v1":
 { Args: { "p_organisation_id": string }; Returns: {
               "approved_at": string,"approved_by": string,"case_key": string,"data_class": string,"expert_key": string,"id": string,"origin": string,"payload": Json,"question": string
-"exact_lookup_v1":
-{ Args: { "p_collection_ids": (string)[],"p_identifier": string,"p_limit": number,"p_organisation_id": string,"p_project_id": string,"p_service_keys": (string)[] }; Returns: {
-              "o_body_text": string,"o_chunk_id": string,"o_chunk_index": number,"o_collection_id": string,"o_content_hash": string,"o_data_class": string,"o_locator": Json,"o_match_kind": string,"o_organisation_id": string,"o_project_id": string,"o_published_at": string,"o_rank": number,"o_service_key": string,"o_source_id": string,"o_source_version_id": string
+            }[]
+                           },
+"find_upload_session_v1":
+{ Args: { "p_organisation_id": string,"p_upload_session_id": string }; Returns: {
+              "o_collection_id": string,"o_created_at": string,"o_created_by": string,"o_expires_at": string,"o_idempotency_key": string,"o_max_size_bytes": number,"o_object_ref": string,"o_organisation_id": string,"o_reason_code": string,"o_session_id": string,"o_source_id": string,"o_source_version_id": string,"o_state": string
             }[]
                            },
 "form_submission_body_text":
@@ -1465,15 +1484,19 @@ isOneToOne: false
 "is_project_member":
 { Args: { "p_project_id": string }; Returns: boolean
                            },
-"list_form_templates_v1":
-{ Args: { "p_organisation_id": string }; Returns: {
-              "data_class": string,"default_collection_id": string,"description": string,"id": string,"json_schema": Json,"name": string,"organisation_id": string,"project_id": string,"published_at": string,"scope": string,"service_key": string,"status": string,"ui_hints": Json,"version": string
-"list_eval_cases_v1":
-{ Args: { "p_organisation_id": string,"p_status": string }; Returns: {
-              "approved_at": string,"approved_by": string,"case_key": string,"case_type": string,"created_by": string,"data_class": string,"expert_key": string,"id": string,"origin": string,"question": string,"status": string
 "list_authorized_experts_v1":
 { Args: { "p_organisation_id": string }; Returns: {
               "expert_key": string,"expert_version": string,"service_key": string,"status": string
+            }[]
+                           },
+"list_eval_cases_v1":
+{ Args: { "p_organisation_id": string,"p_status": string }; Returns: {
+              "approved_at": string,"approved_by": string,"case_key": string,"case_type": string,"created_by": string,"data_class": string,"expert_key": string,"id": string,"origin": string,"question": string,"status": string
+            }[]
+                           },
+"list_form_templates_v1":
+{ Args: { "p_organisation_id": string }; Returns: {
+              "data_class": string,"default_collection_id": string,"description": string,"id": string,"json_schema": Json,"name": string,"organisation_id": string,"project_id": string,"published_at": string,"scope": string,"service_key": string,"status": string,"ui_hints": Json,"version": string
             }[]
                            },
 "load_public_brand":
@@ -1488,6 +1511,7 @@ isOneToOne: false
                            },
 "member_has_evals_review":
 { Args: { "p_min_level": string,"p_organisation_id": string }; Returns: boolean
+                           },
 "publish_knowledge_version_v1":
 { Args: { "p_organisation_id": string,"p_source_version_id": string }; Returns: string
                            },
@@ -1513,15 +1537,17 @@ isOneToOne: false
               "host": string,"is_canonical": boolean,"organisation_id": string,"organisation_status": string
             }[]
                            },
-"review_eval_case_v1":
-{ Args: { "p_case_id": string,"p_decision": string,"p_edits": Json,"p_organisation_id": string }; Returns: undefined
 "review_decision_v1":
 { Args: { "p_decision": string,"p_organisation_id": string,"p_reason"?: string,"p_source_version_id": string }; Returns: string
                            },
-"review_reclass_v1":
-{ Args: { "p_collection_id": string,"p_new_data_class": string,"p_organisation_id": string }; Returns: string
+"review_eval_case_v1":
+{ Args: { "p_case_id": string,"p_decision": string,"p_edits": Json,"p_organisation_id": string }; Returns: undefined
+                           },
 "review_knowledge_submission_v1":
 { Args: { "p_decision": string,"p_organisation_id": string,"p_reason"?: string,"p_submission_id": string }; Returns: string
+                           },
+"review_reclass_v1":
+{ Args: { "p_collection_id": string,"p_new_data_class": string,"p_organisation_id": string }; Returns: string
                            },
 "revoke_membership_role_v1":
 { Args: { "p_organisation_id": string,"p_role_id": string,"p_user_id": string }; Returns: undefined

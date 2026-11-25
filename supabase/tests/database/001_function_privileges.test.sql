@@ -239,7 +239,7 @@ select is_empty($$
            ('public.record_eval_run_v1(uuid, jsonb, jsonb)'::regprocedure),
            -- T-312 PR-9 (`20261123160000_draft_eval_case_from_feedback.sql`): #102 pilot loop.
            ('public.draft_eval_case_from_feedback_v1(uuid, jsonb)'::regprocedure),
-           -- T-302b PR-1 (`20261124140000_knowledge_submissions.sql`): F15 submit / review / withdraw.
+           -- T-302b PR-1 (`20261124140500_knowledge_submissions.sql`): F15 submit / review / withdraw.
            ('public.submit_employee_knowledge_v1(uuid, uuid, text, text, text, uuid[], uuid, timestamptz)'::regprocedure),
            ('public.review_knowledge_submission_v1(uuid, uuid, text, text)'::regprocedure),
            ('public.withdraw_knowledge_submission_v1(uuid, uuid)'::regprocedure),

@@ -1,7 +1,7 @@
 -- T-113 follow-up: open `lease_parse_job_v1` for the `publish` stage (cloud_worker only) and
 -- extend `dispatch_outbox_v1` so `index_succeeded` enqueues a publish job (#99 stage key).
 --
--- Consumes the index-stage lease migration (`20261124120000_index_stage_lease`) and the
+-- Consumes the index-stage lease migration (`20261124120500_index_stage_lease`) and the
 -- write/publish RPC slice on the merge train (#219: `write_chunks_v1` emits
 -- `knowledge.ingestion_job.index_succeeded`; `publish_version_v1` switches the pointer).
 -- This migration does **not** vendor chunk_publish.sql.
@@ -9,14 +9,14 @@
 -- Policy assumption (T-113 vs T-213): the skeleton auto-publish loop stays here; T-213 owns
 -- review/revoke policy later. Provisional on: none.
 --
--- Timestamp claim (daily sync, COORDINATION §3): after `20261124120000_index_stage_lease`.
+-- Timestamp claim (daily sync, COORDINATION §3): after `20261124120500_index_stage_lease`.
 -- Exactly one migration in this PR. Privilege discipline (FAQ-0010): revoke by full signature;
 -- EXECUTE only to toi_job_api. Nothing added to `public` (no 001 allow-list row).
 
 begin;
 
 -- ── 1. lease_parse_job_v1: extract + index + publish (index/publish = cloud_worker only) ───────
--- Replaces the extract+index gate from `20261124120000_index_stage_lease.sql`. Publish reclaim
+-- Replaces the extract+index gate from `20261124120500_index_stage_lease.sql`. Publish reclaim
 -- is stage-scoped so an extract or index lease never reclaims a publish holder and vice versa.
 create or replace function job_api.lease_parse_job_v1(
   p_token_hash text,
