@@ -119,7 +119,7 @@ interface Harness {
   store: SessionStore & { rows: Map<string, StoredSession> };
   exchanges: Array<{ code: string; host: string }>;
   memberships: string[];
-  redeemed: Array<{ organisationId: string; userId: string; email: string }>;
+  redeemed: Array<{ host: string; accessToken: string }>;
   identity: EntraExchange | { ok: false; reason: "invalid_or_expired" };
   membershipFor: (organisationId: string, userId: string) => Membership | null;
   issuers: readonly string[] | null | undefined;
@@ -136,7 +136,7 @@ function harness(overrides: Partial<Harness> = {}): Harness {
     redeemed: [],
     identity: entraIdentity(),
     membershipFor: (organisationId, userId) =>
-      organisationId === C1 && userId === INVITED_USER ? member(state.promoted ? "active" : "invited") : null,
+      organisationId === C1 && userId === INVITED_USER && state.promoted ? member("active") : null,
     issuers: [TENANT_ALLOWED],
     issuersBoom: false,
     boom: false,
@@ -168,15 +168,17 @@ function harness(overrides: Partial<Harness> = {}): Harness {
     },
     redeemInvitation: async (input) => {
       state.redeemed.push(input);
-      // The claim RPC itself is PR-2's SQL. Until then the fake promotes the row it was handed, so
-      // what this file tests is the linking decision and not the SQL.
+      // The claim's SQL is pinned in pgTAP 018; this fake stands in for it: only the invited identity
+      // (whose token the SQL would resolve to field2's verified address) has a pending invitation.
+      if (input.accessToken !== fakeJwt("access", INVITED_USER)) return "not_found";
       state.promoted = true;
       return "redeemed";
     },
-    allowedEntraIssuers: async (organisationId) => {
+    allowedEntraIssuers: async (host) => {
       if (state.issuersBoom) throw new Error("policy read unavailable");
-      if (state.issuers === undefined) throw new Error("entra issuer policy not landed (T-201 PR-2)");
-      return organisationId === C1 ? state.issuers : [];
+      if (state.issuers === undefined) throw new Error("entra issuer policy unreadable");
+      // #185: keyed on the routed host; another tenant's host never yields this tenant's list.
+      return host === HOST_A ? state.issuers : [];
     },
   };
   return state;
@@ -263,7 +265,7 @@ describe("checkEntraIdentity: the policy against its read", () => {
   it("refuses when the read itself fails, instead of treating an outage as no restriction", async () => {
     const outcome = await checkEntraIdentity({
       identity: entraIdentity(),
-      organisationId: C1,
+      host: HOST_A,
       ports: { allowedEntraIssuers: async () => { throw new Error("policy read down"); } },
     });
     // Pinned to the reason, not just to "refused": an implementation that reported a failed policy read
@@ -273,7 +275,7 @@ describe("checkEntraIdentity: the policy against its read", () => {
   });
 
   it("refuses when the port has no implementation at all (the state until PR-2's migration)", async () => {
-    expect(await checkEntraIdentity({ identity: entraIdentity(), organisationId: C1, ports: {} })).toEqual({
+    expect(await checkEntraIdentity({ identity: entraIdentity(), host: HOST_A, ports: {} })).toEqual({
       ok: false,
       reason: "policy_unresolved",
     });
@@ -290,8 +292,10 @@ describe("the Entra leg of GET /auth/callback", () => {
     // The claim names the existing identity and the host's organization, with the canonical verified
     // address: it links, it does not create.
     expect(h.redeemed).toHaveLength(1);
-    const claim = h.redeemed[0] as { organisationId: string; userId: string; email: string };
-    expect(claim).toEqual({ organisationId: C1, userId: INVITED_USER, email: "field2@company1.test" });
+    const claim = h.redeemed[0] as { host: string; accessToken: string };
+    // #179: the claim carries the routed host and the identity's own token; SQL reads the verified
+    // address from auth.users and the claimant from auth.uid().
+    expect(claim).toEqual({ host: HOST_A, accessToken: fakeJwt("access", INVITED_USER) });
 
     // One session row, for the identity the provider already had: no second profile, no second id.
     expect(h.store.rows.size).toBe(1);
@@ -326,7 +330,8 @@ describe("the Entra leg of GET /auth/callback", () => {
     });
     expect(outcomeOf(response)).toBe("not_a_member");
     expect(locationOf(response).pathname).toBe("/login");
-    expect(h.redeemed).toHaveLength(0);
+    // #179: with no membership row the completion asks the claim, which finds nothing to claim.
+    expect(h.redeemed).toHaveLength(1);
     // Identity proves who, membership decides whether: a live session row and no access.
     expect(h.store.rows.size).toBe(1);
     expect([...h.store.rows.values()][0]?.userId).toBe(NOBODY);

@@ -326,8 +326,9 @@ select is(
      join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'toi_identity'
       and p.prosecdef),
-  5::int,
-  '44 (final) the five session functions really are SECURITY DEFINER, so assertion 5 is not vacuous'
+  -- #184: T-201 PR-2's revoke_user_sessions_v1 is the sixth, approved by name (count 5 → 6).
+  6::int,
+  '44 (final) the six session functions really are SECURITY DEFINER, so assertion 5 is not vacuous'
 );
 
 select * from finish();

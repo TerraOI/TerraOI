@@ -2,7 +2,7 @@
 
 Source: [T-401](../../tasks/T-401-m1-subset-run.md), plan §20.5, §16. Status: **VERIFY (local)** — every row's staging leg is owed (T-004, owner).
 
-Tree: `terraoi/build` (main a0a6b3c + 75 open PRs + agent work). Run 2026-11-25 in this sandbox: unit 196 files / 2138 tests pass; pgTAP (PG16 Supabase-shaped shim, not `supabase db test`) 39 files / 1832 assertions pass, 2 recorded findings as `todo`; lint, typecheck, structure, docs pass; `next build --webpack` (font mock) compiles. No staging, no real provider, no deployed Worker.
+Tree: `terraoi/build` (main a0a6b3c + 75 open PRs + agent work). Run 2026-11-25 in this sandbox: unit 195 files / 2138 tests pass; pgTAP (PG16 Supabase-shaped shim, not `supabase db test`) 39 files / 1832 assertions pass, 2 recorded findings as `todo`; lint, typecheck, structure, docs pass; `next build --webpack` (font mock) compiles. No staging, no real provider, no deployed Worker.
 
 | §20.5 area | Local evidence (executed) | Owed (staging / owner) |
 |---|---|---|

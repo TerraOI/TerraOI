@@ -16,7 +16,7 @@ Baseline taken 2026-11-25 on `origin/main` = `a0a6b3c` plus the 75 open PRs (27 
 | T-000..T-003, T-005 | §20.3 wk0 | main | done | — |
 | T-004 infrastructure | §20.8 | — | BLOCKED (OWNER) | staging/prod accounts, DNS, secrets (Q-06) |
 | T-101/T-101c host resolver, withTenantRpc | F01/F03 | main | partial | staging evidence (OWNER) |
-| T-102/T-201 sign-in, password, Entra | F02 §4.2 | main (T-201 PR-2 #186 closed unmerged) | partial | invite claim / reset revocation / issuer allow-list (#186 scope) re-open; staging |
+| T-102/T-201 sign-in, password, Entra | F02 §4.2 | main + `terraoi/build` (TOI-015: #186 scope re-done to rulings) | partial | staging; Entra app + SESSION_DB (OWNER) |
 | T-103/T-204 shell + brand modes | F04 | main | partial | staging visual evidence |
 | T-104 chat skeleton | F23 | PR #178 | partial | merge; staging |
 | T-105 email transport | F28 | main | partial | provider secret (OWNER) |
@@ -66,3 +66,4 @@ Baseline taken 2026-11-25 on `origin/main` = `a0a6b3c` plus the 75 open PRs (27 
 | TOI-011 | Push `terraoi/build`, open draft PR, comment collisions on PRs | user brief | BLOCKED | GitHub integration is read-only (403 on create_branch; comment tool denied); `git push` has no credential — Q-07. Delivered as bundle + patches in session outputs |
 | TOI-013 | Check T-113 auto-publish against T-213 publication policy | §7.2, Q-05 | VERIFY | [TOI-013](TerraOI-tasks/TOI-013-publish-review-gate.md): defect confirmed and fixed; pgTAP 049 14/14 |
 | TOI-014 | Restore #219 migration dropped by the T-113 stack merge | TOI-001 | DONE | Q-12; pgTAP 036 back (78) |
+| TOI-015 | T-201 PR-2 re-done to rulings (#186 closed unmerged): invite claim, Entra host-keyed read, org-wide reset revocation | T-201, #179/#182-#185 | VERIFY | [TOI-015](TerraOI-tasks/TOI-015-auth-methods-pr2.md): pgTAP 018 27/27, identity unit 322 |

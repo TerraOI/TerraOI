@@ -43,7 +43,22 @@ export type TenancyDataApi = {
   /** The caller's own membership in `organisationId`, or null when they hold none there. */
   findMembership(organisationId: string, accessToken: string): Promise<MembershipRecord | null>;
   policyRevision(organisationId: string, accessToken: string): Promise<number>;
+  /**
+   * T-201 PR-2 (#179): the caller claims a pending invitation of the tenant `host` routes to
+   * (`redeem_invitation_v1`). Closed three-value answer; anything else is a backend failure, never a
+   * guess. Sent with the caller's own token; no user, email or organisation id is on the wire.
+   */
+  redeemInvitation(host: string, accessToken: string): Promise<InvitationClaimResult>;
+  /**
+   * T-201 PR-2 (#185): the permitted Entra tenant ids of the tenant `host` routes to
+   * (`entra_allowed_issuers_v1`). `[]` is a real answer (nothing allowed, or an unknown host) and
+   * refuses; a failed read throws, which the gate turns into `policy_unresolved`.
+   */
+  entraIssuers(host: string, accessToken: string): Promise<readonly string[]>;
 };
+
+const CLAIM_RESULTS = z.enum(["redeemed", "not_found", "email_mismatch"]);
+export type InvitationClaimResult = z.infer<typeof CLAIM_RESULTS>;
 
 export type TenancyReadFailureKind = "tenancy" | "backend_failure" | "not_configured";
 
@@ -191,6 +206,20 @@ export function createTenancyDataApi(options: TenancyDataApiOptions): TenancyDat
       const parsed = z.number().int().positive().safeParse(value);
       // A scalar RPC answers with the bare value. Anything else — including an empty body — is
       // refused: `0` would be a plausible-looking revision, and a stale revision silently authorizes.
+      if (!parsed.success) throw new TenancyReadError("backend_failure");
+      return parsed.data;
+    },
+
+    async redeemInvitation(host: string, accessToken: string): Promise<InvitationClaimResult> {
+      const text = await dialRpc("redeem_invitation_v1", { p_host: host }, accessToken);
+      const parsed = CLAIM_RESULTS.safeParse(parseJson(text.trim().length === 0 ? "null" : text));
+      if (!parsed.success) throw new TenancyReadError("backend_failure");
+      return parsed.data;
+    },
+
+    async entraIssuers(host: string, accessToken: string): Promise<readonly string[]> {
+      const text = await dialRpc("entra_allowed_issuers_v1", { p_host: host }, accessToken);
+      const parsed = z.array(z.string()).safeParse(parseJson(text.trim().length === 0 ? "null" : text));
       if (!parsed.success) throw new TenancyReadError("backend_failure");
       return parsed.data;
     },

@@ -233,6 +233,10 @@ select is_empty($$
            ('public.list_eval_review_queue_v1(uuid, text)'::regprocedure),
            ('public.get_eval_review_case_v1(uuid, uuid)'::regprocedure),
            ('public.decide_eval_case_v1(uuid, uuid, text, jsonb, timestamptz)'::regprocedure),
+           -- T-201 PR-2 (`20261125130000_identity_methods.sql`): host-keyed Entra issuer read (#185) and
+           -- the invite claim (#179); both are pre-membership reads/writes for the signed-in caller.
+           ('public.entra_allowed_issuers_v1(text)'::regprocedure),
+           ('public.redeem_invitation_v1(text)'::regprocedure),
            -- T-302 (`20261125110000_chat_feedback.sql`): rating, audience picker, submission queue.
            ('public.rate_answer_v1(uuid, uuid, text, text)'::regprocedure),
            ('public.list_submission_collections_v1(uuid)'::regprocedure),

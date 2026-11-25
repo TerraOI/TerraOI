@@ -77,7 +77,7 @@ interface Harness {
   store: SessionStore & { rows: Map<string, StoredSession> };
   exchanges: Array<{ code: string; state: string; host: string; codeVerifier: string }>;
   memberships: string[];
-  redeemed: Array<{ organisationId: string; userId: string; email: string }>;
+  redeemed: Array<{ host: string; accessToken: string }>;
   identity:
     | { ok: true; userId: string; email: string; emailVerified: boolean; accessToken: string; refreshToken: string; tokenExpiresAt: number }
     | { ok: false; reason: "invalid_or_expired" };
@@ -108,9 +108,7 @@ function harness(overrides: Partial<Harness> = {}): Harness {
         ? { membershipId: MEMBERSHIP, status: "active", roles: ["member"], permittedServiceKeys: [], permittedProjectIds: [] }
         : organisationId === C1 && userId === LEFT
           ? { membershipId: MEMBERSHIP, status: "suspended", roles: [], permittedServiceKeys: [], permittedProjectIds: [] }
-          : organisationId === C1 && userId === INVITED
-            ? { membershipId: MEMBERSHIP, status: "invited", roles: [], permittedServiceKeys: [], permittedProjectIds: [] }
-            : null,
+          : null, // #179: an invitee holds no membership row until the claim creates it
     redeemResult: "redeemed",
     boom: false,
     ports: {} as MagicLinkCallbackPorts,
@@ -299,22 +297,21 @@ describe("completeMagicLink (GET /auth/callback)", () => {
     expect(h.redeemed).toHaveLength(0);
   });
 
-  it("claims an invited membership with the canonical address, never the raw one", async () => {
+  it("claims a pending invitation on the routed host with the identity's own token, sending no address or id (#179)", async () => {
     const { response, h } = await callback({
       configure: (state) => {
         state.identity = identityOf(INVITED, " User@Example.test ", true);
         state.membershipFor = (organisationId, userId, callIndex) =>
-          organisationId === C1 && userId === INVITED
-            ? { membershipId: MEMBERSHIP, status: callIndex > 1 ? "active" : "invited", roles: ["member"], permittedServiceKeys: [], permittedProjectIds: [] }
+          organisationId === C1 && userId === INVITED && callIndex > 1
+            ? { membershipId: MEMBERSHIP, status: "active", roles: ["member"], permittedServiceKeys: [], permittedProjectIds: [] }
             : null;
       },
     });
     expect(h.redeemed).toHaveLength(1);
-    const claim = h.redeemed[0] as { organisationId: string; userId: string; email: string };
-    expect(claim.email).toBe("user@example.test");
-    expect(claim.email).toBe(claim.email.trim().toLowerCase());
-    expect(claim.organisationId).toBe(C1);
-    expect(claim.userId).toBe(INVITED);
+    const claim = h.redeemed[0] as { host: string; accessToken: string };
+    expect(Object.keys(claim).sort()).toEqual(["accessToken", "host"]);
+    expect(claim.host).toBe(HOST_A);
+    expect(JSON.stringify(claim)).not.toMatch(/example\.test|organisation|userId/i);
     // The handler does not take "redeemed" on trust: it re-reads current membership state.
     expect(h.memberships.length).toBeGreaterThanOrEqual(2);
     expect(locationOf(response).pathname).toBe("/");
@@ -326,12 +323,14 @@ describe("completeMagicLink (GET /auth/callback)", () => {
       host: HOST_B,
       configure: (state) => {
         state.identity = identityOf(INVITED, "user@example.test", true);
+        // SQL answers for the routed host (pgTAP 018 #5): company1's invitation is not company2's.
+        state.redeemResult = "not_found";
       },
     });
     expect(locationOf(response).searchParams.get("outcome")).toBe("not_a_member");
     // company2 is the organization under discussion, because company2 is the host that was routed.
     expect(h.memberships).toEqual([`${C2}:${INVITED}`]);
-    expect(h.redeemed).toHaveLength(0);
+    expect(h.redeemed.map((c) => c.host)).toEqual([HOST_B]);
     expect(locationOf(response).pathname).toBe("/login");
     expect(locationOf(response).host).toBe(HOST_B);
   });

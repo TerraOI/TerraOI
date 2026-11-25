@@ -72,20 +72,23 @@ export interface SignInCompletionPorts {
   /** Null means the token pair cannot be sealed, so there is no session to issue. */
   tokenCipher(): TokenCipher | null;
   findMembership(organisationId: string, accessToken: string): Promise<MembershipRecord | null>;
-  redeemInvitation(input: { organisationId: string; userId: string; email: string }): Promise<"redeemed" | "not_found" | "email_mismatch">;
   /**
-   * The revocation a completed password reset owes: every *other* session this user holds on this
-   * host. Host-scoped like every other session rule — a company1 reset cannot reach a company2 row.
-   * Absent means the SQL half has not landed, which refuses a reset rather than completing one without
-   * it (PR-2 `t-201b-invite-reset-sql` writes `revoke_user_sessions_v1`).
+   * The invite claim (#179, `redeem_invitation_v1`): the caller's provider-verified address claims a
+   * pending invitation of the tenant **this host** routes to. Sent with the identity's own token; no
+   * user id, email or organisation id travels — SQL reads them from `auth.uid()`, `auth.users` and the
+   * host. "redeemed" is never taken on trust: the membership is re-read.
+   */
+  redeemInvitation(input: { host: string; accessToken: string }): Promise<"redeemed" | "not_found" | "email_mismatch">;
+  /**
+   * The revocation a completed password reset owes: every session this user holds on **every host of
+   * the organisation this host routes to** (#182) — the host selects the organisation; a company1 reset
+   * cannot reach the same user's company2 sessions. Absent means the carrier (`SESSION_DB`) is not
+   * bound, which refuses a reset rather than completing one without it (`revoke_user_sessions_v1`).
    *
    * `true` means **the revocation ran**, not "it revoked at least one row": a user with no other live
    * session has nothing to revoke and their reset must still complete. PR-2's RPC and its pgTAP
-   * assertion have to keep that meaning, because a completion that read "zero rows" as a failure would
-   * lock the first-ever reset out. Whether a credential change should also revoke sessions on this
-   * organization's *other* hosts is open in #182: this host-scoped signature is fine while that
-   * issue is open, but PR-2 (#186) must widen `revoke_user_sessions_v1` if #182 rules for all hosts
-   * of the organisation (N7 on #181).
+   * assertion keep that meaning (#183), because a completion that read "zero rows" as a failure would
+   * lock the first-ever reset out.
    */
   revokeUserSessions?(input: { userId: string; host: string; now: number }): Promise<boolean>;
 }
@@ -161,12 +164,10 @@ export async function completeSignIn(input: {
 
   try {
     let membership = await ports.findMembership(input.organisationId, identity.accessToken);
-    if (membership !== null && membership.status === "invited") {
-      const claim = await ports.redeemInvitation({
-        organisationId: input.organisationId,
-        userId: identity.userId,
-        email,
-      });
+    // #179: an invitee has no membership row until they claim; an existing row of any status is never
+    // re-activated by signing in (SQL answers not_found), so only "no row" asks the question.
+    if (membership === null) {
+      const claim = await ports.redeemInvitation({ host, accessToken: identity.accessToken });
       // "redeemed" is not taken on trust: access follows the row as it is now.
       if (claim === "redeemed") {
         membership = await ports.findMembership(input.organisationId, identity.accessToken);

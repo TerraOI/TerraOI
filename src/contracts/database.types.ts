@@ -1245,6 +1245,26 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"tenant_entra_issuers": {
+                  Row: {
+                    "created_at": string,"id": string,"issuer_tenant_id": string,"organisation_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"id"?: string,"issuer_tenant_id": string,"organisation_id": string
+                  }
+                  Update: {
+                    "created_at"?: string,"id"?: string,"issuer_tenant_id"?: string,"organisation_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "tenant_entra_issuers_organisation_id_fkey"
+      columns: ["organisation_id"]
+isOneToOne: false
+      referencedRelation: "organisations"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"tenant_experts": {
                   Row: {
                     "collection_bindings": (string)[],"created_at": string,"enabled": boolean,"expert_key": string,"expert_version": string,"id": string,"organisation_id": string,"service_key": string,"updated_at": string,"vocabulary_override": NonNullable<Json>
@@ -1458,6 +1478,9 @@ isOneToOne: false
 "draft_eval_case_from_feedback_v1":
 { Args: { "p_body": Json,"p_organisation_id": string }; Returns: string
                            },
+"entra_allowed_issuers_v1":
+{ Args: { "p_host": string }; Returns: (string)[]
+                           },
 "eval_case_max_source_class":
 { Args: { "p_floor": string,"p_payload": Json }; Returns: string
                            },
@@ -1579,6 +1602,9 @@ isOneToOne: false
 "member_has_evals_review":
 { Args: { "p_min_level": string,"p_organisation_id": string }; Returns: boolean
                            },
+"organisation_for_active_host":
+{ Args: { "p_host": string }; Returns: string
+                           },
 "publish_knowledge_version_v1":
 { Args: { "p_organisation_id": string,"p_source_version_id": string }; Returns: string
                            },
@@ -1593,6 +1619,9 @@ isOneToOne: false
                            },
 "record_upload_outcome_v1":
 { Args: { "p_organisation_id": string,"p_reason_code": string,"p_state": string,"p_upload_session_id": string }; Returns: undefined
+                           },
+"redeem_invitation_v1":
+{ Args: { "p_host": string }; Returns: string
                            },
 "register_source_version_v1":
 { Args: { "p_content_hash": string,"p_media_type": string,"p_organisation_id": string,"p_size_bytes": number,"p_upload_session_id": string }; Returns: {

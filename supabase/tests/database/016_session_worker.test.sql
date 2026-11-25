@@ -93,8 +93,10 @@ select is_empty(
         and a.privilege_type = 'EXECUTE'
         and not (n.nspname = 'toi_identity' and p.proname in (
           'authenticate_session_v1', 'insert_session_v1', 'revoke_session_v1',
-          'rotate_session_tokens_v1', 'prune_expired_sessions_v1')) $$,
-  '16 toi_session_worker is granted execute on no function except the five session functions'
+          'rotate_session_tokens_v1', 'prune_expired_sessions_v1',
+          -- #184: the sixth, approved by name for the password-reset revocation.
+          'revoke_user_sessions_v1')) $$,
+  '16 toi_session_worker is granted execute on no function except the six session functions'
 );
 
 select is_empty(

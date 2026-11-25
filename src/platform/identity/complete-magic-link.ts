@@ -50,7 +50,7 @@ export interface MagicLinkCallbackPorts extends SignInCompletionPorts, HostLooku
    * from the request). Optional because the SQL behind it is T-201 PR-2's migration: no implementation
    * means no permitted issuer, which refuses an Entra sign-in (see `entra-linking.ts`).
    */
-  allowedEntraIssuers?(organisationId: string): Promise<readonly string[] | null>;
+  allowedEntraIssuers?(host: string, accessToken: string): Promise<readonly string[] | null>;
 }
 
 export interface MagicLinkCallbackInput {
@@ -130,7 +130,7 @@ export async function completeMagicLink(input: MagicLinkCallbackInput): Promise<
   if (entraAttempt || isEntraIdentity(identity.provider)) {
     const gate = await checkEntraIdentity({
       identity,
-      organisationId: organisation.organisationId,
+      host: parsed.host,
       ports,
     });
     if (!gate.ok) {

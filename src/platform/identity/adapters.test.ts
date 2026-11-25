@@ -205,11 +205,35 @@ describe("buildIdentityPorts — limiter, secrets and the #37 seam", () => {
     }
   });
 
-  it("invite redemption is not silently available before its RPC lands", async () => {
-    const ports = buildIdentityPorts(env);
-    await expect(
-      ports.redeemInvitation({ organisationId: "11111111-1111-4111-8111-111111111111", userId: "00000000-0000-4000-8000-0000000000a1", email: "user@example.test" }),
-    ).rejects.toThrow(/t-102e-identity-invites-sql/);
+  it("the invite claim dials redeem_invitation_v1 with the routed host and the user's own token, no address or id (#179)", async () => {
+    const { calls, fetchImpl } = recorder({ ok: true, status: 200, json: async () => "redeemed" });
+    const ports = buildIdentityPorts(env, { fetchImpl });
+    await expect(ports.redeemInvitation({ host: "company1.terraoi.app", accessToken: "user-access-token" })).resolves.toBe("redeemed");
+    expect(calls[0]?.url).toBe(`${BASE}/rpc/redeem_invitation_v1`);
+    expect(JSON.parse(calls[0]?.init.body ?? "{}")).toEqual({ p_host: "company1.terraoi.app" });
+    expect(calls[0]?.init.headers.authorization).toBe("Bearer user-access-token");
+  });
+
+  it("a claim answer outside the closed set is a failure, never a guess", async () => {
+    const { fetchImpl } = recorder({ ok: true, status: 200, json: async () => "maybe" });
+    const ports = buildIdentityPorts(env, { fetchImpl });
+    await expect(ports.redeemInvitation({ host: "company1.terraoi.app", accessToken: "user-access-token" })).rejects.toThrow();
+  });
+
+  it("the Entra issuer read is host-keyed and installed only with the Data API bindings (#185)", async () => {
+    const { calls, fetchImpl } = recorder({ ok: true, status: 200, json: async () => ["aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa"] });
+    const ports = buildIdentityPorts(env, { fetchImpl });
+    expect(typeof ports.allowedEntraIssuers).toBe("function");
+    await expect(ports.allowedEntraIssuers?.("company1.terraoi.app", "user-access-token")).resolves.toEqual([
+      "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
+    ]);
+    expect(JSON.parse(calls[0]?.init.body ?? "{}")).toEqual({ p_host: "company1.terraoi.app" });
+    expect(buildIdentityPorts({ IDENTITY_SESSION_KEY: SECRET }).allowedEntraIssuers).toBeUndefined();
+  });
+
+  it("the reset revocation is absent without SESSION_DB, so the reset endpoint stays inert", () => {
+    expect(buildIdentityPorts(env).revokeUserSessions).toBeUndefined();
+    expect(typeof buildIdentityPorts({ ...env, SESSION_DB: { connectionString: "postgres://synthetic@127.0.0.1:1/x" } } as never).revokeUserSessions).toBe("function");
   });
 });
 

@@ -166,3 +166,36 @@ export function createSessionStore(deps: SessionDbDeps): SessionStore | null {
     },
   };
 }
+
+const REVOKE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const REVOKE_HOST = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9]))+$/;
+
+/**
+ * The revocation a completed password reset owes (T-201 PR-2, `toi_identity.revoke_user_sessions_v1`):
+ * every session of this user on every host of the organisation the routed host belongs to (#182).
+ * Not a `SessionStore` method — that interface is the row a cookie addresses; this is a user-wide act.
+ * `true` is the SQL's contract (the revocation ran, #183); no row back is a failure, never "nothing".
+ * Returns `null` when the carrier is not bound, exactly like `createSessionStore`.
+ */
+export type SessionRevoker = (input: { userId: string; host: string; now: number }) => Promise<boolean>;
+
+export function createSessionRevoker(deps: SessionDbDeps): SessionRevoker | null {
+  const open: (() => SessionSql) | null =
+    deps.openSql ?? (deps.binding ? () => openFromBinding(deps.binding as SessionDbBinding) : null);
+  if (open === null) return null;
+  const openSql = open;
+  return async ({ userId, host, now }) => {
+    if (typeof userId !== "string" || !REVOKE_UUID.test(userId)) throw new Error("user id must be a uuid");
+    if (typeof host !== "string" || !REVOKE_HOST.test(host)) throw new Error("host must be a normalized bare hostname");
+    const at = toTimestamptz(now);
+    const sql = openSql();
+    try {
+      const rows = await sql<{ revoked: boolean }>`
+        select toi_identity.revoke_user_sessions_v1(${userId}::uuid, ${host}, ${at}) as revoked
+      `;
+      return rows[0]?.revoked === true;
+    } finally {
+      await sql.end({ timeout: 5 });
+    }
+  };
+}

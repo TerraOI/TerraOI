@@ -86,7 +86,7 @@ export async function handlePasswordSignIn(input: PasswordSignInInput): Promise<
   if (isEntraIdentity(identity.provider)) {
     const gate = await checkEntraIdentity({
       identity,
-      organisationId: organisation.organisationId,
+      host,
       ports,
     });
     if (!gate.ok) {

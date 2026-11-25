@@ -96,7 +96,7 @@ interface Harness {
   store: SessionStore & { rows: Map<string, StoredSession> };
   attempts: Array<{ email: string; password: string; host: string }>;
   memberships: string[];
-  redeemed: Array<{ organisationId: string; userId: string; email: string }>;
+  redeemed: Array<{ host: string; accessToken: string }>;
   identity: IdentityExchange;
   membershipFor: (organisationId: string, userId: string) => Membership | null;
   boom: boolean;
@@ -267,23 +267,20 @@ describe("handlePasswordSignIn (POST /auth/password)", () => {
     expect(sent).toBe("owner1@company1.test");
   });
 
-  it("the invited claim can only be made for the provider-verified address, never the one named in the form", async () => {
+  it("the invited claim never carries the address named in the form: SQL reads the verified one (#179)", async () => {
     const { response, h } = await post({
       email: "field2@company1.test",
       configure: (s) => {
-        // The provider verified an address different from the form's: the invite is bound to the
-        // verified one, so only that one may reach the claim (plan §4.2, F05).
+        // The provider verified an address different from the form's. The claim sends no address at
+        // all — redeem_invitation_v1 reads the verified one from auth.users (pgTAP 018 #8-#10).
         s.identity = exchangeFor(FIELD2, "someone.else@example.test");
-        s.membershipFor = (organisationId, userId) =>
-          organisationId === C1 && userId === FIELD2 ? member("invited") : null;
+        s.membershipFor = () => null;
       },
     });
     expect(h.redeemed).toHaveLength(1);
-    const claim = h.redeemed[0] as { organisationId: string; userId: string; email: string };
-    expect(claim.email).toBe("someone.else@example.test");
-    expect(claim.email).not.toBe("field2@company1.test");
-    expect(claim.organisationId).toBe(C1);
-    expect(claim.userId).toBe(FIELD2);
+    const claim = h.redeemed[0] as { host: string; accessToken: string };
+    expect(Object.keys(claim).sort()).toEqual(["accessToken", "host"]);
+    expect(JSON.stringify(claim)).not.toContain("field2@company1.test");
     // The claim did not succeed, so access did not follow it — only a session and the no-access page.
     expect(outcomeOf(response)).toBe("not_a_member");
     expect(sessionCookieOf(response)).toContain("__Host-toi_session=");

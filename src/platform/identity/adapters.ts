@@ -10,7 +10,7 @@ import type { PasswordSignInPorts } from "./password-signin";
 import type { MagicLinkRequestPorts } from "./request-magic-link";
 import type { SetPasswordPorts } from "./set-password";
 import type { SignOutPorts } from "./sign-out";
-import { createSessionStore } from "./session-db";
+import { createSessionRevoker, createSessionStore } from "./session-db";
 import type { SessionStore } from "./session-store";
 import { createTokenCipher } from "./session-store";
 import type { TokenCipher } from "./session-store";
@@ -102,9 +102,6 @@ export function unresolvedTenancyStore(): TenancyStore {
   };
 }
 
-async function unresolvedRedeemInvitation(): Promise<"not_found"> {
-  throw new Error("invite redemption RPC not landed (t-102e-identity-invites-sql, shape pending on #37)");
-}
 
 /**
  * Kept for tests. Production returns `null` from `sessionStore()` when `SESSION_DB` is unbound.
@@ -255,8 +252,15 @@ export function buildIdentityPorts(env: Partial<IdentityEnv>, options: { fetchIm
   const sessionStore = createSessionStore({
     binding: env.SESSION_DB ?? null,
   });
+  // T-201 PR-2: the two conditional ports stay **absent** where their carrier is not bound, which the
+  // handlers check before dialing a provider (no recovery email, no browser handed to Microsoft).
+  const revokeUserSessions = createSessionRevoker({ binding: env.SESSION_DB ?? null });
 
   return {
+    ...(revokeUserSessions === null ? {} : { revokeUserSessions }),
+    ...(tenancy === null
+      ? {}
+      : { allowedEntraIssuers: async (host: string, accessToken: string) => tenancy.entraIssuers(host, accessToken) }),
     findHost: async (host) => {
       if (tenancy === null) throw new Error("SUPABASE_URL and SUPABASE_ANON_KEY bindings are required");
       return tenancy.findHost(host);
@@ -269,7 +273,12 @@ export function buildIdentityPorts(env: Partial<IdentityEnv>, options: { fetchIm
       if (tenancy === null) throw new Error("SUPABASE_URL and SUPABASE_ANON_KEY bindings are required");
       return tenancy.policyRevision(organisationId, accessToken);
     },
-    redeemInvitation: async () => unresolvedRedeemInvitation(),
+    // The claim goes out with the identity's own token (ADR-0003 §7): SQL takes the claimant from
+    // auth.uid(), the address from auth.users and the tenant from the routed host (#179).
+    redeemInvitation: async ({ host, accessToken }) => {
+      if (tenancy === null) throw new Error("SUPABASE_URL and SUPABASE_ANON_KEY bindings are required");
+      return tenancy.redeemInvitation(host, accessToken);
+    },
     sessionStore: () => sessionStore,
     tokenCipher: () => sessionTokenCipher(env),
 
@@ -385,14 +394,7 @@ export function buildIdentityPorts(env: Partial<IdentityEnv>, options: { fetchIm
 
     supabaseBaseUrl: () => (baseUrl.length > 0 ? baseUrl : null),
 
-    // ---- the two ports whose SQL has not landed are **absent**, not stubbed (T-201 PR-2) ----------
-    // `allowedEntraIssuers` and `revokeUserSessions` are deliberately not implemented here. A port that
-    // exists and throws would let the *front* halves of those endpoints do real work first: `POST
-    // /auth/entra` would hand the browser to Microsoft, and `POST /auth/password-reset` would send a
-    // real recovery email whose link is certain to end at a refusal. Absence is the honest shape of
-    // "the SQL is not there", and the handlers check it **before** they dial a provider
-    // (`entra-linking.ts`, `password-reset.ts`), so both endpoints are inert until PR-2's
-    // `identity_methods` migration — which also brings their pgTAP half and the `001` allow-list
-    // entries. Nothing here falls back to "unrestricted".
+    // `allowedEntraIssuers` and `revokeUserSessions` are installed above only where their carriers
+    // exist; nothing here falls back to "unrestricted".
   };
 }

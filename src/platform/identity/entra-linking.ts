@@ -61,16 +61,18 @@ export function decideEntraLink(input: {
 
 export interface EntraPolicyPorts {
   /**
-   * The organization's permitted Entra tenant ids: `[]` for a tenant that has configured none, and
-   * `null` when the policy is not readable at all (the state until PR-2). No implementation is itself
-   * treated as unresolved.
+   * The permitted Entra tenant ids of the tenant **this host** routes to (#185: keyed on the routed
+   * host, resolved to the organisation in SQL, read with the signed-in identity's own token): `[]`
+   * for a tenant that has configured none — or an unknown host, which answers the same — and `null`
+   * when the policy is not readable at all. No implementation is itself treated as unresolved.
    */
-  allowedEntraIssuers?(organisationId: string): Promise<readonly string[] | null>;
+  allowedEntraIssuers?(host: string, accessToken: string): Promise<readonly string[] | null>;
 }
 
 export async function checkEntraIdentity(input: {
-  identity: Pick<Extract<IdentityExchange, { ok: true }>, "emailVerified" | "issuerTenantId">;
-  organisationId: string;
+  identity: Pick<Extract<IdentityExchange, { ok: true }>, "emailVerified" | "issuerTenantId" | "accessToken">;
+  /** The routed host from `request.url` (ADR-0006 rule 3) — never an organisation id (#185). */
+  host: string;
   ports: EntraPolicyPorts;
 }): Promise<{ ok: true } | { ok: false; reason: EntraRefusal }> {
   if (typeof input.ports.allowedEntraIssuers !== "function") {
@@ -78,7 +80,7 @@ export async function checkEntraIdentity(input: {
   }
   let allowed: readonly string[] | null;
   try {
-    allowed = await input.ports.allowedEntraIssuers(input.organisationId);
+    allowed = await input.ports.allowedEntraIssuers(input.host, input.identity.accessToken);
   } catch {
     // A policy read that fails is not a policy that permits nothing and not a policy that permits
     // everything: it permits nothing we can check, so the identity is refused.
@@ -133,7 +135,7 @@ export async function handleEntraSignInRequest(input: EntraSignInStartInput): Pr
   // Before the browser is handed to the IdP: if this deployment cannot read the tenant's issuer policy
   // at all, the attempt would end at a refusal after a full round trip through Microsoft and an email
   // the user was led to expect. Refusing here says so at the point where the answer is still useful
-  // (PR-2 `t-201b-invite-reset-sql` lands the SQL; until then this endpoint is deliberately inert).
+  // (the port exists only where the Data API bindings do; `20261125130000_identity_methods.sql`).
   if (typeof ports.allowedEntraIssuers !== "function") {
     console.error("entra sign-in refused", { host, step: "entra_policy", reason: "unwired" });
     return loginRedirect(host, "unavailable", []);
