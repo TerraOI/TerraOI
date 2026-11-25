@@ -8,3 +8,4 @@ One file per task ID in [../TerraOI-todo.md](../TerraOI-todo.md): source require
 - [TOI-008 feedback + save as knowledge](TOI-008-feedback-save-knowledge.md)
 - [TOI-009 red-team pass](TOI-009-red-team.md)
 - [TOI-013 publish review gate](TOI-013-publish-review-gate.md)
+- [TOI-010 M1 subset, local](TOI-010-m1-subset-local.md)

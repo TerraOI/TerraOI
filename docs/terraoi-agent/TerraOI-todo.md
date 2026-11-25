@@ -42,7 +42,7 @@ Baseline taken 2026-11-25 on `origin/main` = `a0a6b3c` plus the 75 open PRs (27 
 | T-313 budgets, run audit | F19/F22 | PRs #255..#278 | partial | merge; BUDGET_DB Hyperdrive (OWNER) |
 | T-314 DeepSeek/OpenRouter, health | F37 | PRs #248..#276 | partial | merge; keys (OWNER) |
 | T-315 staging corpora + cases | §14.1 | PR #252 (validators) | partial / BLOCKED (OWNER) | Company1 corpora + reviewers |
-| T-401 M1 subset run | §20.5 | — | partial | **TOI-010** local half; staging half OWNER |
+| T-401 M1 subset run | §20.5 | TOI-010 (local matrix) | partial | staging half OWNER |
 | T-402 red-team | §20.3 | `terraoi/build` (TOI-009) | partial | staging legs; R-1..R-3 fixes (Lane 2) |
 | T-403 tune to thresholds | §14.1 | — | BLOCKED | needs approved cases + corpus (OWNER) |
 | T-404 production readiness | §17.2 | PR #191 | partial | production half OWNER |
@@ -62,7 +62,7 @@ Baseline taken 2026-11-25 on `origin/main` = `a0a6b3c` plus the 75 open PRs (27 
 | TOI-007 | T-203 chat UX (picker, evidence panel, citation open, history) | T-203 | VERIFY (partial) | [TOI-007](TerraOI-tasks/TOI-007-chat-ux.md): history/resume + evidence panel done; picker BLOCKED Q-11, citation open BLOCKED Q-10 |
 | TOI-008 | T-302 feedback controls + submission/review UI | T-302 | VERIFY | [TOI-008](TerraOI-tasks/TOI-008-feedback-save-knowledge.md): pgTAP 085 22/22, unit +18; staging owed |
 | TOI-009 | T-402 agent-side red-team bait tests | T-402 | VERIFY (local legs) | [TOI-009](TerraOI-tasks/TOI-009-red-team.md): pgTAP 110 22 pass + findings R-1/R-2 as todo; staging legs owed |
-| TOI-010 | T-401 local M1-subset evidence run | T-401, §20.5 | PENDING | — |
+| TOI-010 | T-401 local M1-subset evidence run | T-401, §20.5 | VERIFY (local) | [TOI-010](TerraOI-tasks/TOI-010-m1-subset-local.md); staging legs owed |
 | TOI-011 | Push `terraoi/build`, open draft PR, comment collisions on PRs | user brief | BLOCKED | GitHub integration is read-only (403 on create_branch; comment tool denied); `git push` has no credential — Q-07. Delivered as bundle + patches in session outputs |
 | TOI-013 | Check T-113 auto-publish against T-213 publication policy | §7.2, Q-05 | VERIFY | [TOI-013](TerraOI-tasks/TOI-013-publish-review-gate.md): defect confirmed and fixed; pgTAP 049 14/14 |
 | TOI-014 | Restore #219 migration dropped by the T-113 stack merge | TOI-001 | DONE | Q-12; pgTAP 036 back (78) |

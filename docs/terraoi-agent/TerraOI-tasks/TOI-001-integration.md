@@ -32,3 +32,6 @@ Merge every open PR head (75 PRs; 27 stack tips) onto `origin/main` a0a6b3c in P
 - `scripts/db-shim/run.sh`: 34 files / 1664 assertions pass (PG16 shim).
 - `pnpm check:structure`, `pnpm check:docs` pass. `check:migrations` reports 20 new migrations (expected for an integration branch; ordering clean).
 - `next build --webpack` with font mock: compiles all 45 routes (type step skipped, Q-04). Turbopack build not runnable here.
+
+## Lost-hunk audit (2026-11-25)
+For every stack tip, every added line (>25 chars) outside docs was searched for in the integrated file. All misses were accounted for: the conflict resolutions above, the three re-timestamped migration names, T-312 `runExpertEval` tests rewritten async by #274 (same test names present), and `workers/scheduled*` describe blocks renamed by #285. The only real loss found was #219's migration (defect 3). Script: `node /workspace/pgshim/lost-lines.mjs` (sandbox-local).
