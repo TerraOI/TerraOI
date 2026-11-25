@@ -10,7 +10,7 @@
   // #170: no public surface — app Worker reaches mintObjectUrl over a service binding only.
   "workers_dev": false,
   "preview_urls": false,
-  // Cut C: cron runs scheduled() → runCloudWorkerPull (idle until T-212 extractor is wired).
+  // Cut C/D: cron → outbox dispatch (#99) then pull (pull idle until T-212 extractor is wired).
   "triggers": { "crons": ["* * * * *"] },
   "vars": {
     // Names only; values are owner deploy settings (T-004 §20.8).
