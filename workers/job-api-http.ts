@@ -32,6 +32,7 @@ const ABORT_REASONS: readonly AbortReason[] = [
   "quality_failed",
   "operator_cancel",
   "clearance_refused",
+  "embedding_route_unavailable",
 ];
 
 export function jobApiUnavailableResponse(): Response {
