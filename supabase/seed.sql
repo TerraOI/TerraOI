@@ -67,7 +67,11 @@ insert into public.organisation_roles (id, organisation_id, key, name) values
   ('31000000-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111', 'member', 'Member'),
   ('31000000-0000-4000-8000-000000000002', '11111111-1111-4111-8111-111111111111', 'admin', 'Tenant admin'),
   ('31000000-0000-4000-8000-000000000004', '11111111-1111-4111-8111-111111111111', 'contributor', 'Contributor'),
-  ('32000000-0000-4000-8000-000000000001', '22222222-2222-4222-8222-222222222222', 'member', 'Member')
+  ('32000000-0000-4000-8000-000000000001', '22222222-2222-4222-8222-222222222222', 'member', 'Member'),
+  -- …003 is reserved for ephemeral publisher/contributor fixtures in 025/040; …004 is #227 contributor.
+  ('31000000-0000-4000-8000-000000000005', '11111111-1111-4111-8111-111111111111', 'eval_reviewer', 'Eval reviewer'),
+  -- company2 keeps a single seeded member role; …002/…003 stay free for 040/013 synthetic fixtures.
+  ('32000000-0000-4000-8000-000000000005', '22222222-2222-4222-8222-222222222222', 'eval_reviewer', 'Eval reviewer')
 on conflict (organisation_id, key) do nothing;
 
 insert into public.role_permissions (organisation_id, role_id, area, level) values
@@ -78,7 +82,10 @@ insert into public.role_permissions (organisation_id, role_id, area, level) valu
   ('11111111-1111-4111-8111-111111111111', '31000000-0000-4000-8000-000000000002', 'members.admin', 'admin'),
   ('11111111-1111-4111-8111-111111111111', '31000000-0000-4000-8000-000000000002', 'projects.admin', 'admin'),
   ('11111111-1111-4111-8111-111111111111', '31000000-0000-4000-8000-000000000004', 'knowledge.write', 'write'),
-  ('22222222-2222-4222-8222-222222222222', '32000000-0000-4000-8000-000000000001', 'chat.ask', 'read')
+  ('22222222-2222-4222-8222-222222222222', '32000000-0000-4000-8000-000000000001', 'chat.ask', 'read'),
+  ('11111111-1111-4111-8111-111111111111', '31000000-0000-4000-8000-000000000002', 'evals.review', 'admin'),
+  ('11111111-1111-4111-8111-111111111111', '31000000-0000-4000-8000-000000000005', 'evals.review', 'write'),
+  ('22222222-2222-4222-8222-222222222222', '32000000-0000-4000-8000-000000000005', 'evals.review', 'write')
 on conflict (role_id, area) do nothing;
 
 insert into public.membership_roles (organisation_id, membership_id, role_id)
@@ -100,6 +107,20 @@ select m.organisation_id, m.id, r.id
    and r.key = 'contributor'
  where m.user_id = '00000000-0000-4000-8000-0000000000a2'
    and m.organisation_id = '11111111-1111-4111-8111-111111111111'
+on conflict (membership_id, role_id) do nothing;
+
+-- T-312 / #82: eval_reviewer on company1 a1+a2 and company2 b1 so non-author approval is testable.
+insert into public.membership_roles (organisation_id, membership_id, role_id)
+select m.organisation_id, m.id, r.id
+  from public.organisation_memberships m
+  join public.organisation_roles r
+    on r.organisation_id = m.organisation_id
+   and r.key = 'eval_reviewer'
+ where m.user_id in (
+   '00000000-0000-4000-8000-0000000000a1',
+   '00000000-0000-4000-8000-0000000000a2',
+   '00000000-0000-4000-8000-0000000000b1'
+ )
 on conflict (membership_id, role_id) do nothing;
 
 -- ------------------------------------------------------------ projects

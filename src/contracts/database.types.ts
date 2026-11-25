@@ -201,6 +201,120 @@ isOneToOne: false
 isOneToOne: false
       referencedRelation: "service_definitions"
       referencedColumns: ["service_key"]
+                },"eval_cases": {
+                  Row: {
+                    "approved_at": string | null,"approved_by": string | null,"case_key": string,"case_type": string,"created_at": string,"created_by": string,"data_class": string,"derived_from_message_id": string | null,"derived_from_run_id": string | null,"drafted_by": string,"drafted_on": string,"expert_key": string,"id": string,"organisation_id": string,"origin": string,"payload": NonNullable<Json>,"question": string,"status": string,"updated_at": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "approved_at"?: string | null,"approved_by"?: string | null,"case_key": string,"case_type": string,"created_at"?: string,"created_by": string,"data_class": string,"derived_from_message_id"?: string | null,"derived_from_run_id"?: string | null,"drafted_by": string,"drafted_on": string,"expert_key": string,"id"?: string,"organisation_id": string,"origin": string,"payload"?: NonNullable<Json>,"question": string,"status"?: string,"updated_at"?: string
+                  }
+                  Update: {
+                    "approved_at"?: string | null,"approved_by"?: string | null,"case_key"?: string,"case_type"?: string,"created_at"?: string,"created_by"?: string,"data_class"?: string,"derived_from_message_id"?: string | null,"derived_from_run_id"?: string | null,"drafted_by"?: string,"drafted_on"?: string,"expert_key"?: string,"id"?: string,"organisation_id"?: string,"origin"?: string,"payload"?: NonNullable<Json>,"question"?: string,"status"?: string,"updated_at"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "eval_cases_approved_by_fkey"
+      columns: ["approved_by"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "eval_cases_created_by_fkey"
+      columns: ["created_by"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "eval_cases_organisation_fk"
+      columns: ["organisation_id"]
+isOneToOne: false
+      referencedRelation: "organisations"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"eval_results": {
+                  Row: {
+                    "case_id": string,"created_at": string,"evidence": NonNullable<Json>,"failure_class": string | null,"id": string,"organisation_id": string,"run_id": string,"score": number | null
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "case_id": string,"created_at"?: string,"evidence"?: NonNullable<Json>,"failure_class"?: string | null,"id"?: string,"organisation_id": string,"run_id": string,"score"?: number | null
+                  }
+                  Update: {
+                    "case_id"?: string,"created_at"?: string,"evidence"?: NonNullable<Json>,"failure_class"?: string | null,"id"?: string,"organisation_id"?: string,"run_id"?: string,"score"?: number | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "eval_results_case_fk"
+      columns: ["case_id","organisation_id"]
+isOneToOne: false
+      referencedRelation: "eval_cases"
+      referencedColumns: ["id","organisation_id"]
+    },{
+      foreignKeyName: "eval_results_organisation_fk"
+      columns: ["organisation_id"]
+isOneToOne: false
+      referencedRelation: "organisations"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "eval_results_run_fk"
+      columns: ["run_id","organisation_id"]
+isOneToOne: false
+      referencedRelation: "eval_runs"
+      referencedColumns: ["id","organisation_id"]
+    }
+                  ]
+                },"eval_reviews": {
+                  Row: {
+                    "case_id": string,"created_at": string,"decision": string,"edits": NonNullable<Json>,"id": string,"organisation_id": string,"reviewer_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "case_id": string,"created_at"?: string,"decision": string,"edits"?: NonNullable<Json>,"id"?: string,"organisation_id": string,"reviewer_id": string
+                  }
+                  Update: {
+                    "case_id"?: string,"created_at"?: string,"decision"?: string,"edits"?: NonNullable<Json>,"id"?: string,"organisation_id"?: string,"reviewer_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "eval_reviews_case_fk"
+      columns: ["case_id","organisation_id"]
+isOneToOne: false
+      referencedRelation: "eval_cases"
+      referencedColumns: ["id","organisation_id"]
+    },{
+      foreignKeyName: "eval_reviews_organisation_fk"
+      columns: ["organisation_id"]
+isOneToOne: false
+      referencedRelation: "organisations"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "eval_reviews_reviewer_id_fkey"
+      columns: ["reviewer_id"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"eval_runs": {
+                  Row: {
+                    "chain_config": NonNullable<Json>,"corpus_generation": string,"created_at": string,"expert_key": string,"expert_version": string,"finished_at": string | null,"id": string,"organisation_id": string,"started_at": string,"status": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "chain_config"?: NonNullable<Json>,"corpus_generation": string,"created_at"?: string,"expert_key": string,"expert_version": string,"finished_at"?: string | null,"id"?: string,"organisation_id": string,"started_at"?: string,"status"?: string
+                  }
+                  Update: {
+                    "chain_config"?: NonNullable<Json>,"corpus_generation"?: string,"created_at"?: string,"expert_key"?: string,"expert_version"?: string,"finished_at"?: string | null,"id"?: string,"organisation_id"?: string,"started_at"?: string,"status"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "eval_runs_organisation_fk"
+      columns: ["organisation_id"]
+isOneToOne: false
+      referencedRelation: "organisations"
+      referencedColumns: ["id"]
     }
                   ]
                 },"extraction_artifacts": {
@@ -1070,6 +1184,9 @@ isOneToOne: false
 "create_collection_v1":
 { Args: { "p_data_class": string,"p_key": string,"p_name": string,"p_organisation_id": string,"p_project_id": string,"p_service": string }; Returns: string
                            },
+"create_eval_case_draft_v1":
+{ Args: { "p_body": Json,"p_organisation_id": string }; Returns: string
+                           },
 "create_project_v1":
 { Args: { "p_key": string,"p_name": string,"p_organisation_id": string,"p_visibility": string }; Returns: string
                            },
@@ -1107,6 +1224,9 @@ isOneToOne: false
 "find_upload_session_v1":
 { Args: { "p_organisation_id": string,"p_upload_session_id": string }; Returns: {
               "o_collection_id": string,"o_created_at": string,"o_created_by": string,"o_expires_at": string,"o_idempotency_key": string,"o_max_size_bytes": number,"o_object_ref": string,"o_organisation_id": string,"o_reason_code": string,"o_session_id": string,"o_source_id": string,"o_source_version_id": string,"o_state": string
+"export_approved_eval_cases_v1":
+{ Args: { "p_organisation_id": string }; Returns: {
+              "approved_at": string,"approved_by": string,"case_key": string,"data_class": string,"expert_key": string,"id": string,"origin": string,"payload": Json,"question": string
             }[]
                            },
 "form_submission_body_text":
@@ -1146,6 +1266,9 @@ isOneToOne: false
 "list_form_templates_v1":
 { Args: { "p_organisation_id": string }; Returns: {
               "data_class": string,"default_collection_id": string,"description": string,"id": string,"json_schema": Json,"name": string,"organisation_id": string,"project_id": string,"published_at": string,"scope": string,"service_key": string,"status": string,"ui_hints": Json,"version": string
+"list_eval_cases_v1":
+{ Args: { "p_organisation_id": string,"p_status": string }; Returns: {
+              "approved_at": string,"approved_by": string,"case_key": string,"case_type": string,"created_by": string,"data_class": string,"expert_key": string,"id": string,"origin": string,"question": string,"status": string
             }[]
                            },
 "load_public_brand":
@@ -1157,6 +1280,9 @@ isOneToOne: false
 { Args: { "p_config_version": number,"p_host": string,"p_name": string }; Returns: {
               "byte_size": number,"content_base64": string,"content_type": string
             }[]
+                           },
+"member_has_evals_review":
+{ Args: { "p_min_level": string,"p_organisation_id": string }; Returns: boolean
                            },
 "put_tenant_brand_v1":
 { Args: { "p_assets": Json,"p_brand": Json,"p_organisation_id": string }; Returns: number
@@ -1176,6 +1302,9 @@ isOneToOne: false
 { Args: { "p_host": string }; Returns: {
               "host": string,"is_canonical": boolean,"organisation_id": string,"organisation_status": string
             }[]
+                           },
+"review_eval_case_v1":
+{ Args: { "p_case_id": string,"p_decision": string,"p_edits": Json,"p_organisation_id": string }; Returns: undefined
                            },
 "revoke_membership_role_v1":
 { Args: { "p_organisation_id": string,"p_role_id": string,"p_user_id": string }; Returns: undefined

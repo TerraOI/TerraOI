@@ -38,6 +38,7 @@
     "src/**/*.tsx",
     "workers/**/*.ts",
     "localbox/**/*.ts",
+    "evals/**/*.ts",
     ".next/types/**/*.ts",
     "*.ts",
     ".next/dev/types/**/*.ts"

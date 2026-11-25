@@ -1,6 +1,6 @@
 # T-315 Load approved Company1 corpora into staging; draft the first eval cases
 
-Lane: 2 · Week: 3 · Protected: no · Depends on: T-111 (merged), T-112 (a and b merged as #32/#54), T-113 (the chunker and embedding gate merged as #80; publish is not on `main`; the pin is decided by #6's engineering half), T-114 (open as draft #160 and #162), T-211 (open as #149 and draft #158) and T-212 (not started), T-312 (same week: F34/F35 machinery; not started) · Status: ready
+Lane: 2 · Week: 3 · Protected: no · Depends on: T-111 (merged), T-112 (a and b merged as #32/#54), T-113 (the chunker and embedding gate merged as #80; publish is not on `main`; the pin is decided by #6's engineering half), T-114 (open as draft #160 and #162), T-211 (open as #149 and draft #158) and T-212 (not started), T-312 (same week: F34/F35 machinery; not started) · Status: in progress (wyuinline) — **PR-1** LOADING.md + `evals/*/cases.test.ts` validators (this branch); staging corpus upload + company2 zero-row paste remain owed (§20.8 / #38)
 Gated by decisions: [#6](https://github.com/TerraOI/TerraOI/issues/6) (Company1 half), [#38](https://github.com/TerraOI/TerraOI/issues/38), [#51](https://github.com/TerraOI/TerraOI/issues/51), [#66](https://github.com/TerraOI/TerraOI/issues/66)
 Plan refs: §14.1 (steps 1–2 and the thresholds), §7.1–§7.2, §6.2, §18.3, §20.3, §20.8; F34 (the runner is [T-312](./T-312-eval-harness.md)'s), F10/F12/F13 used, not owned
 

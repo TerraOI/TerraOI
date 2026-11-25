@@ -297,6 +297,13 @@ select is((select count(*)::int from t_meta
               and organisation_id = '11111111-1111-4111-8111-111111111111'), 12::int,
   -- Re-pin authorized by #179 / FAQ-0007 for the #39 contributor seed (10 → 12).
   '45 and the seven company1 permission rows plus five company1 role assignments');
+  -- Re-pin for T-312 / #82 eval_reviewer seed (2 → 3).
+  '44 and the three company1 role definitions');
+select is((select count(*)::int from t_meta
+            where case_name = 'multi_c1' and kind in ('role_permission', 'membership_role')
+              and organisation_id = '11111111-1111-4111-8111-111111111111'), 14::int,
+  -- Re-pin for T-312 / #82: eight permission rows + six membership_roles (a1/a2 also hold eval_reviewer).
+  '45 and the eight company1 permission rows plus six company1 role assignments');
 
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a4';
