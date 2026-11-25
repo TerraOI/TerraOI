@@ -181,6 +181,9 @@ select is_empty($$
            ('public.begin_upload_session_v1(uuid, uuid, text, text, bigint)'::regprocedure),
            ('public.register_source_version_v1(uuid, uuid, text, bigint, text)'::regprocedure),
            ('public.record_upload_outcome_v1(uuid, uuid, text, text)'::regprocedure),
+           -- T-112d / U-1 (`20261121180000_knowledge_storage_and_find_session.sql`): scoped session
+           -- reader for the complete path. Storage helper stays revoked (not listed).
+           ('public.find_upload_session_v1(uuid, uuid)'::regprocedure),
            ('public.create_collection_v1(uuid, text, text, text, uuid, text)'::regprocedure),
            ('public.update_collection_v1(uuid, uuid, text)'::regprocedure),
            ('public.load_public_brand(text)'::regprocedure),
