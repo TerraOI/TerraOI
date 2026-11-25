@@ -147,7 +147,8 @@ describe("what the panel shows before an answer exists", () => {
     feed?.push({ kind: "progress", event: { ...base, type: "verifying" } });
 
     await waitFor(() => expect(screen.getByText("Checking the answer against its sources…")).toBeTruthy());
-    expect(screen.getByText("Searching the documents you are allowed to read…")).toBeTruthy();
+    // T-203: the lexical-only lane is stated as reduced search quality, never hidden (§8.1).
+    expect(screen.getByText(/Searching the documents you are allowed to read \(reduced search quality/)).toBeTruthy();
     // The composed answer is not on the screen yet, and nothing about it is guessed: no summary, no
     // claim, no citation, and no status line (§9.3).
     expect(screen.queryByText(SUMMARY)).toBeNull();

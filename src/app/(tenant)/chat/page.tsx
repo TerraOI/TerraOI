@@ -1,9 +1,13 @@
 import { headers } from "next/headers";
 
 import { chatEnv, DEV_HOST_OPTIONS, readChatPageState } from "@/platform/chat/adapters";
+import { readChatHistory } from "@/platform/chat/conversation-list";
+import { createChatStore } from "@/platform/chat/store";
+import { transcriptTurns } from "@/platform/chat/transcript";
 
 import { ChatPanel } from "./chat-panel";
 import styles from "./chat.module.css";
+import { ConversationHistory } from "./history";
 
 // The tenant chat surface (plan §9.1, F17, F22). `/chat` is inside the `(tenant)` route group, so the
 // host decides whose workspace this is and a signed-out or non-member visitor never sees another
@@ -18,9 +22,16 @@ import styles from "./chat.module.css";
 
 export const dynamic = "force-dynamic";
 
-export default async function ChatPage() {
+export default async function ChatPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ c?: string | string[] }>;
+} = {}) {
   const pageHeaders = await headers();
-  const state = await readChatPageState(pageHeaders, chatEnv(), DEV_HOST_OPTIONS);
+  const env = chatEnv();
+  const state = await readChatPageState(pageHeaders, env, DEV_HOST_OPTIONS);
+  const params = (await searchParams) ?? {};
+  const requested = typeof params.c === "string" ? params.c : null;
 
   if (state.kind === "blocked") {
     // One safe sentence, chosen by the merged tenancy resolver: it names no tenant, no host and no
@@ -41,6 +52,22 @@ export default async function ChatPage() {
   // list rather than a provisional key that contradicts ruling #83.
   const experts: Array<{ key: string; label: string }> = [];
 
+  // F17 (T-203): the caller's own history and, if asked for, one transcript — read with the user's own
+  // token through the same store the chat route writes with. Nothing here is built in the browser.
+  const history = await readChatHistory(
+    createChatStore({ accessToken: state.accessToken }, { postgrestBaseUrl: env.SUPABASE_URL }),
+    state.context,
+    { conversationId: requested },
+  );
+  const initial =
+    history.active === null
+      ? undefined
+      : {
+          conversationId: history.active.conversation.id,
+          expertKey: history.active.conversation.expertKey,
+          turns: transcriptTurns(history.active),
+        };
+
   return (
     <section className={styles.page} aria-labelledby="chat-heading">
       <h1 id="chat-heading" className={styles.heading}>
@@ -50,7 +77,17 @@ export default async function ChatPage() {
         Ask about the documents your workspace has made available to you. Answers arrive only after
         they have been checked against those documents.
       </p>
-      <ChatPanel experts={experts} />
+      <div className={styles.layout}>
+        <ConversationHistory conversations={history.conversations} activeId={initial?.conversationId ?? null} />
+        <div>
+          {history.notice !== null && (
+            <p className={styles.notice} role="status">
+              {history.notice}
+            </p>
+          )}
+          <ChatPanel key={initial?.conversationId ?? "new"} experts={experts} initial={initial} />
+        </div>
+      </div>
     </section>
   );
 }

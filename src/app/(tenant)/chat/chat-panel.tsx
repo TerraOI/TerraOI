@@ -31,6 +31,11 @@ export interface ChatPanelProps {
   experts: readonly { key: string; label: string }[];
   /** A server-generated notice when the surface is not available (a tenancy or configuration answer). */
   notice?: string;
+  /**
+   * A conversation the server loaded from its own stored rows (F17, T-203): the panel continues it
+   * under the same id. Never built in the browser — a reload re-reads it from the server.
+   */
+  initial?: { conversationId: string; expertKey: string; turns: readonly Turn[] };
 }
 
 const PROGRESS_LABEL: Record<ProgressEvent["type"], string> = {
@@ -41,23 +46,47 @@ const PROGRESS_LABEL: Record<ProgressEvent["type"], string> = {
   tier_changed: "Trying another route for this question…",
 };
 
-type Turn =
+export type Turn =
   | { role: "user"; text: string }
-  | { role: "assistant"; answer: Answer | null; progress: ProgressEvent[] };
+  | {
+      role: "assistant";
+      answer: Answer | null;
+      progress: ProgressEvent[];
+      /**
+       * Stored turn whose cited sources are no longer readable (run.withheld): the server kept the
+       * answer text but withdrew its evidence (T-203 / T-213 / T-214).
+       */
+      withheldText?: string;
+    };
+
+/**
+ * Progress wording. `searching` in the lexical-only lane is stated as reduced search quality (§8.1),
+ * and a tier change says only that another route is being tried — never which provider (§9.3).
+ */
+function progressLabel(event: ProgressEvent): string {
+  if (event.type === "searching" && "retrievalMode" in event && event.retrievalMode === "lexical_only") {
+    return "Searching the documents you are allowed to read (reduced search quality: keyword search only)…";
+  }
+  return PROGRESS_LABEL[event.type];
+}
+
+function reducedSearch(progress: readonly ProgressEvent[]): boolean {
+  return progress.some((event) => event.type === "searching" && "retrievalMode" in event && event.retrievalMode === "lexical_only");
+}
 
 function newId(): string {
   return crypto.randomUUID();
 }
 
-export function ChatPanel({ experts, notice }: ChatPanelProps) {
-  const [expertKey, setExpertKey] = useState<string>(experts[0]?.key ?? "");
+export function ChatPanel({ experts, notice, initial }: ChatPanelProps) {
+  const [expertKey, setExpertKey] = useState<string>(initial?.expertKey ?? experts[0]?.key ?? "");
   const [question, setQuestion] = useState("");
-  const [turns, setTurns] = useState<Turn[]>([]);
+  const [turns, setTurns] = useState<Turn[]>(() => [...(initial?.turns ?? [])]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // One conversation per panel: the server pins it to this tenant and this employee on insert, so a
   // reused id across tenants is refused rather than adopted.
-  const conversationId = useRef<string>(newId());
+  const conversationId = useRef<string>(initial?.conversationId ?? newId());
 
   const ask = useCallback(async () => {
     const text = question.trim();
@@ -191,14 +220,22 @@ export function ChatPanel({ experts, notice }: ChatPanelProps) {
               <p className={styles.question}>{turn.text}</p>
             ) : (
               <>
-                {turn.answer === null && (
+                {turn.answer === null && turn.withheldText === undefined && (
                   <ul className={styles.progress} aria-label="Progress">
                     {turn.progress.map((event, position) => (
-                      <li key={`${event.type}-${position}`}>{PROGRESS_LABEL[event.type]}</li>
+                      <li key={`${event.type}-${position}`}>{progressLabel(event)}</li>
                     ))}
                   </ul>
                 )}
-                {turn.answer !== null && <AnswerBlock answer={turn.answer} />}
+                {turn.answer === null && turn.withheldText !== undefined && (
+                  <div className={styles.answer} data-status="withheld">
+                    <p className={styles.summary}>{turn.withheldText}</p>
+                    <p className={styles.meta} role="note">
+                      The sources behind this answer are no longer available to you, so its evidence has been withdrawn.
+                    </p>
+                  </div>
+                )}
+                {turn.answer !== null && <AnswerBlock answer={turn.answer} reducedSearch={reducedSearch(turn.progress)} />}
               </>
             )}
           </li>
@@ -209,51 +246,78 @@ export function ChatPanel({ experts, notice }: ChatPanelProps) {
 }
 
 /**
- * One delivered answer: the summary, its status, its data class, and each claim with the passage it
- * rests on. There is deliberately no link to open a document here — citation preview has to be
- * re-authorized on click (T-203), so a locator without access would be a leak.
+ * One delivered answer and its evidence panel (T-203, plan §9.1, §12.1): the summary, status, data
+ * class and freshness; each claim with the passage it rests on and its locator; and the answer's
+ * unknowns, conflicts, limitations and truncation. Locators are opaque ids — opening a citation must
+ * be re-authorized server-side (F24), so there is no link to a document here until that route exists.
  */
-function AnswerBlock({ answer }: { answer: Answer }) {
+function AnswerBlock({ answer, reducedSearch: reduced }: { answer: Answer; reducedSearch: boolean }) {
+  const limitations = answer.claims.flatMap((claim) => claim.limitations);
   return (
     <div className={styles.answer} data-status={answer.status}>
       <p className={styles.summary}>{answer.summary}</p>
       <p className={styles.meta}>
         <span>{answerStatusLabel(answer.status)}</span>
         <span> · class {answer.dataClass}</span>
-        {answer.truncation.length > 0 && <span> · {answer.truncation.length} part(s) left out</span>}
+        <span> · as of {formatAsOf(answer.asOf)}</span>
+        {reduced && <span> · reduced search quality (keyword search only)</span>}
       </p>
       {answer.claims.length > 0 && (
-        <ol className={styles.claims}>
-          {answer.claims.map((claim) => (
-            <li key={claim.id}>
-              <p>{claim.text}</p>
-              <ul className={styles.citations}>
-                {claim.evidence.map((evidence, position) => (
-                  <li key={`${claim.id}-${position}`}>
-                    {evidence.kind === "chunk"
-                      ? `“${evidence.quotedText}”`
-                      : evidence.kind === "record"
-                        ? `Record ${evidence.recordType} v${evidence.recordVersion}`
-                        : `Form field ${evidence.fieldPath}`}
-                  </li>
-                ))}
-              </ul>
-            </li>
-          ))}
-        </ol>
+        <section className={styles.evidence} aria-label="Evidence">
+          <h3 className={styles.evidenceHeading}>Evidence</h3>
+          <ol className={styles.claims}>
+            {answer.claims.map((claim, claimIndex) => (
+              <li key={claim.id}>
+                <p>{claim.text}</p>
+                <ul className={styles.citations}>
+                  {claim.evidence.map((evidence, position) => (
+                    <li key={`${claim.id}-${position}`}>
+                      <span className={styles.citationMarker}>[{claimIndex + 1}.{position + 1}]</span>{" "}
+                      {evidence.kind === "chunk"
+                        ? `“${evidence.quotedText}”`
+                        : evidence.kind === "record"
+                          ? `Record ${evidence.recordType} v${evidence.recordVersion}`
+                          : `Form field ${evidence.fieldPath}`}
+                      {evidence.kind === "chunk" && (
+                        <span className={styles.locator}>
+                          {" "}
+                          · characters {evidence.span.startChar}–{evidence.span.endChar}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ol>
+        </section>
       )}
-      {answer.unknowns.length > 0 && (
+      {(answer.unknowns.length > 0 || answer.conflicts.length > 0 || limitations.length > 0 || answer.truncation.length > 0) && (
         <details className={styles.unknowns}>
           <summary>What this answer does not cover</summary>
           <ul>
             {answer.unknowns.map((unknown, position) => (
               <li key={`unknown-${position}`}>{unknown}</li>
             ))}
+            {answer.conflicts.map((conflict, position) => (
+              <li key={`conflict-${position}`}>Conflicting sources: {conflict}</li>
+            ))}
+            {limitations.map((limitation, position) => (
+              <li key={`limitation-${position}`}>Limitation: {limitation}</li>
+            ))}
+            {answer.truncation.map((part, position) => (
+              <li key={`truncation-${position}`}>Left out: {part}</li>
+            ))}
           </ul>
         </details>
       )}
     </div>
   );
+}
+
+function formatAsOf(iso: string): string {
+  const parsed = new Date(iso);
+  return Number.isNaN(parsed.getTime()) ? "unknown" : `${parsed.toISOString().slice(0, 16).replace("T", " ")} UTC`;
 }
 
 /** The four statuses of the merged contract, in words an employee can act on. */

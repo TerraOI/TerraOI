@@ -26,7 +26,7 @@ Baseline taken 2026-11-25 on `origin/main` = `a0a6b3c` plus the 75 open PRs (27 
 | T-114 search_corpus | F16 | main | done (code) | staging recall |
 | T-115/T-116 gateway, provider config | F31/F38 | main | done (code) | provider keys (OWNER) |
 | T-202 tenant admin | F06 | main + PRs #226..#237 | partial | merge stack |
-| T-203 chat UX | F17/F23/F24 | **none** | missing | **TOI-007** |
+| T-203 chat UX | F17/F23/F24 | `terraoi/build` (TOI-007) | partial | picker (Q-11), citation open (Q-10), staging |
 | T-211 OCR worker | F32 | main + PRs #225..#283 | partial | merge; local box (OWNER) |
 | T-212 DOCX/XLSX | F10 | PR #224 | partial | merge |
 | T-213 review/publish/revoke | F13/F14 | PRs #267/#268/#271/#280 | partial | merge; review UI is in T-302 |
@@ -59,7 +59,7 @@ Baseline taken 2026-11-25 on `origin/main` = `a0a6b3c` plus the 75 open PRs (27 
 | TOI-004 | Regenerate `database.types.ts` for the integrated schema | FAQ-0009 | DONE | generator byte-identical on main; typecheck pass |
 | TOI-005 | Docker-free pgTAP + typegen harness in `scripts/db-shim/` | §16 Database row | DONE | run.sh reproduces 1664 pass; gentypes byte-identical |
 | TOI-006 | T-303 eval review view | T-303, §14.1 | VERIFY | [TOI-006](TerraOI-tasks/TOI-006-eval-review-view.md): pgTAP 091 30/30, unit +34; staging + supervisor review owed |
-| TOI-007 | T-203 chat UX (picker, evidence panel, citation open, history) | T-203 | PENDING | — |
+| TOI-007 | T-203 chat UX (picker, evidence panel, citation open, history) | T-203 | VERIFY (partial) | [TOI-007](TerraOI-tasks/TOI-007-chat-ux.md): history/resume + evidence panel done; picker BLOCKED Q-11, citation open BLOCKED Q-10 |
 | TOI-008 | T-302 feedback controls + submission/review UI | T-302 | PENDING | — |
 | TOI-009 | T-402 agent-side red-team bait tests | T-402 | PENDING | — |
 | TOI-010 | T-401 local M1-subset evidence run | T-401, §20.5 | PENDING | — |

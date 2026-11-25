@@ -5,3 +5,4 @@
 - 2026-11-25 Moved harness into `scripts/db-shim/` (TOI-005).
 - 2026-11-25 GitHub write attempts: create_branch 403, comment denied → Q-07; deliver bundle.
 - 2026-11-25 TOI-006 T-303: migration 20261125100000 + pgTAP 091 (30) + client/service/UI (+34 unit). Guard spot-check done. Full suite: unit 2108, pgTAP 1694.
+- 2026-11-25 TOI-007 T-203 slices 1+3 (history/resume, evidence panel): +2 test files, chat suites 126 pass. Picker → Q-11, citation open → Q-10 (ADR-0011 boundary).
