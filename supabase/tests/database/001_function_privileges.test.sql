@@ -238,7 +238,11 @@ select is_empty($$
            -- T-312 PR-5 (`20261121230000_eval_run_writers.sql`): append-only F35 run writer.
            ('public.record_eval_run_v1(uuid, jsonb, jsonb)'::regprocedure),
            -- T-312 PR-9 (`20261123160000_draft_eval_case_from_feedback.sql`): #102 pilot loop.
-           ('public.draft_eval_case_from_feedback_v1(uuid, jsonb)'::regprocedure)
+           ('public.draft_eval_case_from_feedback_v1(uuid, jsonb)'::regprocedure),
+           -- T-302b PR-1 (`20261124140000_knowledge_submissions.sql`): F15 submit / review / withdraw.
+           ('public.submit_employee_knowledge_v1(uuid, uuid, text, text, text, uuid[], uuid, timestamptz)'::regprocedure),
+           ('public.review_knowledge_submission_v1(uuid, uuid, text, text)'::regprocedure),
+           ('public.withdraw_knowledge_submission_v1(uuid, uuid)'::regprocedure)
          ) as allowed(proc)
      )
 $$, '32 no function in public is executable by authenticated beyond the named allow-list (§4.3, #60)');
