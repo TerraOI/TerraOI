@@ -10,3 +10,4 @@ One file per task ID in [../TerraOI-todo.md](../TerraOI-todo.md): source require
 - [TOI-013 publish review gate](TOI-013-publish-review-gate.md)
 - [TOI-010 M1 subset, local](TOI-010-m1-subset-local.md)
 - [TOI-015 T-201 PR-2 re-done](TOI-015-auth-methods-pr2.md)
+- [TOI-016 chat composition proposal](TOI-016-chat-composition-proposal.md)

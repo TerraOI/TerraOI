@@ -10,3 +10,4 @@
 - 2026-11-25 TOI-009 T-402 local legs: pgTAP 110 (24; 2 findings as todo R-1/R-2), R-3 noted. Mapped forged-history/spoofed-header boxes to existing tests.
 - 2026-11-25 Found #219 migration silently dropped by T-113 stack merge → restored (TOI-014/Q-12). TOI-013: worker publish bypassed T-213 review → wrapper migration 20261125120000 + worker outcome; pgTAP 049 (14), workers +2.
 - 2026-11-25 TOI-015: #186 (T-201 PR-2) closed unmerged with rulings given → re-implemented to #179/#182-#185: migration 20261125130000, pgTAP 018 (27), identity TS wiring + tests.
+- 2026-11-25 TOI-013 park path hardened (advisor review); 018 owner pin; TOI-015 reframed as reference impl; TOI-016 chat composition left BLOCKED with packet proposal. Final: unit 2145, pgTAP 1864.
