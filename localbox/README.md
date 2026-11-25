@@ -6,6 +6,8 @@ The tenant box runs **no inbound listener** (plan §13, F32). It polls the platf
 
 | Path | Role |
 |---|---|
+| `cli.ts` | OWNER-facing entry: env → deps → one poll (`--once`) or the sleep loop |
+| `cli.test.ts` | Arg parsing and unbound-env fail-closed tests (no network, no OCR) |
 | `ocr-pull.ts` | Outbound HTTP client for `/api/jobs/{lease,renew,object-url,complete,abort}` |
 | `ocr-pull.test.ts` | Contract tests against the JSON shapes the app Worker returns |
 | `box-extractor.ts` | `BoxExtractorPort` — OCR engine seam (unavailable / command / test double) |
@@ -42,12 +44,18 @@ Until `OCR_COMMAND` is set, leased jobs download bytes and then abort `unsupport
 ## Run (once the token and host are in the local environment)
 
 ```bash
-# From the repo root — illustration only; wire env outside git.
-# OCR_COMMAND="my-ocr --json" TOI_JOB_API_BASE_URL=… TOI_WORKER_TOKEN=…
-pnpm exec tsx localbox/ocr-pull.ts   # when a CLI entry is added; today the module is library-shaped
+# From the repo root — wire env outside git (password manager / box install).
+# OCR_COMMAND="my-ocr --json" \
+# TOI_JOB_API_BASE_URL="https://company1-staging.terraoi.app" \
+# TOI_WORKER_TOKEN="<raw worker credential>" \
+pnpm exec tsx localbox/cli.ts            # poll loop (DEFAULT_POLL_INTERVAL_MS)
+pnpm exec tsx localbox/cli.ts --once     # one lease attempt, then exit
+# optional: --poll-interval-ms 15000
 ```
 
-Until a CLI entry ships, drive the client from a small local harness that calls `createBoxWorkerDeps({ extractor: resolveBoxExtractor(), … })` with your host and credential.
+Unbound `TOI_JOB_API_BASE_URL` or `TOI_WORKER_TOKEN` fails closed before any socket opens (exit 1).
+Stdout is JSON lines of closed `BoxEvent` shapes only — never the token, never a URL, never document words.
+`OCR_COMMAND` is optional; when unset, leased jobs abort `unsupported_document` via `resolveBoxExtractor()`.
 
 ## What the box must never hold
 
