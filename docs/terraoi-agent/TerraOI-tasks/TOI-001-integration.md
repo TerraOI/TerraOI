@@ -25,6 +25,8 @@ Merge every open PR head (75 PRs; 27 stack tips) onto `origin/main` a0a6b3c in P
 1. Duplicate migration versions (Q-03) → re-timestamped: `20261124120500_index_stage_lease`, `20261124130500_publish_stage_lease`, `20261124140500_knowledge_submissions` (header/test references updated).
 2. `src/platform/evals/draft.test.ts` (#250 stack) asserts a synchronous throw from `runExpertEval`, which #274 made async → unhandled rejection. Fixed with `await expect(...).rejects`.
 
+3. **Lost migration.** The T-113 consumer stack (#282/#285) contains #219's commits and then deletes `20261120217000_chunk_publish.sql` and `036_chunk_publish.test.sql` (b476ae6, "one migration per PR", expecting #219 to merge separately). A plain merge of both therefore *drops* #219's `job_api.write_chunks_v1` / `publish_version_v1`, which `workers/index-pull.ts` and `publish-pull.ts` call — and every check still passed, because nothing in pgTAP or unit tests reaches those RPCs without #219's own `036`. Restored from #219's tip; pgTAP 38 files / 1818 pass. **Merge-order note for the owner: merge #219 before #282, and expect git to propose deleting the file — keep it.**
+
 ## Verification (executed 2026-11-25 on `terraoi/build`)
 - `pnpm lint` exit 0; `pnpm typecheck` exit 0; `pnpm test` 186 files / 2074 tests pass.
 - `scripts/db-shim/run.sh`: 34 files / 1664 assertions pass (PG16 shim).
