@@ -226,7 +226,9 @@ select is_empty($$
            ('public.create_eval_case_draft_v1(uuid, jsonb)'::regprocedure),
            ('public.review_eval_case_v1(uuid, uuid, text, jsonb)'::regprocedure),
            ('public.list_eval_cases_v1(uuid, text)'::regprocedure),
-           ('public.export_approved_eval_cases_v1(uuid)'::regprocedure)
+           ('public.export_approved_eval_cases_v1(uuid)'::regprocedure),
+           -- T-214 PR-1 (`20261124140000_project_acl.sql`): shared source access decision (F08).
+           ('public.authorize_source_access_v1(uuid, uuid, text)'::regprocedure)
          ) as allowed(proc)
      )
 $$, '32 no function in public is executable by authenticated beyond the named allow-list (§4.3, #60)');

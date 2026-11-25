@@ -1,6 +1,6 @@
 # T-214 Project-scoped ACLs through retrieval, citations and history
 
-Lane: 2 · Week: 2 · Protected: yes (`supabase/migrations/`) · Depends on: T-111, T-114, T-213, T-104 · Status: ready
+Lane: 2 · Week: 2 · Protected: yes (`supabase/migrations/`) · Depends on: T-111, T-114, T-213, T-104 · Status: in progress (wyuinline) — **PR-1** (this branch) `source_acl_bindings` + `authorize_source_access_v1` + pgTAP `060` (citation/history/staging deferred: T-104 / T-203)
 Plan refs: §6.2 (read predicate, derived outputs), §8.2, §16 (tenant/source ACL row), §20.4 item 5; F08, F16, F17, F24
 
 ## Supervisor rulings to apply (2026-11-09)
