@@ -8,6 +8,7 @@ who builds a value, what must be re-checked before use, and which plan section o
 |---|---|---|
 | [tenancy-and-context.md](tenancy-and-context.md) | `TenantContext`, host normalization, the scoped-RPC and RLS predicate | F01–F05, F28 |
 | [chat-protocol.md](chat-protocol.md) | Chat request, progress events, idempotency, verified-only delivery | F17, F21–F24, F29 |
+| [chat-persistence.md](chat-persistence.md) | Chat tables, the scoped RPCs that write them, the delivery gate, what may never be stored | F17, F22–F24 |
 | [model-chain.md](model-chain.md) | Cost-ordered chain, data-class clearance, pinned embeddings | F19–F22, F31, F37, F38 |
 | [knowledge-and-jobs.md](knowledge-and-jobs.md) | Source lifecycle states, job payloads, parse leases, form templates | F08–F16, F32, F33 |
 
