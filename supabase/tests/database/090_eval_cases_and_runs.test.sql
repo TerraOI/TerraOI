@@ -3,7 +3,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(26);
+select plan(32);
 
 -- ---------------------------------------------------------------- fixture helpers
 -- Prefer `set local` (same pattern as 010/013) so auth.uid() and role stick for the transaction.
@@ -220,6 +220,99 @@ select ok(
        and area = 'evals.review' and level = 'admin'
   ),
   '26 company1 admin role holds evals.review admin for export (#82)');
+
+-- ---------------------------------------------------------------- 27–32 record_eval_run_v1 (append-only)
+select pg_temp.set_jwt('00000000-0000-4000-8000-0000000000a1');
+create temporary table t_run1 on commit drop as
+  select public.record_eval_run_v1(
+    '11111111-1111-4111-8111-111111111111',
+    jsonb_build_object(
+      'expert_key', 'uav-expert',
+      'expert_version', '1.0.0-test',
+      'chain_config', jsonb_build_object('compose', jsonb_build_array('local_box')),
+      'corpus_generation', 'synth-corpus-090-a',
+      'status', 'completed'
+    ),
+    jsonb_build_array(
+      jsonb_build_object(
+        'case_id', (select case_id from t_draft),
+        'score', 1,
+        'failure_class', null,
+        'evidence', '[]'::jsonb
+      )
+    )
+  ) as run_id;
+
+select ok((select run_id from t_run1) is not null, '27 record_eval_run_v1 returns a run id');
+
+select is(
+  (select count(*)::int from public.eval_results
+    where run_id = (select run_id from t_run1)
+      and case_id = (select case_id from t_draft)
+      and failure_class is null
+      and score = 1),
+  1,
+  '28 one result per case carries score and null failure_class');
+
+create temporary table t_run2 on commit drop as
+  select public.record_eval_run_v1(
+    '11111111-1111-4111-8111-111111111111',
+    jsonb_build_object(
+      'expert_key', 'uav-expert',
+      'expert_version', '1.0.0-test',
+      'chain_config', '{}'::jsonb,
+      'corpus_generation', 'synth-corpus-090-b',
+      'status', 'completed'
+    ),
+    jsonb_build_array(
+      jsonb_build_object(
+        'case_id', (select case_id from t_draft),
+        'score', 0,
+        'failure_class', 'wrong_answer_status',
+        'evidence', '[]'::jsonb
+      )
+    )
+  ) as run_id;
+
+select ok(
+  (select run_id from t_run2) is distinct from (select run_id from t_run1),
+  '29 a rerun writes a new run id');
+
+select is(
+  (select count(*)::int from public.eval_runs
+    where id = (select run_id from t_run1)
+      and corpus_generation = 'synth-corpus-090-a'
+      and status = 'completed'),
+  1,
+  '30 the first run row is unchanged after a rerun');
+
+select is(
+  (select failure_class from public.eval_results
+    where run_id = (select run_id from t_run1)
+      and case_id = (select case_id from t_draft)),
+  null,
+  '31 the first run''s result row is not edited by a rerun');
+
+select pg_temp.set_jwt('00000000-0000-4000-8000-0000000000b1');
+select is(
+  pg_temp.try_sql(format(
+    $$ select public.record_eval_run_v1(
+         '22222222-2222-4222-8222-222222222222',
+         jsonb_build_object(
+           'expert_key', 'uav-expert',
+           'expert_version', '1.0.0-test',
+           'chain_config', '{}'::jsonb,
+           'corpus_generation', 'foreign',
+           'status', 'completed'
+         ),
+         jsonb_build_array(
+           jsonb_build_object('case_id', %L::uuid, 'score', 1, 'evidence', '[]'::jsonb)
+         )
+       ) $$,
+    (select case_id from t_draft)
+  )),
+  '42501',
+  '32 company2 cannot attach a company1 case id to an eval run');
 
 select * from finish();
 rollback;
