@@ -2,7 +2,9 @@
 
 Source: [T-201](../../tasks/T-201-auth-methods.md) (In-M1 column: "Magic link, password and Microsoft SSO, invite-only"), plan §4.2; supervisor rulings on #186 (invite model, from #179), #182, #183, #184, #185; ADR-0003 §3a/§3b/§4 as amended 2026-11-20. Status: **VERIFY** (protected paths: `supabase/migrations/`, `src/platform/identity/`; staging owed).
 
-Found during the audit: [#186](https://github.com/TerraOI/TerraOI/pull/186) was **closed unmerged** after its rulings were given, and nothing replaced it — so on `main` and on every open PR the invite claim threw ("RPC not landed"), and `POST /auth/password-reset` and `POST /auth/entra` were deliberately inert.
+Found during the audit: [#186](https://github.com/TerraOI/TerraOI/pull/186) was **closed unmerged** after its rulings were given (most likely to be re-cut onto T-202 PR-1b, as the supervisor asked), and no successor branch or PR exists — so on `main` and on every open PR the invite claim throws ("RPC not landed"), and `POST /auth/password-reset` and `POST /auth/entra` are deliberately inert.
+
+**Framing:** this is a ruling-conformant **reference implementation** on `terraoi/build` for the Lane 1 owner of T-201 (claimed by wyuinline). It does not replace their packet; the protected-path and other-lane rules apply when it is taken to `main`.
 
 ## Built (to the rulings)
 | Ruling | Implementation |
@@ -15,7 +17,7 @@ Found during the audit: [#186](https://github.com/TerraOI/TerraOI/pull/186) was 
 | TS | `signin-completion.ts` (claim when no membership row; port `{host, accessToken}`), `entra-linking.ts` (port `(host, accessToken)`), `tenancy-data-api.ts` (two RPC calls), `session-db.ts` (`createSessionRevoker`), `adapters.ts` (ports installed only where carriers exist) |
 
 ## Evidence
-- pgTAP `018_identity_methods.test.sql` 27/27 (privileges; claim on wrong/unknown host, other address, unverified, success with role + accepted + profile, replay, no resurrection; Entra host keying, suspended org, no subject; org-wide revocation, other org survives, zero sessions true, unknown host 28000, non-normalised host 22023); 001/014/016 updated as ruled.
+- pgTAP `018_identity_methods.test.sql` 28/28 (incl. #28: definer/resolver/`tenant_domains` share one owner) (privileges; claim on wrong/unknown host, other address, unverified, success with role + accepted + profile, replay, no resurrection; Entra host keying, suspended org, no subject; org-wide revocation, other org survives, zero sessions true, unknown host 28000, non-normalised host 22023); 001/014/016 updated as ruled.
 - Vitest identity suite 322 pass (updated invite-model tests; new `session-revoker.test.ts`, adapter wiring tests).
 
 ## Deviations to confirm (backlog Q-13)

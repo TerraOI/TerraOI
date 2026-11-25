@@ -21,6 +21,47 @@ revoke all on function job_api.publish_version_core_v1(text, uuid, text, bigint,
 comment on function job_api.publish_version_core_v1(text, uuid, text, bigint, uuid, integer) is
   'T-113 publish body (#219), reached only through job_api.publish_version_v1 once the T-213 publication rule allows it.';
 
+-- The completeness predicate of the T-113 body (#219), restated so a parked version has passed exactly
+-- the gate a published one would have: the index job for this parser/index generation succeeded, the
+-- version has chunks, and no chunk is missing an embedding in an index cleared for its class.
+create or replace function job_api.publish_version_complete(p_job public.ingestion_jobs)
+returns boolean
+language sql stable security definer set search_path = job_api, public, pg_temp as $fn$
+  select exists (
+           select 1 from public.ingestion_jobs idx
+            where idx.organisation_id = p_job.organisation_id
+              and idx.source_version_id = p_job.source_version_id
+              and idx.stage = 'index'
+              and idx.parser_generation = p_job.parser_generation
+              and idx.index_generation = p_job.index_generation
+              and idx.status = 'succeeded')
+     and exists (
+           select 1 from public.knowledge_chunks kc
+            where kc.organisation_id = p_job.organisation_id
+              and kc.source_version_id = p_job.source_version_id)
+     and not exists (
+           select 1
+             from public.chunk_embeddings ce_any
+             join public.knowledge_chunks kc_any
+               on kc_any.id = ce_any.chunk_id and kc_any.organisation_id = ce_any.organisation_id
+             join public.embedding_indexes ei
+               on ei.id = ce_any.index_id and ei.organisation_id = ce_any.organisation_id
+             join public.knowledge_chunks kc_miss
+               on kc_miss.organisation_id = p_job.organisation_id
+              and kc_miss.source_version_id = p_job.source_version_id
+            where ce_any.organisation_id = p_job.organisation_id
+              and kc_any.source_version_id = p_job.source_version_id
+              and ce_any.index_generation = p_job.index_generation
+              and ei.cleared_for @> array[kc_miss.data_class]
+              and not exists (
+                select 1 from public.chunk_embeddings ce_ok
+                 where ce_ok.organisation_id = kc_miss.organisation_id
+                   and ce_ok.chunk_id = kc_miss.id
+                   and ce_ok.index_id = ei.id
+                   and ce_ok.index_generation = p_job.index_generation));
+$fn$;
+revoke all on function job_api.publish_version_complete(public.ingestion_jobs) from public, anon, authenticated, service_role, toi_job_api;
+
 create or replace function job_api.publish_version_v1(
   p_token_hash text,
   p_job_id uuid,
@@ -60,7 +101,8 @@ begin
           and c.revoked_at is null
           and c.executor = j.executor
           and j.organisation_id = any (c.organisations)
-     );
+     )
+     for update;
   if not found
      or v_job.stage is distinct from 'publish'
      or v_job.source_version_id is distinct from p_source_version_id
@@ -95,10 +137,20 @@ begin
     return;
   end if;
 
-  -- Not allowed to publish yet: finish this job under the lease compare and park the version.
+  -- Not allowed to publish yet: the version must still pass every gate the body would apply before
+  -- it is parked — live source, a parkable state, executor clearance, complete indexing — so review
+  -- can never become a way around them.
   if v_source.lifecycle_state <> 'active'
-     or v_version.state not in ('indexing', 'awaiting_review') then
+     or v_version.state not in ('indexing', 'awaiting_review')
+     or not job_api.executor_clears_class(
+          v_job.executor,
+          case when public.data_class_rank(v_version.data_class) >= public.data_class_rank(v_job.data_class)
+               then v_version.data_class else v_job.data_class end) then
     raise exception 'job not available to this worker' using errcode = '42501';
+  end if;
+  if not job_api.publish_version_complete(v_job) then
+    raise exception 'source version % is not completely indexed for generation %; refusing to park it for review',
+      v_job.source_version_id, v_job.index_generation using errcode = '55000';
   end if;
 
   update public.ingestion_jobs j
@@ -112,7 +164,15 @@ begin
      and j.lease_token = p_lease_token
      and j.lease_fence = p_fence
      and j.status in ('leased', 'running')
-     and j.lease_expires_at > now();
+     and j.lease_expires_at > now()
+     and exists (
+       select 1
+         from job_api.worker_credentials c
+        where c.token_hash = p_token_hash
+          and c.revoked_at is null
+          and c.executor = j.executor
+          and j.organisation_id = any (c.organisations)
+     );
   if not found then
     -- A replay of the same finished stage key answers the same way; anything else is refused.
     if not (v_job.status = 'succeeded' and v_job.lease_fence = p_fence and v_version.state = 'awaiting_review') then

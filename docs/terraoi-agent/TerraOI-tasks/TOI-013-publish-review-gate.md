@@ -10,6 +10,9 @@ With #219/#285 (T-113 worker publish) and #267 (T-213 review) both merged, `job_
 - `workers/job-db.ts` / `publish-pull.ts`: new `awaiting_review` outcome → `held_for_review` action (not an abort, not a publication).
 - `036_chunk_publish.test.sql`: fixture versions get an approve decision so its publication-mechanics assertions keep testing what they were written for.
 
+## Hardening (review follow-up, same day)
+The first cut parked a version without the body's gates, so a half-indexed upload could later be approved and published via `publish_knowledge_version_v1` (which checks only `chunk_count >= 1`). Now the park path applies the same completeness predicate (`job_api.publish_version_complete`, restated from #219), `executor_clears_class`, live-source and parkable-state checks; the job row is locked `FOR UPDATE`; the park `UPDATE` keeps the worker-credential compare.
+
 ## Evidence
-- pgTAP `049_publish_respects_review.test.sql` 14/14: unreviewed upload parked (state, pointer, job finished, replay idempotent); auto-publish note publishes; client_confidential parked; reviewer approve + employee publish works; approved version publishes via worker; core body unreachable.
+- pgTAP `049_publish_respects_review.test.sql` 18/18 (+ incomplete index → 55000 not parked; forged lease token → 42501; quarantined → never parked): unreviewed upload parked (state, pointer, job finished, replay idempotent); auto-publish note publishes; client_confidential parked; reviewer approve + employee publish works; approved version publishes via worker; core body unreachable.
 - `workers/publish-review-gate.test.ts` 2/2; workers suite 112 pass. Full pgTAP see state.

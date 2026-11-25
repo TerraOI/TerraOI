@@ -5,7 +5,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(27);
+select plan(28);
 
 create or replace function pg_temp.as_user(p_sub uuid) returns void
 language plpgsql as $$
@@ -166,6 +166,14 @@ select is(pg_temp.try_sql($q$ select toi_identity.revoke_user_sessions_v1('00000
   '26 an unknown host is refused, never "nothing to revoke"');
 select is(pg_temp.try_sql($q$ select toi_identity.revoke_user_sessions_v1('00000000-0000-4000-8000-0000000000a4', 'Company1.terraoi.app', now()) $q$), '22023',
   '27 a non-normalized host is a validation error');
+
+select is(
+  (select string_agg(distinct pg_get_userbyid(o), ',') from (
+     select proowner as o from pg_proc where oid = 'toi_identity.revoke_user_sessions_v1(uuid,text,timestamptz)'::regprocedure
+     union all select proowner from pg_proc where oid = 'public.organisation_for_active_host(text)'::regprocedure
+     union all select relowner from pg_class where oid = 'public.tenant_domains'::regclass) owners),
+  'postgres',
+  '28 the revocation definer, the host resolver it calls and tenant_domains share one owner, so the cross-schema read cannot break silently');
 
 select * from finish();
 rollback;

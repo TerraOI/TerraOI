@@ -4,7 +4,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(14);
+select plan(18);
 
 create function pg_temp.syn_hash(p_seed text) returns text
 language sql immutable as $fn$
@@ -129,6 +129,57 @@ insert into t_lease select o_job_id, o_source_version_id, o_lease_token, o_fence
 select pg_temp.publish('confidential_approved', '71000000-0000-4000-8000-000000004903');
 select is((select outcome from t_pub where case_name = 'confidential_approved'), 'published',
   '14 once approved, the worker path publishes the same version');
+
+-- ---------------------------------------------------------------- 15-18 parking never bypasses a gate
+-- s4: unreviewed upload whose index job has NOT succeeded; s5: unreviewed upload, quarantined.
+insert into public.knowledge_sources (id, organisation_id, collection_id, kind, external_id, owner_user_id) values
+  ('61000000-0000-4000-8000-000000004904', '11111111-1111-4111-8111-111111111111', '51000000-0000-4000-8000-000000004901', 'upload', 'syn-toi013-s4', '00000000-0000-4000-8000-0000000000a2'),
+  ('61000000-0000-4000-8000-000000004905', '11111111-1111-4111-8111-111111111111', '51000000-0000-4000-8000-000000004901', 'upload', 'syn-toi013-s5', '00000000-0000-4000-8000-0000000000a2');
+insert into public.source_versions (id, organisation_id, source_id, collection_id, version_number, uploaded_by, data_class,
+                                    content_hash, object_ref, state, parser_generation, body_text) values
+  ('71000000-0000-4000-8000-000000004904', '11111111-1111-4111-8111-111111111111', '61000000-0000-4000-8000-000000004904', '51000000-0000-4000-8000-000000004901', 1,
+   '00000000-0000-4000-8000-0000000000a2', 'internal', pg_temp.syn_hash('v4'),
+   'knowledge/11111111-1111-4111-8111-111111111111/61000000-0000-4000-8000-000000004904/v1.pdf', 'indexing', 'v1', null),
+  ('71000000-0000-4000-8000-000000004905', '11111111-1111-4111-8111-111111111111', '61000000-0000-4000-8000-000000004905', '51000000-0000-4000-8000-000000004901', 1,
+   '00000000-0000-4000-8000-0000000000a2', 'internal', pg_temp.syn_hash('v5'),
+   'knowledge/11111111-1111-4111-8111-111111111111/61000000-0000-4000-8000-000000004905/v1.pdf', 'quarantined', 'v1', null);
+insert into public.knowledge_chunks (id, organisation_id, source_version_id, chunk_index, locator, body_text, data_class, token_count) values
+  ('81000000-0000-4000-8000-000000004904', '11111111-1111-4111-8111-111111111111', '71000000-0000-4000-8000-000000004904', 0, '{"page":1}', 'Synthetic TOI-013 chunk four.', 'internal', 5),
+  ('81000000-0000-4000-8000-000000004905', '11111111-1111-4111-8111-111111111111', '71000000-0000-4000-8000-000000004905', 0, '{"page":1}', 'Synthetic TOI-013 chunk five.', 'internal', 5);
+insert into public.ingestion_jobs (id, organisation_id, source_version_id, stage, executor, status, data_class,
+                                   parser_generation, index_generation, attempt, lease_fence, created_at) values
+  ('95000000-0000-4000-8000-000000004941', '11111111-1111-4111-8111-111111111111', '71000000-0000-4000-8000-000000004904',
+   'index', 'cloud_worker', 'failed', 'internal', 'v1', 1, 1, 1, now() - interval '1 hour'),
+  ('95000000-0000-4000-8000-000000004942', '11111111-1111-4111-8111-111111111111', '71000000-0000-4000-8000-000000004904',
+   'publish', 'cloud_worker', 'queued', 'internal', 'v1', 1, 1, 0, now() - interval '20 minutes'),
+  ('95000000-0000-4000-8000-000000004951', '11111111-1111-4111-8111-111111111111', '71000000-0000-4000-8000-000000004905',
+   'index', 'cloud_worker', 'succeeded', 'internal', 'v1', 1, 1, 1, now() - interval '1 hour'),
+  ('95000000-0000-4000-8000-000000004952', '11111111-1111-4111-8111-111111111111', '71000000-0000-4000-8000-000000004905',
+   'publish', 'cloud_worker', 'queued', 'internal', 'v1', 1, 1, 0, now() - interval '19 minutes');
+insert into t_lease select o_job_id, o_source_version_id, o_lease_token, o_fence
+  from job_api.lease_parse_job_v1(pg_temp.syn_hash('cloud-c1'), 'publish', 300);
+insert into t_lease select o_job_id, o_source_version_id, o_lease_token, o_fence
+  from job_api.lease_parse_job_v1(pg_temp.syn_hash('cloud-c1'), 'publish', 300);
+
+create function pg_temp.try_publish(p_version uuid, p_token_override text default null) returns text language plpgsql as $fn$
+begin
+  perform 1 from t_lease l, job_api.publish_version_v1(pg_temp.syn_hash('cloud-c1'), l.job_id,
+                   coalesce(p_token_override, l.lease_token), l.fence, l.version_id, 1)
+   where l.version_id = p_version;
+  return 'ok';
+exception when others then
+  return sqlstate;
+end;
+$fn$;
+
+select is(pg_temp.try_publish('71000000-0000-4000-8000-000000004904'), '55000',
+  '15 an unreviewed version whose index did not succeed is refused, not parked');
+select is((select state from public.source_versions where id = '71000000-0000-4000-8000-000000004904'), 'indexing',
+  '16 …and stays out of the review queue');
+select is(pg_temp.try_publish('71000000-0000-4000-8000-000000004905', 'forged-lease-token'), '42501',
+  '17 a wrong lease token on the park path is refused');
+select is(pg_temp.try_publish('71000000-0000-4000-8000-000000004905'), '42501',
+  '18 a quarantined version is never parked for review');
 
 select * from finish();
 rollback;
