@@ -53,6 +53,8 @@ Never edit the other lane's files to unblock yourself, even "just one line".
 | `answered` | Supervisor answered and closed it | Asker, at the start of their next session |
 | `provisional` | PR built on an assumption from an open question; CI blocks merge | Asker, once the question is answered |
 
+**When a label is not enough, park it in [BACKLOG.md](BACKLOG.md).** That register is where an owner decision, a human-only (§20.8) step, or work that no packet owns — or cannot start until a named PR merges — is written down so it survives between sessions. A row is a pointer with a blocking list, never a substitute for the issue, the ADR or the packet edit it refers to: open the issue as above, then add the row.
+
 ## 5. Supervisor findings
 
 The supervisor posts **one review per round**, starting with `[Supervisor]`, with two sections:

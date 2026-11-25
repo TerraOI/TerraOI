@@ -7,6 +7,7 @@
 | [COORDINATION.md](COORDINATION.md) | How builders, their agents and the supervisor coordinate | Before claiming a task |
 | [FAQ.md](FAQ.md) | Answered questions (search before asking) | Before opening a `question` issue |
 | [REPO-STRUCTURE.md](REPO-STRUCTURE.md) | Where things go; naming and hygiene rules | Before creating a file or folder |
+| [BACKLOG.md](BACKLOG.md) | Register of owner decisions and of work that is unowned or blocked by an open PR — one row per item, with what it blocks and its pointer | When what you need has no owner, or before proposing a new packet |
 | [tasks/](tasks/) | Task packets `T-NNN-*.md` and the template | To pick up or write work |
 | [decisions/](decisions/) | Implementation ADRs (platform ADRs are in plan §18.1) | Before changing a contract |
 | [status/](status/) | Weekly evidence register `YYYY-Www.md` | To see what is observed vs planned |
