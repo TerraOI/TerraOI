@@ -248,7 +248,7 @@ select is_empty($$
      and p.prokind = 'f'
      and (has_function_privilege('anon', p.oid, 'EXECUTE')
           or has_function_privilege('authenticated', p.oid, 'EXECUTE'))
-$, '33 neither anon nor authenticated can execute anything in toi_identity, intake, job_api, toi_control, gateway_config or budget_ledger (§4.3, #134)');
+$$, '33 neither anon nor authenticated can execute anything in toi_identity, intake, job_api, toi_control, gateway_config or budget_ledger (§4.3, #134)');
 
 -- ---------------------------------------------------------------- 34-38 Addition 1: measured, not assumed
 -- The ruling asked for a source-level closure: `alter default privileges … revoke execute on
