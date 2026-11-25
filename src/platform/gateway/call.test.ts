@@ -5,6 +5,15 @@ import { ProgressEvent, type TierChangeReason } from "@/contracts/chat";
 import type { ProviderKey } from "@/contracts/keys";
 
 import {
+  createInMemoryRunAuditStore,
+  type RunAuditStore,
+} from "@/platform/audit/run-audit";
+import {
+  createFreeAllowanceBook,
+  type FreeAllowanceBook,
+} from "@/platform/budgets/free-allowance";
+
+import {
   answered,
   CONVERSATION_ID,
   failed,
@@ -61,9 +70,22 @@ function baseInput(
   };
 }
 
+const RUN_AUDIT_META = {
+  expertKey: "uav-expert",
+  expertVersions: ["uav-expert@1"],
+  corpusGenerations: [2],
+  policyRevision: 4,
+  policyRevisionDelivered: 4,
+} as const;
+
 function harness(
   scripts: Record<string, AdapterCallOutcome[]>,
-  options: { config?: ReturnType<typeof testConfiguration>; book?: CircuitBook } = {},
+  options: {
+    config?: ReturnType<typeof testConfiguration>;
+    book?: CircuitBook;
+    freeAllowances?: FreeAllowanceBook;
+    runAudit?: RunAuditStore;
+  } = {},
 ): {
   adapters: ReturnType<typeof fakeAdapter>[];
   meter: ReturnType<typeof recordingMeter>;
@@ -87,6 +109,8 @@ function harness(
       adapters: registryOf(...adapters),
       health: book,
       meter,
+      freeAllowances: options.freeAllowances,
+      runAudit: options.runAudit,
       onProgress: (event) => events.push(event),
     },
   };
@@ -261,6 +285,81 @@ describe("metering every attempt (plan §12.3, F19 reserve-only)", () => {
       expect(h.meter.byAttempt.get(first.attemptId)?.reconciled, kind).toBe("ambiguous");
       expect(h.meter.byAttempt.get(first.attemptId)?.reserved, kind).toBe(true);
     }
+  });
+
+  it("commits F22 audit before returning an answer when runAudit is bound", async () => {
+    const runAudit = createInMemoryRunAuditStore();
+    const h = harness(
+      { local_box: [answered(JSON.stringify({ answer: "ok" }), "open-weights-alpha")] },
+      { runAudit },
+    );
+    const result = await callModelGateway(
+      baseInput({ chain: ["local_box"], runAuditMeta: RUN_AUDIT_META }),
+      h.deps,
+    );
+    expect(result.ok).toBe(true);
+    expect(runAudit.commits()).toHaveLength(1);
+    expect(runAudit.commits()[0]?.attempts[0]?.providerKey).toBe("local_box");
+  });
+
+  it("fails closed with audit_persist_failed and does not return the answer text", async () => {
+    const runAudit = createInMemoryRunAuditStore({ failCommit: true });
+    const h = harness(
+      { local_box: [answered(JSON.stringify({ answer: "secret" }), "open-weights-alpha")] },
+      { runAudit },
+    );
+    const result = await callModelGateway(
+      baseInput({ chain: ["local_box"], runAuditMeta: RUN_AUDIT_META }),
+      h.deps,
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected unavailable");
+    expect(result.reason).toBe("audit_persist_failed");
+    expect(result).not.toHaveProperty("text");
+    expect(runAudit.commits()).toHaveLength(0);
+  });
+
+  it("refuses a runAudit binding without runAuditMeta rather than inventing expert stamps", async () => {
+    const runAudit = createInMemoryRunAuditStore();
+    const h = harness(
+      { local_box: [answered(JSON.stringify({ answer: "ok" }), "open-weights-alpha")] },
+      { runAudit },
+    );
+    const result = await callModelGateway(baseInput({ chain: ["local_box"] }), h.deps);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected unavailable");
+    expect(result.reason).toBe("misconfigured_call");
+    expect(runAudit.commits()).toHaveLength(0);
+  });
+
+  it("predicted free-tier exhaustion skips the free call and reserves the paid tier before it runs", async () => {
+    const freeAllowances = createFreeAllowanceBook({
+      allowances: { local_box: 0, workers_ai: 0 },
+    });
+    const h = harness(
+      {
+        local_box: [answered("should-not-run", "open-weights-alpha")],
+        workers_ai: [answered("should-not-run", "hosted-beta")],
+        claude: [answered(JSON.stringify({ answer: "paid" }), "claude-sonnet")],
+      },
+      { freeAllowances },
+    );
+    const result = await callModelGateway(
+      baseInput({ chain: ["local_box", "workers_ai", "claude"] }),
+      h.deps,
+    );
+    if (!result.ok) throw new Error(`expected an answer, got ${result.reason}`);
+    expect(result.providerKey).toBe("claude");
+    expect(adapterFor(h, "local_box").calls).toHaveLength(0);
+    expect(adapterFor(h, "workers_ai").calls).toHaveLength(0);
+    expect(adapterFor(h, "claude").calls).toHaveLength(1);
+    expect(h.meter.events).toEqual([
+      expect.stringMatching(/^reserve:claude:/),
+      expect.stringMatching(/^reconcile:settled:/),
+    ]);
+    expect(h.book.quotaExhausted("local_box")).toBe(true);
+    expect(h.book.quotaExhausted("workers_ai")).toBe(true);
+    expect(freeAllowances.snapshot("local_box").cashCost).toBe(0);
   });
 
   it("fails closed when the reservation authority is unavailable: no provider is called at all", async () => {
