@@ -125,6 +125,7 @@ as $$
       join public.membership_roles mr on mr.membership_id = m.id
       join public.role_permissions rp
         on rp.role_id = mr.role_id
+       and rp.organisation_id = m.organisation_id
        and rp.area in ('knowledge.write', 'knowledge.admin')
        and rp.level in ('write', 'admin')
      where s.object_ref = p_object_name
@@ -136,9 +137,14 @@ as $$
 $$;
 
 comment on function public.user_may_access_knowledge_object(text) is
-  'Storage RLS predicate (#38): open, unexpired, caller-owned upload session whose object_ref equals the storage path, with publish permission still held. Does not read current_organisation_id (Storage has no tenant scope GUC). Not an API surface.';
+  'Storage RLS predicate (#38): open, unexpired, caller-owned upload session whose object_ref equals the storage path, with publish permission still held. Does not read current_organisation_id (Storage has no tenant scope GUC). EXECUTE is granted to authenticated because RLS evaluates it as the querying role; it answers only about the caller''s own session.';
+-- A function named in an RLS expression is executed with the privileges of the *querying* role,
+-- so the Storage request role must hold EXECUTE or every policy check fails with 42501. It returns
+-- one boolean about the caller's own open session, so granting it reveals nothing new (FAQ-0010:
+-- listed on 001's allow-list with this reason).
 revoke execute on function public.user_may_access_knowledge_object(text)
   from public, anon, authenticated;
+grant execute on function public.user_may_access_knowledge_object(text) to authenticated;
 
 -- Drop prior policies if a re-run is needed in a branch tip
 drop policy if exists knowledge_objects_insert on storage.objects;

@@ -182,8 +182,10 @@ select is_empty($$
            ('public.register_source_version_v1(uuid, uuid, text, bigint, text)'::regprocedure),
            ('public.record_upload_outcome_v1(uuid, uuid, text, text)'::regprocedure),
            -- T-112d / U-1 (`20261121180000_knowledge_storage_and_find_session.sql`): scoped session
-           -- reader for the complete path. Storage helper stays revoked (not listed).
+           -- reader for the complete path, and the Storage RLS predicate, which RLS executes as the
+           -- querying role (it answers only about the caller's own open session).
            ('public.find_upload_session_v1(uuid, uuid)'::regprocedure),
+           ('public.user_may_access_knowledge_object(text)'::regprocedure),
            ('public.create_collection_v1(uuid, text, text, text, uuid, text)'::regprocedure),
            ('public.update_collection_v1(uuid, uuid, text)'::regprocedure),
            ('public.load_public_brand(text)'::regprocedure),
