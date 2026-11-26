@@ -1,6 +1,6 @@
 # T-216 Query condensation (F30) and deterministic exact lookup before hybrid search
 
-Lane: 2 · Week: 2 · Protected: no (the lookup RPC migration is protected) · Depends on: T-104, T-111, T-114, T-115 · Status: in progress (wyuinline) — **PR-1** claimed on `t-216-exact-lookup`: `exact_lookup_v1` SQL + pgTAP `070` (condense / query-plan need T-104 history — later slice).
+Lane: 2 · Week: 2 · Protected: no (the lookup RPC migration is protected) · Depends on: T-104, T-111, T-114, T-115 · Status: in progress (wyuinline) — **PR-1** #247 `exact_lookup_v1` SQL; **PR-2** (this branch) query-plan exact-before-hybrid TS; F30 condense waits on T-104 history.
 Plan refs: §8.1 steps 4–5, §8.2, §12.4 (per-task chains), §16 (retrieval row); F16, F17, F30
 
 ## Supervisor rulings to apply (2026-11-09)

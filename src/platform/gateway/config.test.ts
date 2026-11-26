@@ -24,7 +24,7 @@ describe("gateway configuration parsing (fail closed)", () => {
     const config = parseGatewayConfiguration(VALID);
     expect(config.matrixRevision).toBe(7);
     expect(config.clearance.restricted).toEqual(["local_box"]);
-    expect(config.circuit).toEqual({ openAfterFailures: 2, cooldownMs: 30_000 });
+    expect(config.circuit).toEqual({ openAfterFailures: 2, cooldownMs: 30_000, checkIntervalMs: 30_000 });
   });
 
   it("an endpoint cannot carry a data class, so it cannot widen clearance", () => {
