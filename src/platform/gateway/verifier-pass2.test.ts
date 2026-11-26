@@ -149,6 +149,7 @@ describe("createSemanticVerifier", () => {
         skipped: [],
         matrixRevision: 7,
       },
+      composedWith: META_BASE.composedWith,
     });
 
     const claude = h.adapters.get("claude")!;
@@ -181,6 +182,7 @@ describe("createSemanticVerifier", () => {
       claims: [chunkClaim("c1", "Calibration is required.", "Calibrate the antenna")],
       evidence: EVIDENCE,
       route: CONFIDENTIAL_ROUTE,
+      composedWith: { providerKey: "workers_ai", model: "hosted-beta" },
     });
 
     expect(h.adapters.get("claude")!.calls.length).toBeGreaterThanOrEqual(1);
@@ -207,6 +209,28 @@ describe("createSemanticVerifier", () => {
       claims: [chunkClaim("c1", "Calibration is required.", "Calibrate the antenna")],
       evidence: EVIDENCE,
       route: INTERNAL_ROUTE,
+      composedWith: { providerKey: "claude", model: "hosted-gamma" },
+    });
+    expect(h.adapters.get("claude")!.calls).toHaveLength(0);
+    expect(verdicts[0]?.status).toBe("unsupported");
+  });
+
+  it("the composer named on the call wins over the one fixed at construction (supervisor round 1 on #284)", async () => {
+    // Built while local_box composed; the retry composed with Claude, so Claude must not verify it.
+    const h = harness({
+      claude: [answered(JSON.stringify({ verdicts: [{ claimId: "c1", status: "supported" }] }), "hosted-gamma")],
+    });
+    const port = createSemanticVerifier(h.deps, {
+      ...META_BASE,
+      dataClass: "internal",
+      verifyChain: ["claude"],
+    });
+    const verdicts = await port.verify({
+      claims: [chunkClaim("c1", "Calibration is required.", "Calibrate the antenna")],
+      evidence: EVIDENCE,
+      route: INTERNAL_ROUTE,
+      composedWith: { providerKey: "claude", model: "hosted-gamma" },
+      composePass: 2,
     });
     expect(h.adapters.get("claude")!.calls).toHaveLength(0);
     expect(verdicts[0]?.status).toBe("unsupported");
@@ -233,6 +257,7 @@ describe("createSemanticVerifier", () => {
       claims: [chunkClaim("c1", "Calibration is required.", "Calibrate the antenna")],
       evidence: EVIDENCE,
       route: INTERNAL_ROUTE,
+      composedWith: META_BASE.composedWith,
     });
     expect(h.adapters.get("claude")!.calls).toHaveLength(0);
     expect(verdicts[0]?.status).toBe("unsupported");
@@ -251,6 +276,7 @@ describe("createSemanticVerifier", () => {
       claims: [chunkClaim("c1", "Calibration is required.", "Calibrate the antenna")],
       evidence: [],
       route: INTERNAL_ROUTE,
+      composedWith: META_BASE.composedWith,
     });
     expect(h.adapters.get("claude")!.calls).toHaveLength(0);
     expect(verdicts).toEqual([{ claimId: "c1", status: "unsupported", reason: "no_cited_span" }]);
@@ -276,6 +302,7 @@ describe("createSemanticVerifier", () => {
         skipped: [],
         matrixRevision: 7,
       },
+      composedWith: META_BASE.composedWith,
     });
     expect(verdicts[0]?.status).toBe("unsupported");
   });
