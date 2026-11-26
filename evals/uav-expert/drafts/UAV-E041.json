@@ -26,6 +26,7 @@
     "SYNTH-C2-UAV-HANDLING-04"
   ],
   "expectedEvidence": [],
+  "expectedRefusalKey": "no_evidence",
   "approvedBy": null,
   "approvedAt": null,
   "draftedBy": "agent (T-315 draft)",

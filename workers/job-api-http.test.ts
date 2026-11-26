@@ -8,6 +8,7 @@ import {
   handleJobObjectUrl,
   handleJobRenew,
   jobApiUnavailableResponse,
+  MAX_BODY_BYTES,
   type ObjectUrlMintBinding,
 } from "./job-api-http";
 import { digestWorkerCredential } from "./job-db";
@@ -155,6 +156,64 @@ describe("job-api-http — box-facing /api/jobs surface (T-211 PR-3a)", () => {
     expect(response.status).toBe(400);
     const text = await response.text();
     expect(text).not.toMatch(/SyntaxError|postgres/i);
+  });
+  it("refuses a lease length outside 60..1800 seconds before calling the database", async () => {
+    let called = 0;
+    const api = fakeApi({
+      lease: async () => {
+        called += 1;
+        return null;
+      },
+    });
+    for (const leaseSeconds of [0, 59, 1801, 30.5]) {
+      const response = await handleJobLease(
+        post("/api/jobs/lease", { stage: "extract", leaseSeconds }, `Bearer ${TOKEN}`),
+        api,
+      );
+      expect(response.status).toBe(400);
+    }
+    expect(called).toBe(0);
+  });
+
+  it("maps database errors to safe answers and never echoes postgres text", async () => {
+    const pgError = (code: string) =>
+      Object.assign(new Error("boom at postgres://inner-host:5432/prod"), { code });
+    const cases: Array<[string, number, Record<string, unknown> | null]> = [
+      ["22023", 400, null],
+      ["42501", 200, { outcome: "refused" }],
+      ["57P01", 503, null],
+    ];
+    for (const [code, status, body] of cases) {
+      const api = fakeApi({
+        renew: async () => {
+          throw pgError(code);
+        },
+      });
+      const response = await handleJobRenew(
+        post("/api/jobs/renew", { jobId: JOB, leaseToken: "t", fence: 1, leaseSeconds: 300 }, `Bearer ${TOKEN}`),
+        api,
+      );
+      expect(response.status).toBe(status);
+      const text = await response.text();
+      expect(text).not.toMatch(/postgres|inner-host/i);
+      if (body !== null) expect(JSON.parse(text)).toEqual(body);
+    }
+  });
+
+  it("refuses an oversized body with 413 before parsing it", async () => {
+    const response = await handleJobComplete(
+      new Request("https://company1.terraoi.app/api/jobs/complete", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${TOKEN}`,
+          "content-type": "application/json",
+          "content-length": String(MAX_BODY_BYTES + 1),
+        },
+        body: "{}",
+      }),
+      fakeApi(),
+    );
+    expect(response.status).toBe(413);
   });
 });
 
