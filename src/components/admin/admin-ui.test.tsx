@@ -10,6 +10,7 @@ vi.mock("next/link", () => ({
 
 import { CreateCollectionForm } from "./create-collection-form";
 import { CreateProjectForm } from "./create-project-form";
+import { InviteMemberForm } from "./invite-member-form";
 import { MembershipRoleForm } from "./membership-role-form";
 
 afterEach(() => {
@@ -101,6 +102,65 @@ describe("CreateCollectionForm (T-202 PR-2c)", () => {
     });
     expect(JSON.stringify(body)).not.toMatch(/organisation|organization/i);
     expect((await screen.findByRole("status")).textContent).toContain("Collection created.");
+  });
+});
+
+describe("InviteMemberForm (T-202 PR-2f)", () => {
+  it("posts email and role id without an organisation id", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      return Response.json({ ok: true }, { status: 200 });
+    });
+
+    render(<InviteMemberForm csrfToken="csrf-token-4" />);
+    fireEvent.change(screen.getByLabelText("Email"), {
+      target: { value: "field.tech@company1.test" },
+    });
+    fireEvent.change(screen.getByLabelText("Role id"), {
+      target: { value: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send invitation" }));
+
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0]?.url).toBe("/admin/members/invite");
+    const body = JSON.parse(String(calls[0]?.init?.body)) as Record<string, unknown>;
+    expect(body).toEqual({
+      csrfToken: "csrf-token-4",
+      email: "field.tech@company1.test",
+      roleId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    });
+    expect(JSON.stringify(body)).not.toMatch(/organisation|organization/i);
+    expect((await screen.findByRole("status")).textContent).toContain("Invitation recorded.");
+  });
+
+  it("surfaces the server message on refusal", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          {
+            ok: false,
+            code: "tenancy",
+            message: "You do not have permission to perform this action in this workspace.",
+          },
+          { status: 403 },
+        ),
+      ),
+    );
+
+    render(<InviteMemberForm csrfToken="csrf-token-4" />);
+    fireEvent.change(screen.getByLabelText("Email"), {
+      target: { value: "field.tech@company1.test" },
+    });
+    fireEvent.change(screen.getByLabelText("Role id"), {
+      target: { value: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send invitation" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "You do not have permission to perform this action in this workspace.",
+    );
   });
 });
 

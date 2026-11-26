@@ -9,6 +9,12 @@ import type { ProviderKey } from "@/contracts/keys";
 import type { TenantContext } from "@/contracts/tenant-context";
 
 import {
+  commitRunResult,
+  type AttemptOutcome,
+  type RunAttemptAudit,
+  type RunAuditStore,
+} from "@/platform/audit/run-audit";
+import {
   isFreeTierProvider,
   planFreeTierAttempt,
   type FreeAllowanceBook,
@@ -79,6 +85,25 @@ export interface OutputSchema<T> {
   parse(data: unknown): T;
 }
 
+/**
+ * Expert / policy stamps the F22 commit needs. Required whenever `GatewayDeps.runAudit` is set —
+ * otherwise the gateway would invent an audit row without knowing which expert answered (§9.4).
+ */
+export interface GatewayRunAuditMeta {
+  expertKey: string;
+  expertVersions: readonly string[];
+  corpusGenerations: readonly number[];
+  policyRevision: number;
+  policyRevisionDelivered: number;
+  /**
+   * Whether this call's answer is the run's final one (default true). A run calls the gateway more
+   * than once (compose, then verify / pass 2 under the same `runId`), and a run is committed once:
+   * a non-final call only appends its attempts to the ledger — still before it returns — and the
+   * final call commits the run. Supervisor round 1 on #261.
+   */
+  finalForRun?: boolean;
+}
+
 interface GatewayCallInputBase<T> {
   /** AGENTS.md §4.1: the only source of the organisation. There is deliberately no `organisationId`. */
   context: TenantContext;
@@ -96,6 +121,8 @@ interface GatewayCallInputBase<T> {
   minTier?: CapabilityTier;
   outputSchema?: OutputSchema<T>;
   nowMs?: number;
+  /** F22 metadata; required when `deps.runAudit` is bound (T-313 PR-6). */
+  runAuditMeta?: GatewayRunAuditMeta;
 }
 
 /** A model call that is not a verification has no composer to name (§12.4 rule (e)). */
@@ -144,6 +171,12 @@ export interface GatewayDeps {
    * reserved before it is called — never discovered by a 429 (§12.3).
    */
   freeAllowances?: FreeAllowanceBook;
+  /**
+   * Optional F22 audit store (T-313). When set, a successful answer is committed to the attempt
+   * ledger **before** it is returned — a persist failure yields `audit_persist_failed` and nothing
+   * is delivered (§9.3, §12.3).
+   */
+  runAudit?: RunAuditStore;
   onProgress?: (event: ProgressEvent) => void;
   /** Injectable clock, so the audit trail and the tests agree on when something happened. */
   clock?: () => number;
@@ -166,6 +199,11 @@ export type GatewayUnavailableReason =
   | "all_attempts_failed"
   | "deadline"
   | "budget_authority_unavailable"
+  /**
+   * F22: the provider answered but the audit write failed. The reservation is retained; nothing
+   * unaudited is returned to the caller for delivery (§12.3).
+   */
+  | "audit_persist_failed"
   /**
    * The call itself was not buildable — a verify without its pass tag, or an adapter that refused the
    * request it was handed. Nothing was asked of any provider and nothing is billable; it is reported
@@ -256,6 +294,61 @@ function parseWith<T>(
   }
 }
 
+/** Opaque fingerprint — not a security hash; keeps answer bodies out of the audit store. */
+function answerFingerprintOf(text: string): string {
+  let mix = text.length;
+  for (let i = 0; i < text.length; i += 1) {
+    mix = (mix * 33 + text.charCodeAt(i)) >>> 0;
+  }
+  return `fp:${text.length.toString(16)}:${mix.toString(16)}`;
+}
+
+function toAttemptOutcome(outcome: AttemptRecord["outcome"]): AttemptOutcome {
+  switch (outcome) {
+    case "answered":
+      return "answered";
+    case "connection":
+      return "connection";
+    case "timeout":
+      return "timeout";
+    case "rate_limited":
+      return "rate_limited";
+    case "server_error":
+      return "server_error";
+    case "invalid_output":
+      return "invalid_output";
+    case "context_overflow":
+      return "context_overflow";
+    case "provider_denied":
+      return "provider_unavailable";
+    case "invalid_request":
+      return "provider_unavailable";
+    default: {
+      const _exhaustive: never = outcome;
+      return _exhaustive;
+    }
+  }
+}
+
+function toRunAttemptAudits(
+  attempts: readonly AttemptRecord[],
+  matrixRevision: number,
+  recordedAt: string,
+): RunAttemptAudit[] {
+  return attempts.map((attempt) => ({
+    attemptId: attempt.attemptId,
+    providerKey: attempt.providerKey,
+    chainPosition: attempt.chainPosition,
+    capabilityTier: attempt.capabilityTier,
+    outcome: toAttemptOutcome(attempt.outcome),
+    model: attempt.model,
+    matrixRevision: String(matrixRevision),
+    reservedUnits: attempt.reservedUnits,
+    reconciled: attempt.reconciled,
+    recordedAt,
+  }));
+}
+
 export async function callModelGateway<T>(
   input: GatewayCallInput<T>,
   deps: GatewayDeps,
@@ -272,6 +365,19 @@ export async function callModelGateway<T>(
     input.task === "verify" &&
     (typeof input.passTag !== "string" || input.passTag.trim().length === 0)
   ) {
+    return {
+      ok: false,
+      status: "unavailable",
+      reason: "misconfigured_call",
+      attempts: [],
+      skipped: [],
+      matrixRevision: deps.config.matrixRevision,
+    };
+  }
+
+  // Supervisor round 1 on #261: a bound audit store with no expert/policy stamps is refused here,
+  // before routing — not after a provider has answered and spent its reservation.
+  if (deps.runAudit !== undefined && input.runAuditMeta === undefined) {
     return {
       ok: false,
       status: "unavailable",
@@ -476,6 +582,56 @@ export async function callModelGateway<T>(
           : outcome.usage.inputUnits + outcome.usage.outputUnits,
       );
       deps.health.recordSuccess(entry.providerKey, clock());
+
+      // F22: persist audit before returning anything the chat layer could deliver (§9.3 / §12.3).
+      if (deps.runAudit !== undefined) {
+        const meta = input.runAuditMeta;
+        if (meta === undefined) {
+          return fail("misconfigured_call");
+        }
+        const recordedAt = new Date(clock()).toISOString();
+        const audits = toRunAttemptAudits(
+          attempts,
+          decision.matrixRevision,
+          recordedAt,
+        );
+        if (meta.finalForRun === false) {
+          try {
+            for (const audit of audits) {
+              await deps.runAudit.appendAttempt(
+                input.context.organisationId,
+                input.runId,
+                audit,
+              );
+            }
+          } catch {
+            return fail("audit_persist_failed");
+          }
+        } else {
+          const commit = await commitRunResult(deps.runAudit, {
+            organisationId: input.context.organisationId,
+            runId: input.runId,
+            conversationId: input.conversationId ?? null,
+            expertKey: meta.expertKey,
+            expertVersions: meta.expertVersions,
+            corpusGenerations: meta.corpusGenerations,
+            policyRevision: meta.policyRevision,
+            policyRevisionDelivered: meta.policyRevisionDelivered,
+            dataClass: input.dataClass,
+            answerStatus: "answered",
+            answerFingerprint: answerFingerprintOf(outcome.text),
+            matrixRevision: String(decision.matrixRevision),
+            attempts: audits,
+          }).catch(() => ({
+            ok: false as const,
+            reason: "persist_failed" as const,
+          }));
+          if (!commit.ok) {
+            return fail("audit_persist_failed");
+          }
+        }
+      }
+
       return {
         ok: true,
         providerKey: entry.providerKey,

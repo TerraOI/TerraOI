@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { TenantContext } from "@/contracts/tenant-context";
+import { canonicalEmail } from "@/platform/identity/email";
 import {
   withTenantRpc,
   type BackendFailureReason,
@@ -157,9 +158,18 @@ export interface CreateCollectionInput {
   projectId: string | null;
 }
 
+export interface InviteMemberInput {
+  context: TenantContext;
+  accessToken: string;
+  /** Raw address from the form; canonicalized before the RPC (plan §4.2). */
+  email: string;
+  roleId: string;
+}
+
 export interface AdminRpcClient {
   grantMembershipRole(input: MemberRoleInput): Promise<AdminVoidOutcome>;
   revokeMembershipRole(input: MemberRoleInput): Promise<AdminVoidOutcome>;
+  inviteMember(input: InviteMemberInput): Promise<AdminVoidOutcome>;
   createProject(input: CreateProjectInput): Promise<AdminCreateOutcome>;
   addProjectMember(input: ProjectMemberInput): Promise<AdminVoidOutcome>;
   removeProjectMember(input: ProjectMemberInput): Promise<AdminVoidOutcome>;
@@ -204,6 +214,19 @@ export function createAdminRpcClient(deps: AdminRpcDeps): AdminRpcClient {
         input.context,
         "revoke_membership_role_v1",
         { p_user_id: input.userId, p_role_id: input.roleId },
+        input.accessToken,
+      );
+    },
+
+    async inviteMember(input) {
+      const email = canonicalEmail(input.email);
+      if (email === null || !UUID.safeParse(input.roleId).success) {
+        return { ok: false, kind: "validation", message: SAFE_ADMIN_RPC_MESSAGE.validation };
+      }
+      return voidRpc(
+        input.context,
+        "invite_member_v1",
+        { p_email: email, p_role_id: input.roleId },
         input.accessToken,
       );
     },
