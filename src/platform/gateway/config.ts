@@ -38,10 +38,15 @@ export const ProviderEndpoint = z.strictObject({
 });
 export type ProviderEndpoint = z.infer<typeof ProviderEndpoint>;
 
-/** F37 circuit policy for this deployment (§12.4: open after repeated failures, cooldown). */
+/**
+ * F37 circuit + scheduled-probe policy (§12.4: open after repeated failures, cooldown;
+ * §17.1: local-box offline detected within one check interval).
+ */
 export const CircuitPolicy = z.strictObject({
   openAfterFailures: z.number().int().positive().default(3),
   cooldownMs: z.number().int().positive().default(60_000),
+  /** How often the scheduled F37 pass must re-probe each provider that exposes `health()`. */
+  checkIntervalMs: z.number().int().positive().default(30_000),
 });
 export type CircuitPolicy = z.infer<typeof CircuitPolicy>;
 

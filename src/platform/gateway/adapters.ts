@@ -225,6 +225,8 @@ export function createLocalBoxAdapter(options: LocalBoxAdapterOptions): Provider
       };
     },
     async health() {
+      // F37 probe shape (T-314): GET `{tunnelBase}/health` with the same Access headers as complete.
+      // Non-2xx (including 401/403) is offline — auth failure must not look like a healthy box.
       const headers = headersOf();
       if (headers === undefined) return false;
       const response = await post(`${base}/health`, { method: "GET", headers }, 5_000, fetchImpl);

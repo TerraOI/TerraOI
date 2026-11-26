@@ -8,6 +8,12 @@ import type {
 import type { ProviderKey } from "@/contracts/keys";
 import type { TenantContext } from "@/contracts/tenant-context";
 
+import {
+  isFreeTierProvider,
+  planFreeTierAttempt,
+  type FreeAllowanceBook,
+} from "@/platform/budgets/free-allowance";
+
 import type {
   AdapterCallOutcome,
   ModelMessage,
@@ -132,6 +138,12 @@ export interface GatewayDeps {
   };
   health: HealthReader & HealthWriter;
   meter: MeterPort;
+  /**
+   * Optional F19 free-tier unit book (T-313). When set, a free provider whose conservative max
+   * would exhaust the allowance is skipped and marked quota-exhausted so the next paid tier is
+   * reserved before it is called — never discovered by a 429 (§12.3).
+   */
+  freeAllowances?: FreeAllowanceBook;
   onProgress?: (event: ProgressEvent) => void;
   /** Injectable clock, so the audit trail and the tests agree on when something happened. */
   clock?: () => number;
@@ -344,6 +356,41 @@ export async function callModelGateway<T>(
       continue;
     }
 
+    const maxUnits = maxInputUnits + input.maxOutputUnits;
+    // Units held in the free-tier book for this attempt; every exit below closes the hold once.
+    let finishFree: (usedUnits: number | null) => void = () => undefined;
+    if (
+      deps.freeAllowances !== undefined &&
+      isFreeTierProvider(entry.providerKey)
+    ) {
+      const afterCurrent = decision.eligible
+        .filter((e) => e.chainPosition > entry.chainPosition)
+        .map((e) => e.providerKey);
+      const freePlan = planFreeTierAttempt({
+        book: deps.freeAllowances,
+        providerKey: entry.providerKey,
+        maxUnits,
+        eligibleChainAfterCurrent: afterCurrent,
+        setQuotaExhausted: (providerKey, exhausted) => {
+          deps.health.noteQuotaExhausted(providerKey, exhausted);
+        },
+      });
+      if (freePlan.skipFreeProvider) {
+        // Predicted exhaustion: do not call or reserve the free tier; walk on so the next paid
+        // attempt is reserved before its network call (§12.3).
+        previousPosition = entry.chainPosition;
+        advanceReason = "quota_exhausted";
+        continue;
+      }
+      const book = deps.freeAllowances;
+      const freeKey = entry.providerKey;
+      const held = freePlan.heldUnits;
+      finishFree = (usedUnits) => {
+        book.finish(freeKey, held, usedUnits);
+        finishFree = () => undefined;
+      };
+    }
+
     // The tag is only meaningful for a verify; a non-verify call is already named by its task.
     const attemptId = attemptIdOf(
       input.runId,
@@ -366,6 +413,7 @@ export async function callModelGateway<T>(
       reservationId = reservation.reservationId;
     } catch {
       // §12.3: "Fail closed if reservation authority is unavailable." Nothing is called.
+      finishFree(0);
       return fail("budget_authority_unavailable");
     }
 
@@ -409,12 +457,24 @@ export async function callModelGateway<T>(
         // job to fail rather than deliver prose (plan §12.1, F38 "invalid structured output").
         attempt.outcome = truncated ? "context_overflow" : "invalid_output";
         await reconcile(deps, attempt, reservationId, outcome, "ambiguous");
+        // The model ran: the free units it burned count, and without usage the whole hold does.
+        finishFree(
+          outcome.usage === undefined
+            ? null
+            : outcome.usage.inputUnits + outcome.usage.outputUnits,
+        );
         deps.health.recordFailure(entry.providerKey, clock());
         previousPosition = entry.chainPosition;
         advanceReason = FAILURE_TO_PROGRESS_REASON[attempt.outcome];
         continue;
       }
       await reconcile(deps, attempt, reservationId, outcome, "settled");
+      // Missing usage keeps the whole hold as used rather than metering the call as free of units.
+      finishFree(
+        outcome.usage === undefined
+          ? null
+          : outcome.usage.inputUnits + outcome.usage.outputUnits,
+      );
       deps.health.recordSuccess(entry.providerKey, clock());
       return {
         ok: true,
@@ -439,6 +499,7 @@ export async function callModelGateway<T>(
       // instead of failing over: the next provider would be handed the same broken request, and three
       // such calls would open a circuit that is not unhealthy (§12.4).
       await reconcile(deps, attempt, reservationId, outcome, "released");
+      finishFree(0);
       return fail("misconfigured_call");
     }
     // §12.3: an ambiguous attempt keeps its liability; a clean failure releases the reservation.
@@ -449,6 +510,7 @@ export async function callModelGateway<T>(
       outcome,
       outcome.possiblyBilled ? "ambiguous" : "released",
     );
+    finishFree(outcome.possiblyBilled ? null : 0);
     deps.health.recordFailure(entry.providerKey, clock());
     if (kind === "rate_limited")
       deps.health.noteQuotaExhausted(entry.providerKey, true);
