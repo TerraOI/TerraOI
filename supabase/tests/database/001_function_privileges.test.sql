@@ -199,7 +199,8 @@ select is_empty($$
            -- each revoked from all four request roles inside the file that creates it and granted back
            -- to `authenticated` only. All five take `p_organisation_id` first and set the scope
            -- themselves (FAQ-0011), and each decides inside its body on `members.admin` /
-           -- `projects.admin` at `admin`. No invite/activate here: invite is PR-1b; claim is T-201.
+           -- `projects.admin` at `admin`. Claim is T-201.
+           -- T-202 PR-1b (`20261121190000_tenant_invitations.sql`): invite_member_v1.
            -- `bump_policy_revision()` is deliberately **not** here: a table's trigger fires without the
            -- invoking role holding EXECUTE, and it is granted to nobody (tests 23-30 are the precedent
            -- for revoked trigger functions).
@@ -214,7 +215,8 @@ select is_empty($$
            ('public.chat_complete_run_v1(uuid, uuid, jsonb)'::regprocedure),
            ('public.chat_load_conversation_v1(uuid, uuid)'::regprocedure),
            ('public.chat_list_conversations_v1(uuid, integer)'::regprocedure),
-           ('public.chat_get_run_v1(uuid, uuid)'::regprocedure)
+           ('public.chat_get_run_v1(uuid, uuid)'::regprocedure),
+           ('public.invite_member_v1(uuid, text, uuid)'::regprocedure)
          ) as allowed(proc)
      )
 $$, '32 no function in public is executable by authenticated beyond the named allow-list (§4.3, #60)');
