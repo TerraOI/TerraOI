@@ -234,7 +234,11 @@ select is_empty($$
            ('public.create_eval_case_draft_v1(uuid, jsonb)'::regprocedure),
            ('public.review_eval_case_v1(uuid, uuid, text, jsonb)'::regprocedure),
            ('public.list_eval_cases_v1(uuid, text)'::regprocedure),
-           ('public.export_approved_eval_cases_v1(uuid)'::regprocedure)
+           ('public.export_approved_eval_cases_v1(uuid)'::regprocedure),
+           -- T-302b PR-1 (`20261126120000_knowledge_submissions.sql`): F15 submit / review / withdraw.
+           ('public.submit_employee_knowledge_v1(uuid, uuid, text, text, text, uuid[], uuid, timestamptz)'::regprocedure),
+           ('public.review_knowledge_submission_v1(uuid, uuid, text, text)'::regprocedure),
+           ('public.withdraw_knowledge_submission_v1(uuid, uuid)'::regprocedure)
          ) as allowed(proc)
      )
 $$, '32 no function in public is executable by authenticated beyond the named allow-list (§4.3, #60)');
