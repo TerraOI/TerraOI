@@ -133,6 +133,7 @@ One file per packet under `supabase/tests/database/`. Claim a new number in the 
 | 045 | `045_ingestion_jobs` | T-211 |
 | 046 | `046_provider_configuration` | T-116 ([#143](https://github.com/TerraOI/TerraOI/pull/143); four §6.1 tables, narrow-only and one-revision guards, and the tenant-policy read closed to both request roles per FAQ-0011) |
 | 050 | `050_review_publish` | T-213 |
+| 051 | `051_review_reclass` | T-213 (#21 cascade) |
 | 060 | `060_project_acl` | T-214 |
 | 070 | `070_exact_lookup` | T-216 |
 | 075 | `075_experts_and_prompts` | T-311 |

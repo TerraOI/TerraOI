@@ -179,4 +179,32 @@ describe("evaluatePublishGate (F36 / §14.1)", () => {
     expect(verdict.checks.find((c) => c.id === "unsupported_normative_claims")?.passed).toBe(false);
     expect(verdict.allowed).toBe(false);
   });
+
+  it("counts answerable cases with no result or a null score as misses (round 1 on #244)", () => {
+    const { cases, results } = meetingSet();
+    // Keep only one answerable result (a pass); the other 24 answerable cases have none.
+    const sparse = results.filter((r) => !r.caseId.startsWith("UAV-A") || r.caseId === "UAV-A001");
+    const verdict = evaluatePublishGate({
+      approvedCases: cases,
+      results: sparse,
+      recallAt10: 0.9,
+      unsupportedNormativeClaimsDisplayed: 0,
+    });
+    const rate = verdict.checks.find((c) => c.id === "answerable_correct_rate");
+    expect(rate?.passed).toBe(false);
+    expect(rate?.actual).toBe("1/25 (4.0%)");
+    expect(verdict.allowed).toBe(false);
+
+    const nulled = results.map((r) =>
+      r.caseId.startsWith("UAV-A") && r.caseId !== "UAV-A001" ? { ...r, score: null } : r,
+    );
+    expect(
+      evaluatePublishGate({
+        approvedCases: cases,
+        results: nulled,
+        recallAt10: 0.9,
+        unsupportedNormativeClaimsDisplayed: 0,
+      }).allowed,
+    ).toBe(false);
+  });
 });

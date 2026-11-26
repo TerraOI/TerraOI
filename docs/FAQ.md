@@ -64,6 +64,10 @@ Source: PR #1 · Date: 2026-11-05 · Applies to: Lane 1
 
 ## Tenancy and access
 
+### FAQ-0015: Who may approve, publish or revoke knowledge?
+**Answer:** An active member holding `knowledge.review` at level `write` or above, or `knowledge.admin` at `admin`. Holding `knowledge.write` (the `contributor` role) is not enough: it lets you upload, not publish. This applies to `review_decision_v1`, `publish_knowledge_version_v1` and `revoke_source_v1`. Each of them also checks the collection's project audience, and independent review (#8) still refuses the uploader. **Why:** uploading is capture, not publication (FAQ-0006), so a contributor must not be able to approve their own upload ([#267](https://github.com/TerraOI/TerraOI/pull/267#issuecomment-7175242012)).
+Source: #267 · Date: 2026-11-25 · Applies to: Lane 2, T-213
+
 ### FAQ-0014: Can a tenant remove its last admin?
 **Answer:** No. Every RPC that can demote, revoke or deactivate a member refuses a change that would leave zero active holders of `members.admin` in the tenant, with `23514`. The guard lives in the database, not only in the page. **Why:** a UI-only guard is not a guard, and recovery would need a service-role action by the supervisor ([T-202](tasks/T-202-tenant-admin.md) rulings).
 Source: #202 · Date: 2026-11-20 · Applies to: Lane 1, T-202
