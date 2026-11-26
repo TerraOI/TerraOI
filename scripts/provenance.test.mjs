@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
-import { attributeStacked, evaluate, isReviewed, mergedInto, GUARD_FLOOR, parseCodeowners, protectedPatternsFrom, touchesProtected } from "./provenance.mjs";
+import { attributeStacked, evaluate, isDocsOnly, isReviewed, mergedInto, GUARD_FLOOR, parseCodeowners, protectedPatternsFrom, touchesProtected } from "./provenance.mjs";
 
 const pr = { number: 7, merged_at: "2026-11-05T00:00:00Z", base: { ref: "main" }, user: { login: "alice" }, head: { sha: "h2" } };
 const approve = (login, commit_id = "h2") => ({ user: { login }, state: "APPROVED", commit_id });
@@ -19,7 +19,14 @@ describe("isReviewed", () => {
     expect(isReviewed(pr, [approve("bob"), { user: { login: "bob" }, state: "CHANGES_REQUESTED", commit_id: "h2" }])).toBe(false));
   it("ignores comments when finding the latest decision", () =>
     expect(isReviewed(pr, [approve("bob"), { user: { login: "bob" }, state: "COMMENTED", commit_id: "h2" }])).toBe(true));
-  it("exempts PRs authored by a supervisor", () => expect(isReviewed(pr, [], ["alice"])).toBe(true));
+  it("exempts a supervisor-authored PR that changes only docs (#302)", () =>
+    expect(isReviewed(pr, [], ["alice"], false, ["docs/FAQ.md", "AGENTS.md"])).toBe(true));
+  it("does not exempt a supervisor-authored PR that changes code (#302)", () =>
+    expect(isReviewed(pr, [], ["alice"], false, ["src/app/page.tsx"])).toBe(false));
+  it("does not exempt a supervisor-authored PR whose file list is unknown (fails closed)", () =>
+    expect(isReviewed(pr, [], ["alice"])).toBe(false));
+  it("never lets a supervisor approve its own code PR", () =>
+    expect(isReviewed(pr, [approve("alice")], ["alice"], true, ["src/app/page.tsx"])).toBe(false));
 });
 
 describe("evaluate", () => {
@@ -94,8 +101,23 @@ describe("protected paths come from CODEOWNERS (#63)", () => {
     expect(run(["src/app/page.tsx"], [approve("bob")]).ok).toBe(true));
   it("treats a PR whose file list is unknown as protected (fails closed)", () =>
     expect(run(undefined, [approve("bob")]).ok).toBe(false));
-  it("keeps exempting PRs a supervisor authored", () =>
-    expect(evaluate({ commits: [{ sha: "a", pulls: [{ ...pr, user: { login: "wyu610" } }] }], reviewsByPr: { 7: [] }, supervisors: sup, protectedPatterns: patterns, filesByPr: { 7: ["AGENTS.md"] } }).ok).toBe(true));
+  const bySupervisor = (files, reviews) =>
+    evaluate({ commits: [{ sha: "a", pulls: [{ ...pr, user: { login: "wyu610" } }] }], reviewsByPr: { 7: reviews }, supervisors: sup, protectedPatterns: patterns, filesByPr: files === undefined ? {} : { 7: files } });
+  it("exempts a supervisor-authored docs-only PR, protected or not (#302)", () =>
+    expect(bySupervisor(["AGENTS.md", "docs/COORDINATION.md"], []).ok).toBe(true));
+  it("flags a supervisor-authored code PR with no second approval (#302)", () => {
+    const r = bySupervisor(["src/platform/identity/tenancy-data-api.ts"], []);
+    expect(r.ok).toBe(false);
+    expect(r.violations[0].reason).toMatch(/no approval from a non-author/);
+  });
+  it("passes a supervisor-authored protected code PR once a builder approves the final head (#302)", () =>
+    expect(bySupervisor(["supabase/migrations/x.sql"], [approve("bob")]).ok).toBe(true));
+  it("flags a supervisor-authored guard change with no second approval (#302)", () =>
+    expect(bySupervisor(["scripts/provenance.mjs", "docs/COORDINATION.md"], []).ok).toBe(false));
+  it("flags a supervisor-authored workflow change with no second approval (#302)", () =>
+    expect(bySupervisor([".github/workflows/deploy-staging.yml"], []).ok).toBe(false));
+  it("does not exempt a supervisor-authored PR whose file list is unknown (#302, fails closed)", () =>
+    expect(bySupervisor(undefined, []).ok).toBe(false));
 });
 
 describe("the protected list cannot be narrowed by the change it judges (#63)", () => {
@@ -115,4 +137,18 @@ describe("the protected list cannot be narrowed by the change it judges (#63)", 
     expect(
       evaluate({ commits: [{ sha: "a", pulls: [pr] }], reviewsByPr: { 7: [approve("bob")] }, supervisors: ["wyu610"], protectedPatterns: protectedPatternsFrom([after]), filesByPr: { 7: ["scripts/provenance.mjs"] } }).ok,
     ).toBe(false));
+});
+
+describe("isDocsOnly (#302)", () => {
+  it("accepts docs/ paths and root-level markdown", () =>
+    expect(isDocsOnly(["docs/plan/x.md", "docs/decisions/0012.md", "AGENTS.md", "README.md"])).toBe(true));
+  it("rejects code, config, workflows, nested non-docs markdown and the guard", () => {
+    for (const f of ["src/a.ts", "wrangler.jsonc", ".github/CODEOWNERS", ".claude/commands/x.md", "scripts/README.md", "scripts/provenance.mjs"]) {
+      expect(isDocsOnly(["docs/FAQ.md", f])).toBe(false);
+    }
+  });
+  it("rejects an empty or missing list", () => {
+    expect(isDocsOnly([])).toBe(false);
+    expect(isDocsOnly(undefined)).toBe(false);
+  });
 });

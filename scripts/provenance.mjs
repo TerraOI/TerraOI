@@ -53,15 +53,32 @@ export function touchesProtected(files, patterns) {
 }
 
 /**
+ * Docs-only (#302): every changed path is under `docs/` or is a root-level `*.md` file
+ * (AGENTS.md, CLAUDE.md, README.md). A missing or empty file list is not docs-only, so the
+ * supervisor exemption fails closed. `.github/` and the guard's own files are never docs.
+ */
+export function isDocsOnly(files) {
+  return (
+    Array.isArray(files) &&
+    files.length > 0 &&
+    files.every((f) => typeof f === "string" && (f.startsWith("docs/") || (!f.includes("/") && f.endsWith(".md"))))
+  );
+}
+
+/**
  * A merged PR counts as reviewed when someone other than its author has, as their latest
- * review, APPROVED the PR's final head commit (stale approvals do not count). PRs authored
- * by a supervisor login are exempt: the supervisor is the reviewer of record (plan §20.1).
+ * review, APPROVED the PR's final head commit (stale approvals do not count).
  * When the PR touches a protected path (`needsSupervisor`), that approval must also come from
  * a supervisor login (#63); another reviewer's approval alone never carries a protected change.
+ * A supervisor-authored PR (#302): exempt only when every changed file is docs (`isDocsOnly`);
+ * otherwise it needs one non-author approval like any other PR, and on a protected path the
+ * supervisor's authorship is the supervisor side, so a builder's approval carries it. Agents
+ * write code under the supervisor login, and no login may be the second reviewer of its own PR.
  */
-export function isReviewed(pr, reviews, supervisors = [], needsSupervisor = false) {
+export function isReviewed(pr, reviews, supervisors = [], needsSupervisor = false, files = undefined) {
   const author = pr?.user?.login;
-  if (author && supervisors.includes(author)) return true;
+  const authorIsSupervisor = Boolean(author) && supervisors.includes(author);
+  if (authorIsSupervisor && isDocsOnly(files)) return true;
   const latest = new Map();
   for (const r of Array.isArray(reviews) ? reviews : []) {
     const who = r?.user?.login;
@@ -70,7 +87,9 @@ export function isReviewed(pr, reviews, supervisors = [], needsSupervisor = fals
   }
   return [...latest.entries()].some(
     ([who, r]) =>
-      r.state === "APPROVED" && r.commit_id === pr?.head?.sha && (!needsSupervisor || supervisors.includes(who)),
+      r.state === "APPROVED" &&
+      r.commit_id === pr?.head?.sha &&
+      (!needsSupervisor || authorIsSupervisor || supervisors.includes(who)),
   );
 }
 
@@ -112,9 +131,9 @@ export function evaluate({ forced = false, rangeProblem = null, openViolations =
     const merged = mergedInto(pulls, base);
     if (merged.length === 0) {
       violations.push({ sha, reason: "not part of a merged pull request" });
-    } else if (!merged.some((pr) => isReviewed(pr, reviewsByPr[pr.number], supervisors))) {
+    } else if (!merged.some((pr) => isReviewed(pr, reviewsByPr[pr.number], supervisors, false, filesByPr[pr.number]))) {
       violations.push({ sha, reason: `merged PR #${merged[0].number} has no approval from a non-author on its final commit` });
-    } else if (!merged.some((pr) => isReviewed(pr, reviewsByPr[pr.number], supervisors, isProtected(pr)))) {
+    } else if (!merged.some((pr) => isReviewed(pr, reviewsByPr[pr.number], supervisors, isProtected(pr), filesByPr[pr.number]))) {
       violations.push({ sha, reason: `protected path merged without a supervisor approval (PR #${merged[0].number}; .github/CODEOWNERS, #63)` });
     }
   }
