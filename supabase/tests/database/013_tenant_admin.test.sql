@@ -1159,7 +1159,8 @@ select is_empty($$
   select want.tbl
     from (values ('organisation_memberships'), ('membership_roles'), ('role_permissions'),
                  ('project_memberships'), ('organisations'), ('tenant_services'),
-                 ('tenant_experts'), ('tenant_invitations')) as want(tbl)
+                 ('tenant_experts'), ('tenant_invitations'), ('knowledge_sources'),
+                 ('source_versions')) as want(tbl)
    where not exists (
      select 1
        from pg_trigger t
@@ -1171,7 +1172,8 @@ select is_empty($$
    )
 $$, '145 every watched table carries a trigger backed by public.bump_policy_revision(): the five #98 '
   || 'names (organisation_memberships, membership_roles, role_permissions, project_memberships, '
-  || 'organisations), #221''s tenant_services and tenant_experts, and PR-1b''s tenant_invitations. This '
+  || 'organisations), #221''s tenant_services and tenant_experts, PR-1b''s tenant_invitations, and '
+  || 'T-213''s knowledge_sources and source_versions (update only). This '
   || 'list is the authoritative set; test 148 counts over the same set');
 
 select is_empty($$
@@ -1216,11 +1218,14 @@ select is((select count(*)::int from pg_trigger tr
             where n.nspname = 'public' and p.proname = 'bump_policy_revision'
               and c.relname in ('organisation_memberships', 'membership_roles', 'role_permissions',
                                 'project_memberships', 'organisations', 'tenant_services',
-                                'tenant_experts', 'tenant_invitations')
+                                'tenant_experts', 'tenant_invitations',
+                                'knowledge_sources', 'source_versions')
               and not tr.tgisinternal),
-          3 * 8,
-  '148 the eight tables test 145 names x (insert, update, delete) = 24: the count is derived from '
-  || 'that set, so a dropped event fails by number rather than by a reviewer noticing an absent row');
+          3 * 8 + 2,
+  '148 the ten tables test 145 names: eight x (insert, update, delete) = 24, plus T-213''s '
+  || 'update-only bumps on knowledge_sources and source_versions (publish/revoke, #98) = 26. The '
+  || 'count is derived from that set, so a dropped event fails by number rather than by a reviewer '
+  || 'noticing an absent row');
 
 select is((select coalesce(obj_description('public.organisations'::regclass), '')),
   'Tenant root. Status is authoritative for every access decision. policy_revision is a monotonic stamp bumped on every access change; it is recorded for audit and used as a cache key. Access is always re-derived.',

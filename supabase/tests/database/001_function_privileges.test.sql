@@ -221,7 +221,11 @@ select is_empty($$
            ('public.chat_load_conversation_v1(uuid, uuid)'::regprocedure),
            ('public.chat_list_conversations_v1(uuid, integer)'::regprocedure),
            ('public.chat_get_run_v1(uuid, uuid)'::regprocedure),
-           ('public.invite_member_v1(uuid, text, uuid)'::regprocedure)
+           ('public.invite_member_v1(uuid, text, uuid)'::regprocedure),
+           -- T-213 PR-1 (`20261124130000_review_publish.sql`): review / publish / revoke.
+           ('public.review_decision_v1(uuid, uuid, text, text)'::regprocedure),
+           ('public.publish_knowledge_version_v1(uuid, uuid)'::regprocedure),
+           ('public.revoke_source_v1(uuid, uuid, text)'::regprocedure)
          ) as allowed(proc)
      )
 $$, '32 no function in public is executable by authenticated beyond the named allow-list (§4.3, #60)');
