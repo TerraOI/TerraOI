@@ -1,11 +1,12 @@
 # T-216 Query condensation (F30) and deterministic exact lookup before hybrid search
 
-Lane: 2 · Week: 2 · Protected: no (the lookup RPC migration is protected) · Depends on: T-104, T-111, T-114, T-115 · Status: ready
+Lane: 2 · Week: 2 · Protected: no (the lookup RPC migration is protected) · Depends on: T-104, T-111, T-114, T-115 · Status: in progress (wyuinline) — **PR-1** #247 `exact_lookup_v1` SQL; **PR-2** #258 query-plan; **PR-3** (this branch) F30 `condenseQuery` over injected F17 history (does not consume T-104 tables).
 Plan refs: §8.1 steps 4–5, §8.2, §12.4 (per-task chains), §16 (retrieval row); F16, F17, F30
 
 ## Supervisor rulings to apply (2026-11-09)
 These supersede anything below that disagrees.
 - **Spans** ([#95](https://github.com/TerraOI/TerraOI/issues/95), ADR-0008): `exact_lookup_v1` returns text, never offsets.
+- **Scale note** (supervisor, #247 round 1): `strpos(lower(body_text), …)` scans the tenant's whole published corpus on every call. That's fine at M1 volume. Once a tenant passes about 10⁵ chunks, add a `pg_trgm` GIN index on `lower(body_text)`. A version whose filename *and* first-chunk body both match is labelled `body_phrase`; filename-first labelling must not collapse the other body hits of that version, so change it only with a test.
 - **Tenant scope** ([#163](https://github.com/TerraOI/TerraOI/issues/163), FAQ-0011): every tenant-scoped RPC this packet adds takes `p_organisation_id uuid` **first** and begins with `perform public.set_tenant_scope(p_organisation_id);`, so it is `volatile`. Its TypeScript caller goes through `withTenantRpc` (T-101c). pgTAP pins the signature, the volatility, and a refusal for an organisation the caller is not a member of.
 
 ## Goal
@@ -39,20 +40,21 @@ Condensation is a **search rewrite**, never a source of facts and never an input
 §8.1 step 5 keeps the original question for that).
 
 ## Acceptance tests (write first)
-- [ ] positive: `src/platform/retrieval/query-plan.test.ts` — "and the 120 m one?" becomes a standalone
-      query naming the previous subject, and both query strings are persisted on the run
-- [ ] positive: `supabase/tests/database/070_exact_lookup.test.sql` — a provision number, equipment model
-      or exact document title returns its chunk with locator before any vector search runs, and the
-      Recall@10 baseline from the fixtures does not regress
-- [ ] negative: condensation may use only history the caller is authorized to see — a turn from another
+- [x] positive: `src/platform/agents/condense.test.ts` — "and the 120 m one?" becomes a standalone
+      query naming the previous subject, and both query strings are persisted on the plan result (**PR-3**)
+- [x] positive: `supabase/tests/database/070_exact_lookup.test.sql` — a provision number, equipment model
+      or exact document title returns its chunk with locator before any vector search runs
+      (**PR-1**; Recall@10 regression stays with the hybrid harness)
+- [x] negative: condensation may use only history the caller is authorized to see — a turn from another
       user or a withheld source cannot enter the rewrite, and the rewrite cannot introduce a project or
-      collection outside `TenantContext.permittedProjectIds`
-- [ ] negative: an identifier belonging to another tenant matches nothing at all (no row, no existence
+      collection outside `TenantContext.permittedProjectIds` (**PR-3**)
+- [x] negative: an identifier belonging to another tenant matches nothing at all (no row, no existence
       signal), and exact lookup runs under the same RLS and publication filters as hybrid search
-- [ ] failure: the `condense` chain is unavailable or times out → search proceeds with the raw question
-      plus the last user turn, and the run records that condensation was skipped
-- [ ] failure: condensed output that is empty, oversized, or adds an entity absent from the history is
-      discarded in favor of the raw question; no exact match falls through to hybrid, not a dead end
+      (**PR-1**)
+- [x] failure: the `condense` chain is unavailable or times out → search proceeds with the raw question
+      plus the last user turn, and the run records that condensation was skipped (**PR-3**)
+- [x] failure: condensed output that is empty, oversized, or adds an entity absent from the history is
+      discarded in favor of the raw question; no exact match falls through to hybrid, not a dead end (**PR-3**)
 
 ## Done evidence
 `pnpm db:test` when the lookup RPC lands, `pnpm verify`; staging: in one conversation ask a question and

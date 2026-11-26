@@ -598,6 +598,11 @@ export function artifactSetRejection(artifacts: readonly ArtifactInput[]): Artif
 
 export function createBoxWorkerDeps(options: {
   env: BoxWorkerEnv;
+  /**
+   * OCR engine seam (`localbox/box-extractor.ts`). Production harnesses pass
+   * `resolveBoxExtractor()` so OWNER `OCR_COMMAND` (or an unavailable abort) is wired without
+   * embedding an OCR binary in this package (T-211 PR-3f).
+   */
   extractor: BoxExtractorPort;
   credential?: () => string | undefined;
   log?: (event: BoxEvent) => void;
