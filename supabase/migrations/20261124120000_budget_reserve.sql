@@ -232,11 +232,15 @@ begin
     return v_id;
   end if;
 
+  -- The settled counters are written back too: a rollover zeroes them in v_acct, and leaving them
+  -- out would carry yesterday's spend into today's ceiling (caught by 095 test 29).
   update public.budget_accounts
      set day_key = v_acct.day_key,
          day_reserved_units = v_acct.day_reserved_units + v_max,
+         day_settled_units = v_acct.day_settled_units,
          month_key = v_acct.month_key,
          month_reserved_units = v_acct.month_reserved_units + v_max,
+         month_settled_units = v_acct.month_settled_units,
          updated_at = now()
    where organisation_id = p_organisation_id;
 
