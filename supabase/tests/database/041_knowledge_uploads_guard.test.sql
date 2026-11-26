@@ -19,8 +19,9 @@
 -- generation per tenant (seed.sql:219-226), which register_source_version_v1 requires before it will
 -- write anything (§6, #6 pinned in T-113).
 --
--- Successful captures below still use …a1 (`knowledge.admin`). The read-only negative (test 30) uses
--- …a4 after the #39 seed put `contributor` on …a2.
+-- Successful captures below still use …a1 (`knowledge.admin`), so 041 adds no role fixture and
+-- cannot drift the counts another slot makes; the seeded `contributor` sits on …a2, which no
+-- successful capture here uses. The read-only negative (test 30) uses …a4 for the same reason.
 -- The file still ends with `rollback;`: pg_prove runs one session per file against a freshly reset
 -- database, and a mutated fixture (this file deletes and restores a project membership) left behind
 -- would make the suite order-dependent.

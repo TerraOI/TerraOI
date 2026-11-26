@@ -780,7 +780,7 @@ select is((select result from t_out where case_name = 'grant_null_user'), '22023
   || 'argument is a validation error with no partial write)');
 select is((select result from t_out where case_name = 'grant_unknown_role'), '23503',
   '101 a role id that exists nowhere is refused by the same composite FK — the failed grant leaves '
-  || 'permissions exactly as they were (test 102 pins the company1 matrix at its seven seeded rows), so '
+  || 'permissions exactly as they were (test 91 pins the company1 matrix at its seven seeded rows), so '
   || 'there is no half-applied role');
 -- Both counts are read as the migration owner, after `reset role`.
 select is((select count(*)::int from public.organisation_memberships
