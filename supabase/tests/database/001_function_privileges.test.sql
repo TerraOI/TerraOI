@@ -243,6 +243,8 @@ select is_empty($$
            ('public.review_reclass_v1(uuid, uuid, text)'::regprocedure),
            -- T-312 PR-5 (`20261126140000_eval_run_writers.sql`): append-only F35 run writer.
            ('public.record_eval_run_v1(uuid, jsonb, jsonb)'::regprocedure),
+           -- T-312 PR-9 (`20261126170000_draft_eval_case_from_feedback.sql`): #102 pilot loop.
+           ('public.draft_eval_case_from_feedback_v1(uuid, jsonb)'::regprocedure),
            -- T-311 PR-4 (#221 N1): scoped Auto/routing expert list. SECURITY DEFINER so
            -- expert_definitions.status is readable without granting the table (#143 B8).
            -- Returns only key/version/service/status — no model_chains or collection_bindings.

@@ -4,7 +4,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(30);
+select plan(32);
 
 select has_schema('budget_ledger', '1 budget_ledger schema exists');
 select has_role('toi_budget_ledger', '2 toi_budget_ledger NOLOGIN role exists');
@@ -296,6 +296,65 @@ select is((pg_temp.acct()).day_settled_units, 0::bigint,
 select is((select (state, used_units)::text from public.budget_reservations
             where organisation_id = '11111111-1111-4111-8111-111111111111' and attempt_id = 'x-1'), '(settled,80)',
   '30 the reservation itself is settled with its reported usage');
+
+-- 31-32 (T-313 PR-4): an ambiguous timeout's retry is a new attempt of the same run, and a repeated
+-- ambiguous reconcile of the first attempt is idempotent. y-1 is still open; the ceilings have room.
+create temporary table t_ambig on commit drop as
+  select pg_temp.reserve_id(
+    '11111111-1111-4111-8111-111111111111',
+    'dddddddd-dddd-4ddd-8ddd-ddddddddddd1',
+    'compose:timeout:1',
+    null,
+    'compose',
+    'workers_ai',
+    40,
+    60
+  ) as reservation_id;
+
+select is(
+  pg_temp.as_ledger(format(
+    $$ select budget_ledger.reconcile_v1(
+         '11111111-1111-4111-8111-111111111111',
+         'compose:timeout:1',
+         %L::uuid,
+         'ambiguous',
+         null
+       ) $$,
+    (select reservation_id from t_ambig)
+  )),
+  'ok',
+  '31 ambiguous timeout keeps the first attempt billed'
+);
+
+select ok(
+  (select state from public.budget_reservations
+    where id = (select reservation_id from t_ambig)::uuid) = 'ambiguous'
+  and (select used_units from public.budget_reservations
+    where id = (select reservation_id from t_ambig)::uuid) = 100
+  and pg_temp.reserve_id(
+    '11111111-1111-4111-8111-111111111111',
+    'dddddddd-dddd-4ddd-8ddd-ddddddddddd1',
+    'compose:timeout:2',
+    null,
+    'compose',
+    'claude',
+    40,
+    60
+  ) ~ '^[0-9a-f-]{36}$'
+  and pg_temp.as_ledger(format(
+    $$ select budget_ledger.reconcile_v1(
+         '11111111-1111-4111-8111-111111111111',
+         'compose:timeout:1',
+         %L::uuid,
+         'ambiguous',
+         null
+       ) $$,
+    (select reservation_id from t_ambig)
+  )) = 'ok'
+  and (select used_units from public.budget_reservations
+    where id = (select reservation_id from t_ambig)::uuid) = 100,
+  '32 retry books a new attempt; duplicate ambiguous reconcile does not double-book'
+);
 
 select * from finish();
 rollback;

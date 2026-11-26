@@ -19,6 +19,8 @@ const USER_2 = "00000000-0000-4000-8000-0000000000b2";
 const VERSION = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1";
 const SOURCE = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1";
 const DECISION_ID = "cccccccc-cccc-4ccc-8ccc-ccccccccccc1";
+const COLLECTION = "dddddddd-dddd-4ddd-8ddd-ddddddddddd1";
+const AUDIT_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1";
 
 function contextFor(organisationId: string, userId: string, host: string): TenantContext {
   return createTenantContext({
@@ -92,6 +94,10 @@ beforeAll(async () => {
       res.end();
       return;
     }
+    if (req.url?.includes("review_reclass_v1")) {
+      json(res, 200, AUDIT_ID);
+      return;
+    }
     json(res, 200, DECISION_ID);
   });
   await new Promise<void>((resolve) => {
@@ -149,16 +155,25 @@ describe("review-rpc loopback (COORDINATION §6a)", () => {
         accessToken: USER_TOKEN_2,
         sourceId: SOURCE,
       }),
+      client.reclassCollection({
+        context: CTX_A,
+        accessToken: USER_TOKEN,
+        collectionId: COLLECTION,
+        newDataClass: "internal",
+      }),
     ]);
-    expect(captured).toHaveLength(2);
+    expect(captured).toHaveLength(3);
     const orgs = captured.map((c) => (JSON.parse(c.body) as { p_organisation_id: string }).p_organisation_id).sort();
-    expect(orgs).toEqual([ORG_A, ORG_B].sort());
+    expect(orgs).toEqual([ORG_A, ORG_A, ORG_B].sort());
     const tokens = captured.map((c) => {
       const line = c.headerText.split("\n").find((h) => h.toLowerCase().startsWith("authorization:"));
       return line?.slice("authorization: Bearer ".length);
     });
     expect(tokens).toContain(USER_TOKEN);
     expect(tokens).toContain(USER_TOKEN_2);
+    const reclass = captured.find((c) => c.url.includes("review_reclass_v1"));
+    expect(reclass).toBeDefined();
+    expect(JSON.parse(reclass!.body).p_new_data_class).toBe("internal");
   });
 
   it("maps a tenancy SQLSTATE without repeating the database text", async () => {

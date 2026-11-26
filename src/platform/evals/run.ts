@@ -1,13 +1,17 @@
 import type { DataClass } from "@/contracts/data-class";
 import type { EvalCase } from "@/contracts/eval-case";
-import type { ExpertKey } from "@/contracts/keys";
+import type { ExpertKey, ProviderKey } from "@/contracts/keys";
 import {
   PLATFORM_DEFAULT_CLEARANCE,
   narrowClearance,
   type ClearanceMatrix,
 } from "@/contracts/provider-route";
+import type { TenantContext } from "@/contracts/tenant-context";
+
+import type { GatewayDeps } from "@/platform/gateway/call";
 
 import { orderEvalCases } from "./order-cases";
+import { scoreEvalCase, type EvalCaseObservation, type EvalCaseScore } from "./score";
 
 export type EvalRunStatus = "completed" | "discarded" | "failed";
 
@@ -19,6 +23,40 @@ export interface EvalRunRow {
   /** Deterministic F35 case order for this execution. */
   caseOrder: string[];
   status: EvalRunStatus;
+  /** Per-case scores bound to this run's corpus generation. Empty when discarded. */
+  results: EvalCaseScore[];
+}
+
+export interface EvalCaseAskContext {
+  evalCase: EvalCase;
+  clearance: ClearanceMatrix;
+  corpusGeneration: string;
+  expertVersion: string;
+}
+
+/**
+ * Injectable case asker (gateway in production, mock in tests).
+ * Must honour `clearance` — never call a provider outside the cleared list for the case data class.
+ */
+export type EvalCaseObservationResult = EvalCaseObservation & {
+  /** If set and differs from the run's corpusGeneration, the whole run is discarded. */
+  observedCorpusGeneration?: string;
+};
+
+export type EvalCaseAsker = (
+  ctx: EvalCaseAskContext,
+) => EvalCaseObservationResult | Promise<EvalCaseObservationResult>;
+
+/** Wired by PR-10 when `askCase` is omitted; see `createEvalGatewayAsker` (dynamic import avoids a cycle). */
+export interface EvalGatewayWire {
+  context: TenantContext;
+  runId: string;
+  gatewayDeps: GatewayDeps;
+  composeChain?: readonly ProviderKey[];
+  tenantPolicy?: Partial<ClearanceMatrix>;
+  maxOutputUnits?: number;
+  callTimeoutMs?: number;
+  stageDeadlineMs?: number;
 }
 
 export interface RunExpertEvalInput {
@@ -27,13 +65,19 @@ export interface RunExpertEvalInput {
   chainConfig: Record<string, unknown>;
   corpusGeneration: string;
   cases: readonly EvalCase[];
+  /** Optional asker; when omitted, the run only binds order/metadata (PR-3 behaviour). */
+  askCase?: EvalCaseAsker;
+  /** When set (and `askCase` omitted), installs the default gateway asker for this run. */
+  gatewayWire?: EvalGatewayWire;
+  tenantPolicy?: Partial<ClearanceMatrix>;
+  platformClearance?: ClearanceMatrix;
 }
 
 /**
- * F35 `runExpertEval` — this slice binds the run row (expert version, chain, corpus generation)
- * and the deterministic case order. Scoring, gateway calls and persistence land in later slices.
+ * F35 `runExpertEval` — binds the run row, deterministic order, optional per-case scoring.
+ * Results are bound to `corpusGeneration`; drift mid-run discards the run.
  */
-export function runExpertEval(input: RunExpertEvalInput): EvalRunRow {
+export async function runExpertEval(input: RunExpertEvalInput): Promise<EvalRunRow> {
   if (input.expertVersion.trim().length === 0) {
     throw new Error("runExpertEval: expertVersion is required");
   }
@@ -51,14 +95,53 @@ export function runExpertEval(input: RunExpertEvalInput): EvalRunRow {
     }
   }
 
-  return {
+  const caseOrder = ordered.map((c) => c.caseId);
+  const base = {
     expertKey: input.expertKey,
     expertVersion: input.expertVersion,
     chainConfig: input.chainConfig,
     corpusGeneration: input.corpusGeneration,
-    caseOrder: ordered.map((c) => c.caseId),
-    status: "completed",
+    caseOrder,
   };
+
+  let askCase = input.askCase;
+  if (askCase === undefined && input.gatewayWire !== undefined) {
+    // Dynamic import: `ask-case-gateway.ts` types reference `EvalCaseAsker` from this module.
+    const { createEvalGatewayAsker } = await import("./ask-case-gateway");
+    askCase = createEvalGatewayAsker(input.gatewayWire);
+  }
+
+  if (!askCase) {
+    return { ...base, status: "completed", results: [] };
+  }
+
+  const results: EvalCaseScore[] = [];
+  for (const evalCase of ordered) {
+    const clearance = clearanceForEvalCase({
+      dataClass: evalCase.dataClass,
+      tenantPolicy: input.tenantPolicy,
+      platform: input.platformClearance,
+    });
+    const observation = await askCase({
+      evalCase,
+      clearance,
+      corpusGeneration: input.corpusGeneration,
+      expertVersion: input.expertVersion,
+    });
+
+    if (
+      observation.observedCorpusGeneration !== undefined &&
+      observation.observedCorpusGeneration !== input.corpusGeneration
+    ) {
+      return { ...base, status: "discarded", results: [] };
+    }
+
+    assertProvidersWithinClearance(evalCase.dataClass, clearance, observation.providerKeysUsed);
+
+    results.push(scoreEvalCase(evalCase, observation));
+  }
+
+  return { ...base, status: "completed", results };
 }
 
 /**
@@ -76,4 +159,19 @@ export function clearanceForEvalCase(args: {
   const platform =
     args.platform === undefined ? PLATFORM_DEFAULT_CLEARANCE : narrowClearance(args.platform, PLATFORM_DEFAULT_CLEARANCE);
   return narrowClearance(args.tenantPolicy, platform);
+}
+
+function assertProvidersWithinClearance(
+  dataClass: DataClass,
+  clearance: ClearanceMatrix,
+  used: readonly ProviderKey[],
+): void {
+  const allowed = new Set(clearance[dataClass]);
+  for (const key of used) {
+    if (!allowed.has(key)) {
+      throw new Error(
+        `runExpertEval: provider '${key}' is not cleared for data class '${dataClass}' (never widen clearance)`,
+      );
+    }
+  }
 }
