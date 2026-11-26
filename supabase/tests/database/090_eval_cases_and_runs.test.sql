@@ -3,7 +3,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(31);
+select plan(33);
 
 -- ---------------------------------------------------------------- fixture helpers
 -- Prefer `set local` (same pattern as 010/013) so auth.uid() and role stick for the transaction.
@@ -221,7 +221,7 @@ select ok(
   ),
   '26 company1 admin role holds evals.review admin for export (#82)');
 
--- ---------------------------------------------------------------- 27–31 supervisor round 1 on #240
+-- ---------------------------------------------------------------- 27–33 supervisor round 1 on #240
 -- 27 a member without evals.review cannot draft (any member could otherwise seed the queue).
 select pg_temp.set_jwt('00000000-0000-4000-8000-0000000000a4');
 select is(
@@ -252,7 +252,40 @@ select is(
   '22023',
   '29 a malformed drafted_on is refused as an argument (22023)');
 
--- 30–31 an approval by a member who is later suspended stops counting: export drops the case, and
+-- 30 an approver who stays active but loses evals.review no longer validates their approvals:
+-- take a2's eval_reviewer role away (a2 has no other evals.review grant) and the case leaves export.
+reset role;
+delete from public.membership_roles mr
+ using public.organisation_memberships m, public.organisation_roles r
+ where mr.membership_id = m.id
+   and mr.role_id = r.id
+   and m.organisation_id = '11111111-1111-4111-8111-111111111111'
+   and m.user_id = '00000000-0000-4000-8000-0000000000a2'
+   and r.key = 'eval_reviewer';
+select pg_temp.set_jwt('00000000-0000-4000-8000-0000000000a1');
+select ok(
+  not exists (
+    select 1 from public.export_approved_eval_cases_v1('11111111-1111-4111-8111-111111111111')
+     where id = (select case_id from t_draft)
+  ),
+  '30 a case approved by a member who lost evals.review drops out of the export');
+-- Restore the role so 32-33 test suspension on its own.
+reset role;
+insert into public.membership_roles (organisation_id, membership_id, role_id)
+select m.organisation_id, m.id, r.id
+  from public.organisation_memberships m
+  join public.organisation_roles r on r.organisation_id = m.organisation_id and r.key = 'eval_reviewer'
+ where m.organisation_id = '11111111-1111-4111-8111-111111111111'
+   and m.user_id = '00000000-0000-4000-8000-0000000000a2';
+select pg_temp.set_jwt('00000000-0000-4000-8000-0000000000a1');
+select ok(
+  exists (
+    select 1 from public.export_approved_eval_cases_v1('11111111-1111-4111-8111-111111111111')
+     where id = (select case_id from t_draft)
+  ),
+  '31 with the role restored the approval counts again');
+
+-- 32–33 an approval by a member who is later suspended stops counting: export drops the case, and
 -- the suspended member can no longer review at all.
 reset role;
 update public.organisation_memberships
@@ -265,7 +298,7 @@ select ok(
     select 1 from public.export_approved_eval_cases_v1('11111111-1111-4111-8111-111111111111')
      where id = (select case_id from t_draft)
   ),
-  '30 a case approved by a now-suspended member drops out of the export');
+  '32 a case approved by a now-suspended member drops out of the export');
 select pg_temp.set_jwt('00000000-0000-4000-8000-0000000000a2');
 select is(
   pg_temp.try_sql(format(
@@ -273,7 +306,7 @@ select is(
     (select case_id from t_pilot)
   )),
   '28000',
-  '31 a suspended member cannot review');
+  '33 a suspended member cannot review');
 reset role;
 
 select * from finish();

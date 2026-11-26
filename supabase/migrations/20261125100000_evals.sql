@@ -384,11 +384,21 @@ begin
        and c.status = 'approved'
        and c.approved_by is not null
        and c.origin <> 'pilot'
-       -- T-312 acceptance: an approval by a member who is no longer active is not valid, so that
-       -- case stays out of the exported (scored) set until an active reviewer approves it again.
+       -- T-312 acceptance: an approval is valid only while its approver is still an active member
+       -- who still holds evals.review at write or above (the same test review_eval_case_v1 applied
+       -- when they approved). Otherwise the case stays out of the exported (scored) set until an
+       -- eligible reviewer approves it again.
        and exists (
          select 1
            from public.organisation_memberships m
+           join public.membership_roles mr
+             on mr.membership_id = m.id
+            and mr.organisation_id = m.organisation_id
+           join public.role_permissions rp
+             on rp.role_id = mr.role_id
+            and rp.organisation_id = m.organisation_id
+            and rp.area = 'evals.review'
+            and rp.level in ('write', 'admin')
           where m.organisation_id = c.organisation_id
             and m.user_id = c.approved_by
             and m.status = 'active'

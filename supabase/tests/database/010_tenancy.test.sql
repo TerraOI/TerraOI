@@ -289,7 +289,7 @@ select is((select count(*)::int from t_meta
   '43 the scoping did not over-filter: their own two company1 hosts are still readable');
 select is((select count(*)::int from t_meta
             where case_name = 'multi_c1' and kind = 'role'
-              and organisation_id = '11111111-1111-4111-8111-111111111111'), 3::int,
+              and organisation_id = '11111111-1111-4111-8111-111111111111'), 4::int,
   -- Re-pin authorized by #179 / FAQ-0007 for the #39 contributor seed (2 → 3), then T-312 / #82
   -- eval_reviewer (3 → 4).
   '44 and all four company1 role definitions');
