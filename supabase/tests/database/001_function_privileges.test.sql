@@ -235,7 +235,11 @@ select is_empty($$
            ('public.review_eval_case_v1(uuid, uuid, text, jsonb)'::regprocedure),
            ('public.list_eval_cases_v1(uuid, text)'::regprocedure),
            ('public.export_approved_eval_cases_v1(uuid)'::regprocedure),
-           -- T-312 PR-5 (`20261126100000_eval_run_writers.sql`): append-only F35 run writer.
+           -- T-302b PR-1 (`20261126120000_knowledge_submissions.sql`): F15 submit / review / withdraw.
+           ('public.submit_employee_knowledge_v1(uuid, uuid, text, text, text, uuid[], uuid, timestamptz)'::regprocedure),
+           ('public.review_knowledge_submission_v1(uuid, uuid, text, text)'::regprocedure),
+           ('public.withdraw_knowledge_submission_v1(uuid, uuid)'::regprocedure),
+           -- T-312 PR-5 (`20261126140000_eval_run_writers.sql`): append-only F35 run writer.
            ('public.record_eval_run_v1(uuid, jsonb, jsonb)'::regprocedure)
          ) as allowed(proc)
      )
