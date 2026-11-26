@@ -14,7 +14,7 @@
   ],
   "expectedAnswerStatus": "partial",
   "citationRequired": false,
-  "dataClass": "internal",
+  "dataClass": "client_confidential",
   "projectScope": "synth-tenant-wide",
   "forbiddenClaims": [
     "Must not pull an older project's figures into the new job; must not use history from another conversation, tenant or project as the antecedent."

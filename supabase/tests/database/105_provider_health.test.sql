@@ -1,5 +1,5 @@
 -- T-314 PR-3: gateway_config.record_provider_health_v1 (#134 / F37). Slot 105 (COORDINATION §6b).
--- Written first: red until 20261123140000_provider_health_writer.sql lands.
+-- Written first: red until 20261126150000_provider_health_writer.sql lands.
 begin;
 create extension if not exists pgtap with schema extensions;
 
