@@ -85,18 +85,23 @@ create trigger source_versions_bump_policy_rev_update
   for each statement execute function public.bump_policy_revision();
 
 -- ---------------------------------------------------------------- helpers (not granted)
+-- Owner ruling on #267 B1 (2026-11-25, FAQ-0015): review, publish and revoke are their own
+-- permission area. `knowledge.review` at write or above, or `knowledge.admin` at admin. Contributors
+-- (`knowledge.write` only, FAQ-0006) capture but never publish.
 create or replace function public.user_may_review_knowledge(p_organisation_id uuid)
 returns boolean
 language sql stable security definer set search_path = public, pg_temp as $$
   select exists (
     select 1
       from public.organisation_memberships m
+      join public.organisations o
+        on o.id = m.organisation_id and o.status = 'active'
       join public.membership_roles mr on mr.membership_id = m.id
       join public.role_permissions rp
         on rp.role_id = mr.role_id
        and rp.organisation_id = m.organisation_id
-       and rp.area in ('knowledge.write', 'knowledge.admin')
-       and rp.level in ('write', 'admin')
+       and (   (rp.area = 'knowledge.review' and rp.level in ('write', 'admin'))
+            or (rp.area = 'knowledge.admin' and rp.level = 'admin'))
      where m.organisation_id = p_organisation_id
        and m.user_id = auth.uid()
        and m.status = 'active'
@@ -104,9 +109,30 @@ language sql stable security definer set search_path = public, pg_temp as $$
 $$;
 
 comment on function public.user_may_review_knowledge(uuid) is
-  'Internal: active member with knowledge.write|admin at write|admin may review/publish/revoke.';
+  'Internal: active member holding knowledge.review at write|admin, or knowledge.admin at admin, may review/publish/revoke (FAQ-0015). knowledge.write alone never does (FAQ-0006).';
 
 revoke all on function public.user_may_review_knowledge(uuid) from public, anon, authenticated, service_role;
+
+-- The audience half (#267 B2): the collection is in the current tenant scope and, when it is
+-- project-bound, the caller is a member of that project. Applies to every caller, knowledge.admin
+-- included. Kept apart from user_may_publish_into because that predicate also demands
+-- knowledge.write, which a reviewer need not hold.
+create or replace function public.user_in_collection_audience(p_collection_id uuid)
+returns boolean
+language sql stable security definer set search_path = public, pg_temp as $$
+  select exists (
+    select 1
+      from public.knowledge_collections c
+     where c.id = p_collection_id
+       and c.organisation_id = public.current_organisation_id()
+       and (c.project_id is null or public.is_project_member(c.project_id))
+  );
+$$;
+
+comment on function public.user_in_collection_audience(uuid) is
+  'Internal: collection is in the current tenant scope and, if project-bound, the caller is a project member (#267 B2).';
+
+revoke all on function public.user_in_collection_audience(uuid) from public, anon, authenticated, service_role;
 
 -- ---------------------------------------------------------------- review_decision_v1
 create or replace function public.review_decision_v1(
@@ -122,6 +148,7 @@ declare
   v_version public.source_versions%rowtype;
   v_collection public.knowledge_collections%rowtype;
   v_existing uuid;
+  v_existing_decision text;
   v_id uuid;
 begin
   perform public.set_tenant_scope(p_organisation_id);
@@ -152,7 +179,9 @@ begin
     from public.knowledge_collections
    where id = v_version.collection_id
      and organisation_id = v_organisation;
-  if not found or not public.collection_is_readable(v_collection.id) then
+  if not found
+     or not public.collection_is_readable(v_collection.id)
+     or not public.user_in_collection_audience(v_collection.id) then
     raise exception 'not permitted to review knowledge' using errcode = '42501';
   end if;
 
@@ -160,12 +189,16 @@ begin
     raise exception 'uploader cannot review their own version' using errcode = '42501';
   end if;
 
-  select id into v_existing
+  select id, decision into v_existing, v_existing_decision
     from public.knowledge_review_decisions
    where organisation_id = v_organisation
      and source_version_id = p_source_version_id;
   if v_existing is not null then
-    return v_existing; -- duplicate decision is a no-op
+    if v_existing_decision <> p_decision then
+      -- #267 N2: a different second decision must not read as success.
+      raise exception 'version already decided as %', v_existing_decision using errcode = '22023';
+    end if;
+    return v_existing; -- the same decision again is a no-op
   end if;
 
   insert into public.knowledge_review_decisions (
@@ -205,7 +238,6 @@ declare
   v_source public.knowledge_sources%rowtype;
   v_approved boolean;
   v_chunk_count int;
-  v_prior uuid;
 begin
   perform public.set_tenant_scope(p_organisation_id);
   v_organisation := public.current_organisation_id();
@@ -217,6 +249,20 @@ begin
     raise exception 'not permitted to publish knowledge' using errcode = '42501';
   end if;
 
+  -- #267 B5: take the source row first, FOR UPDATE, so two publishes of versions of one source
+  -- (this RPC, or this RPC racing the worker switch in chunk_publish, which locks the same row)
+  -- serialize. The version is read after the lock so its state is the committed one.
+  select s.* into v_source
+    from public.knowledge_sources s
+    join public.source_versions v
+      on v.source_id = s.id and v.organisation_id = s.organisation_id
+   where v.id = p_source_version_id
+     and s.organisation_id = v_organisation
+     for update of s;
+  if not found or v_source.lifecycle_state <> 'active' then
+    raise exception 'not permitted to publish knowledge' using errcode = '42501';
+  end if;
+
   select * into v_version
     from public.source_versions
    where id = p_source_version_id
@@ -225,19 +271,11 @@ begin
     raise exception 'not permitted to publish knowledge' using errcode = '42501';
   end if;
 
-  select * into v_source
-    from public.knowledge_sources
-   where id = v_version.source_id
-     and organisation_id = v_organisation;
-  if not found or v_source.lifecycle_state <> 'active' then
-    raise exception 'not permitted to publish knowledge' using errcode = '42501';
-  end if;
-
   select * into v_collection
     from public.knowledge_collections
    where id = v_version.collection_id
      and organisation_id = v_organisation;
-  if not found or not public.user_may_publish_into(v_collection.id) then
+  if not found or not public.user_in_collection_audience(v_collection.id) then
     raise exception 'not permitted to publish knowledge' using errcode = '42501';
   end if;
 
@@ -280,8 +318,7 @@ begin
    where organisation_id = v_organisation
      and source_id = v_version.source_id
      and state = 'published'
-     and id <> p_source_version_id
-  returning id into v_prior;
+     and id <> p_source_version_id;
 
   update public.source_versions
      set state = 'published',
@@ -328,8 +365,11 @@ begin
   select * into v_source
     from public.knowledge_sources
    where id = p_source_id
-     and organisation_id = v_organisation;
-  if not found then
+     and organisation_id = v_organisation
+     for update;
+  -- #267 B2: the same audience rule as review and publish. A permitted user outside a project
+  -- cannot revoke that project's sources.
+  if not found or not public.user_in_collection_audience(v_source.collection_id) then
     raise exception 'not permitted to revoke knowledge' using errcode = '42501';
   end if;
   if v_source.lifecycle_state = 'revoked' then

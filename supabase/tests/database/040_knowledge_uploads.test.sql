@@ -1,14 +1,13 @@
 -- T-112 upload sessions and the capture write path (supabase/migrations/20261106100000_knowledge_uploads.sql).
 -- Plan §7.2 steps 1–2, §9.2.1, §6.2, §4.3; F09, F10; #13(1) (only the scoped RPC writes), #13(2)
 -- (dedup is per collection and never an existence oracle), FAQ-0004, and the publish predicate that
--- issue #39 will seed.
+-- issue #39 seeded (`contributor` + `knowledge.write` on …a2).
 --
 -- Structure follows the supervisor's review of PR #12 (B5): every mutation a *member* must not be
 -- able to make is asserted as `authenticated` inside a tenant scope, and the privileged-path
 -- assertions pin the guard trigger, so dropping a grant or a guard fails a test rather than quietly
--- passing. Fixtures seed.sql does not carry — a `publisher` role holding `knowledge.write` — are
--- inserted in this transaction and rolled back with it, which pins the #39 predicate without
--- deciding #39 or touching the seed.
+-- passing. Company2 still needs a transaction-local `publisher` (seed has no company2 write role);
+-- company1's positive path uses the seeded contributor on …a2. The read-only negative uses …a4.
 --
 -- Synthetic hashes only (AGENTS.md §4.7): md5 of a marker string, doubled to the 64-hex shape the
 -- column requires. They are digests of nothing.
@@ -209,16 +208,12 @@ create temp table t_versions (case_name text, source_id uuid, source_version_id 
 create temp table t_count (case_name text, n int);
 reset role;
 
--- ---------------------------------------------------------------- publisher fixture (issue #39)
--- A `publisher` role holding `knowledge.write` at level `write`, granted to company1's field member
--- and to company2's owner (who otherwise holds no knowledge permission at all in the seed). It lives
--- only in this rolled-back transaction, so the predicate is pinned without a seed change and without
--- pre-empting #39.
+-- ---------------------------------------------------------------- publisher fixture (company2 only)
+-- Company1's #39 `contributor` is seeded on …a2. Company2 still has no write role in seed.sql, so
+-- this transaction-local `publisher` keeps …b1 able to exercise the predicate for cross-tenant cases.
 insert into public.organisation_roles (id, organisation_id, key, name) values
-  ('31000000-0000-4000-8000-000000000003', '11111111-1111-4111-8111-111111111111', 'publisher', 'Knowledge publisher'),
   ('32000000-0000-4000-8000-000000000002', '22222222-2222-4222-8222-222222222222', 'publisher', 'Knowledge publisher');
 insert into public.role_permissions (organisation_id, role_id, area, level) values
-  ('11111111-1111-4111-8111-111111111111', '31000000-0000-4000-8000-000000000003', 'knowledge.write', 'write'),
   ('22222222-2222-4222-8222-222222222222', '32000000-0000-4000-8000-000000000002', 'knowledge.write', 'write');
 insert into public.membership_roles (organisation_id, membership_id, role_id)
 select m.organisation_id, m.id, r.id
@@ -322,22 +317,17 @@ select is((select max_size from t_sessions where case_name = 'a1_bigclaim'), 209
   '16 and may never widen it past the plan §7.5 meter: an uploader cannot grant itself a bigger object');
 
 -- ---------------------------------------------------------------- 17-19 permission and audience
+-- …a2 now holds seeded `contributor`; the read-only negative uses …a4 (member only). Re-pin of
+-- assertion 17 authorized by #179 / FAQ-0007 for the #39 seed.
 set local role authenticated;
-set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a2';
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a4';
 insert into t_out values ('scope', pg_temp.try_scope('11111111-1111-4111-8111-111111111111'));
 insert into t_out values ('member_read_only_begin', pg_temp.try_begin('11111111-1111-4111-8111-111111111111', '51000000-0000-4000-8000-000000000001',
-  't112a2before', 'before-publisher.pdf', null));
+  't112a4readonly', 'read-only-member.pdf', null));
 reset role;
 
 select is((select result from t_out where case_name = 'member_read_only_begin'), '42501',
-  '17 a member whose only knowledge permission is `knowledge.read` cannot open a session at all: reading a corpus is not publishing into it (issue #39)');
-
--- Same person, same call; the only thing that changes is the role.
-insert into public.membership_roles (organisation_id, membership_id, role_id)
-select m.organisation_id, m.id, r.id
-  from public.organisation_memberships m
-  join public.organisation_roles r on r.organisation_id = m.organisation_id and r.key = 'publisher'
- where m.user_id = '00000000-0000-4000-8000-0000000000a2';
+  '17 a member whose only knowledge permission is `knowledge.read` cannot open a session at all: reading a corpus is not publishing into it (issue #39; seeded contributor is on …a2, so this case uses …a4)');
 
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a2';
@@ -353,7 +343,7 @@ insert into t_sessions
 reset role;
 
 select is((select result from t_out where case_name = 'publisher_begin_ok'), 'ok',
-  '18 `knowledge.write` at level `write` is what opens a tenant-wide corpus (the #39 predicate, pinned without a seed change)');
+  '18 `knowledge.write` at level `write` (seeded `contributor` on …a2) is what opens a tenant-wide corpus (issue #39 / FAQ-0006)');
 select is((select result from t_out where case_name = 'publisher_begin_project'), '42501',
   '19 and it does not reach a project corpus the caller is not a member of: publish permission never overrides audience (§6.2, §7.2 step 5)');
 
