@@ -295,5 +295,7 @@ describe("the gateway is the only place a provider is reached (AGENTS.md §4.3)"
     expect(gatewayFiles).toContain(`${GATEWAY}/config.ts`);
     // From 115b the guard also proves it is looking at the place where the real `fetch` calls live.
     expect(gatewayFiles).toContain(`${GATEWAY}/adapters.ts`);
+    // T-314 F37: scheduled/passive health lives next to the circuit book, not in a worker cron yet.
+    expect(gatewayFiles).toContain(`${GATEWAY}/health.ts`);
   });
 });
