@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
+import type { AdminRpcClient } from "./admin-rpc";
 import type { AdminPorts } from "./admin-service";
-import { handleCreateProject } from "./admin-service";
+import { handleCreateCollection, handleCreateProject } from "./admin-service";
 
-function ports(createProject = vi.fn()): AdminPorts {
+function ports(overrides: Partial<Pick<AdminRpcClient, "createProject" | "createCollection">> = {}): AdminPorts {
   return {
     now: () => 1_700_000_000,
     signingSecret: () => "a".repeat(32),
@@ -15,27 +16,27 @@ function ports(createProject = vi.fn()): AdminPorts {
     adminRpc: {
       grantMembershipRole: vi.fn(),
       revokeMembershipRole: vi.fn(),
-      createProject,
+      createProject: overrides.createProject ?? vi.fn(),
       addProjectMember: vi.fn(),
       removeProjectMember: vi.fn(),
-      createCollection: vi.fn(),
+      createCollection: overrides.createCollection ?? vi.fn(),
     },
   };
 }
 
 describe("handleCreateProject (T-202 PR-2b)", () => {
   it("rejects a non-POST method without dialling the RPC", async () => {
-    const createProject = vi.fn();
+    const createProject = vi.fn<AdminRpcClient["createProject"]>();
     const response = await handleCreateProject({
       request: new Request("https://company1.terraoi.test/admin/projects/create", { method: "GET" }),
-      ports: ports(createProject),
+      ports: ports({ createProject }),
     });
     expect(response.status).toBe(405);
     expect(createProject).not.toHaveBeenCalled();
   });
 
   it("refuses when session ports are unbound (unavailable, no RPC)", async () => {
-    const createProject = vi.fn();
+    const createProject = vi.fn<AdminRpcClient["createProject"]>();
     const response = await handleCreateProject({
       request: new Request("https://company1.terraoi.test/admin/projects/create", {
         method: "POST",
@@ -50,7 +51,7 @@ describe("handleCreateProject (T-202 PR-2b)", () => {
           visibility: "organisation",
         }),
       }),
-      ports: ports(createProject),
+      ports: ports({ createProject }),
       hostOptions: { developmentHost: "company1.terraoi.test" },
     });
     expect(response.status).toBe(503);
@@ -58,5 +59,17 @@ describe("handleCreateProject (T-202 PR-2b)", () => {
     const body = (await response.json()) as { ok: boolean; code: string };
     expect(body.ok).toBe(false);
     expect(body.code).toBe("unavailable");
+  });
+});
+
+describe("handleCreateCollection (T-202 PR-2c)", () => {
+  it("rejects a non-POST method without dialling create_collection_v1", async () => {
+    const createCollection = vi.fn<AdminRpcClient["createCollection"]>();
+    const response = await handleCreateCollection({
+      request: new Request("https://company1.terraoi.test/admin/collections/create", { method: "GET" }),
+      ports: ports({ createCollection }),
+    });
+    expect(response.status).toBe(405);
+    expect(createCollection).not.toHaveBeenCalled();
   });
 });

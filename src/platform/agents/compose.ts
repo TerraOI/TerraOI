@@ -110,16 +110,26 @@ export interface SemanticVerdict {
 }
 
 /**
- * Verifier pass 2 (plan §12.1). T-215 fills this seam: it receives each claim with **only its cited
- * spans**, not the conversation, and answers with the route that `audit.verifierRoute` selected.
- * Until it exists, `requirement` claims stay withheld — which is what makes the absence visible
- * rather than silent.
+ * Verifier pass 2 (plan §12.1). `createComposeDepsWithSemanticVerifier` (T-215 PR-3) default-wires
+ * the gateway port. Hand-injected ports remain valid for tests. Until a port is present,
+ * `requirement` claims stay withheld — which is what makes the absence visible rather than silent.
  */
 export interface SemanticVerifierPort {
   verify(input: {
     claims: readonly Claim[];
     evidence: readonly RunEvidence[];
     route: RouteDecision;
+    /**
+     * Who just composed this candidate. Required so a material-failure retry excludes the *current*
+     * composer (§12.4 (e)), not a composer fixed at deps construction.
+     */
+    composedWith: { providerKey: ProviderKey; model: string };
+    /**
+     * Which compose pass this verification follows (1 = first answer, 2 = the material-failure
+     * retry). The verifier puts it in the gateway pass tag so the second pass-2 run does not reuse
+     * the first one's attempt ids and budget reservations (§12.3; supervisor round 1 on #284).
+     */
+    composePass?: number;
   }): Promise<readonly SemanticVerdict[]>;
 }
 
@@ -449,6 +459,8 @@ export async function composeAnswer(
         claims,
         evidence: runEvidence,
         route: verifierRoute,
+        composedWith: { providerKey: composed.providerKey, model: composed.model },
+        composePass,
       });
       for (const verdict of returned) verdicts.set(verdict.claimId, verdict);
       audit.verdicts = [...returned];

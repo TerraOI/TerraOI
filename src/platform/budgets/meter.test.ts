@@ -92,4 +92,36 @@ describe("createBoundMeterPortFromBudgetLedger (F19 seam)", () => {
       }),
     ).rejects.toThrow(/concurrent run cap/i);
   });
+
+  it("enforces the per-user burst limit", async () => {
+    const userId = "00000000-0000-4000-8000-0000000000a1";
+    const ledger = createInMemoryBudgetLedger({
+      dailyCeiling: 10_000,
+      concurrentRunCap: 10,
+      burstPerUser: 1,
+    });
+    const meter = createBoundMeterPortFromBudgetLedger(ledger, {
+      userIdForRun: () => userId,
+    });
+    await meter.reserve({
+      organisationId: ORG,
+      runId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+      attemptId: "b1",
+      task: "compose",
+      providerKey: "local_box",
+      maxInputUnits: 1,
+      maxOutputUnits: 1,
+    });
+    await expect(
+      meter.reserve({
+        organisationId: ORG,
+        runId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2",
+        attemptId: "b2",
+        task: "compose",
+        providerKey: "local_box",
+        maxInputUnits: 1,
+        maxOutputUnits: 1,
+      }),
+    ).rejects.toThrow(/per-user burst/i);
+  });
 });
