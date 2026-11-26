@@ -85,14 +85,18 @@ function harness(
   );
   const meter = recordingMeter();
   const events: ProgressEvent[] = [];
-  const book = options.book ?? new CircuitBook({ openAfterFailures: 2, cooldownMs: 30_000 });
+  const book =
+    options.book ??
+    new CircuitBook({ openAfterFailures: 2, cooldownMs: 30_000 });
   return {
     adapters,
     meter,
     book,
     events,
     deps: {
-      config: options.config ?? testConfiguration({ openAfterFailures: 2, cooldownMs: 30_000 }),
+      config:
+        options.config ??
+        testConfiguration({ openAfterFailures: 2, cooldownMs: 30_000 }),
       adapters: registryOf(...adapters),
       health: book,
       meter,
@@ -102,8 +106,13 @@ function harness(
   };
 }
 
-function adapterFor(h: { adapters: ReturnType<typeof fakeAdapter>[] }, providerKey: ProviderKey) {
-  const found = h.adapters.find((adapter) => adapter.providerKey === providerKey);
+function adapterFor(
+  h: { adapters: ReturnType<typeof fakeAdapter>[] },
+  providerKey: ProviderKey,
+) {
+  const found = h.adapters.find(
+    (adapter) => adapter.providerKey === providerKey,
+  );
   if (!found) throw new Error(`no adapter under test for ${providerKey}`);
   return found;
 }
@@ -112,15 +121,26 @@ describe("chain walking in cost order (plan §12.4, F38)", () => {
   it("a public compose walks the local box to Workers AI and reports which tier answered", async () => {
     const h = harness({
       local_box: [failed("connection")],
-      workers_ai: [answered(JSON.stringify({ answer: "Step 1: hold the trigger." }), "hosted-beta")],
+      workers_ai: [
+        answered(
+          JSON.stringify({ answer: "Step 1: hold the trigger." }),
+          "hosted-beta",
+        ),
+      ],
     });
-    const result = await callModelGateway(baseInput({ chain: ["local_box", "workers_ai"] }), h.deps);
+    const result = await callModelGateway(
+      baseInput({ chain: ["local_box", "workers_ai"] }),
+      h.deps,
+    );
     if (!result.ok) throw new Error(`expected an answer, got ${result.reason}`);
     expect(result.providerKey).toBe("workers_ai");
     expect(result.chainPosition).toBe(2);
     expect(result.capabilityTier).toBe("medium");
     expect(result.parsed).toEqual({ answer: "Step 1: hold the trigger." });
-    expect(result.attempts.map((attempt) => attempt.providerKey)).toEqual(["local_box", "workers_ai"]);
+    expect(result.attempts.map((attempt) => attempt.providerKey)).toEqual([
+      "local_box",
+      "workers_ai",
+    ]);
     expect(adapterFor(h, "local_box").calls).toHaveLength(1);
     expect(adapterFor(h, "workers_ai").calls).toHaveLength(1);
     expect(result.matrixRevision).toBe(7);
@@ -137,22 +157,39 @@ describe("chain walking in cost order (plan §12.4, F38)", () => {
   for (const kind of advanceOn) {
     it(`advances to the next provider on ${kind}`, async () => {
       const h = harness({
-        local_box: [failed(kind, kind === "timeout" || kind === "invalid_output")],
+        local_box: [
+          failed(kind, kind === "timeout" || kind === "invalid_output"),
+        ],
         workers_ai: [answered(JSON.stringify({ answer: "ok" }), "hosted-beta")],
       });
-      const result = await callModelGateway(baseInput({ chain: ["local_box", "workers_ai"] }), h.deps);
-      if (!result.ok) throw new Error(`expected an answer, got ${result.reason}`);
+      const result = await callModelGateway(
+        baseInput({ chain: ["local_box", "workers_ai"] }),
+        h.deps,
+      );
+      if (!result.ok)
+        throw new Error(`expected an answer, got ${result.reason}`);
       expect(result.providerKey).toBe("workers_ai");
-      expect(result.attempts[0]).toMatchObject({ providerKey: "local_box", outcome: kind });
+      expect(result.attempts[0]).toMatchObject({
+        providerKey: "local_box",
+        outcome: kind,
+      });
     });
   }
 
   it("an answer body that fails the output schema is an invalid_output advance, not a delivered answer", async () => {
     const h = harness({
-      local_box: [answered("<html>a model that ignored the schema</html>", "open-weights-alpha")],
+      local_box: [
+        answered(
+          "<html>a model that ignored the schema</html>",
+          "open-weights-alpha",
+        ),
+      ],
       workers_ai: [answered(JSON.stringify({ answer: "ok" }), "hosted-beta")],
     });
-    const result = await callModelGateway(baseInput({ chain: ["local_box", "workers_ai"] }), h.deps);
+    const result = await callModelGateway(
+      baseInput({ chain: ["local_box", "workers_ai"] }),
+      h.deps,
+    );
     if (!result.ok) throw new Error(`expected an answer, got ${result.reason}`);
     expect(result.attempts[0]?.outcome).toBe("invalid_output");
     expect(result.providerKey).toBe("workers_ai");
@@ -160,15 +197,20 @@ describe("chain walking in cost order (plan §12.4, F38)", () => {
 
   it("an empty eligible chain returns unavailable without calling anything", async () => {
     const h = harness({ local_box: [answered("never", "open-weights-alpha")] });
-    const result = await callModelGateway(baseInput({ chain: ["openrouter"] }), {
-      ...h.deps,
-      adapters: registryOf(),
-    });
+    const result = await callModelGateway(
+      baseInput({ chain: ["openrouter"] }),
+      {
+        ...h.deps,
+        adapters: registryOf(),
+      },
+    );
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.reason).toBe("no_eligible_provider");
     expect(result.attempts).toEqual([]);
-    expect(result.skipped).toEqual([{ providerKey: "openrouter", reason: "no_adapter" }]);
+    expect(result.skipped).toEqual([
+      { providerKey: "openrouter", reason: "no_adapter" },
+    ]);
   });
 });
 
@@ -176,10 +218,25 @@ describe("clearance is never relaxed to find a provider (AGENTS.md §4.3)", () =
   it("a client_confidential payload produces zero calls to DeepSeek, OpenRouter and Workers AI", async () => {
     const h = harness({
       local_box: [failed("connection")],
-      workers_ai: [answered(JSON.stringify({ answer: "must not be reached" }), "hosted-beta")],
+      workers_ai: [
+        answered(
+          JSON.stringify({ answer: "must not be reached" }),
+          "hosted-beta",
+        ),
+      ],
       claude: [failed("connection")],
-      deepseek: [answered(JSON.stringify({ answer: "must not be reached" }), "hosted-delta")],
-      openrouter: [answered(JSON.stringify({ answer: "must not be reached" }), "hosted-epsilon")],
+      deepseek: [
+        answered(
+          JSON.stringify({ answer: "must not be reached" }),
+          "hosted-delta",
+        ),
+      ],
+      openrouter: [
+        answered(
+          JSON.stringify({ answer: "must not be reached" }),
+          "hosted-epsilon",
+        ),
+      ],
     });
     const result = await callModelGateway(
       baseInput({
@@ -193,10 +250,15 @@ describe("clearance is never relaxed to find a provider (AGENTS.md §4.3)", () =
     // The two cleared providers were both tried and both failed; the chain never widened.
     expect(result.reason).toBe("all_attempts_failed");
     for (const providerKey of ["workers_ai", "deepseek", "openrouter"]) {
-      expect(adapterFor(h, providerKey).calls, `${providerKey} received the payload`).toHaveLength(0);
+      expect(
+        adapterFor(h, providerKey).calls,
+        `${providerKey} received the payload`,
+      ).toHaveLength(0);
     }
     expect(
-      result.skipped.filter((skip) => skip.reason === "not_cleared").map((skip) => skip.providerKey),
+      result.skipped
+        .filter((skip) => skip.reason === "not_cleared")
+        .map((skip) => skip.providerKey),
     ).toEqual(["workers_ai", "deepseek", "openrouter"]);
     expect(adapterFor(h, "local_box").calls).toHaveLength(1);
     expect(adapterFor(h, "claude").calls).toHaveLength(1);
@@ -208,24 +270,49 @@ describe("clearance is never relaxed to find a provider (AGENTS.md §4.3)", () =
     const h = harness(
       {
         local_box: [answered("never", "open-weights-alpha")],
-        workers_ai: [answered(JSON.stringify({ answer: "never" }), "hosted-beta")],
+        workers_ai: [
+          answered(JSON.stringify({ answer: "never" }), "hosted-beta"),
+        ],
         claude: [answered(JSON.stringify({ answer: "never" }), "hosted-gamma")],
-        deepseek: [answered(JSON.stringify({ answer: "never" }), "hosted-delta")],
-        openrouter: [answered(JSON.stringify({ answer: "never" }), "hosted-epsilon")],
+        deepseek: [
+          answered(JSON.stringify({ answer: "never" }), "hosted-delta"),
+        ],
+        openrouter: [
+          answered(JSON.stringify({ answer: "never" }), "hosted-epsilon"),
+        ],
       },
       { book },
     );
-    const result = await callModelGateway(baseInput({ dataClass: "restricted" }), h.deps);
+    const result = await callModelGateway(
+      baseInput({ dataClass: "restricted" }),
+      h.deps,
+    );
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.reason).toBe("no_eligible_provider");
-    for (const adapter of h.adapters) expect(adapter.calls, `${adapter.providerKey} was called`).toHaveLength(0);
-    expect(result.skipped).toContainEqual({ providerKey: "local_box", reason: "circuit_open" });
+    for (const adapter of h.adapters)
+      expect(adapter.calls, `${adapter.providerKey} was called`).toHaveLength(
+        0,
+      );
+    expect(result.skipped).toContainEqual({
+      providerKey: "local_box",
+      reason: "circuit_open",
+    });
   });
 
   it("a restricted payload is answered by the local box when the box is up", async () => {
-    const h = harness({ local_box: [answered(JSON.stringify({ answer: "restricted ok" }), "open-weights-alpha")] });
-    const result = await callModelGateway(baseInput({ dataClass: "restricted", chain: ["local_box"] }), h.deps);
+    const h = harness({
+      local_box: [
+        answered(
+          JSON.stringify({ answer: "restricted ok" }),
+          "open-weights-alpha",
+        ),
+      ],
+    });
+    const result = await callModelGateway(
+      baseInput({ dataClass: "restricted", chain: ["local_box"] }),
+      h.deps,
+    );
     if (!result.ok) throw new Error(`expected an answer, got ${result.reason}`);
     expect(result.chainPosition).toBe(1);
   });
@@ -237,7 +324,10 @@ describe("metering every attempt (plan §12.3, F19 reserve-only)", () => {
       local_box: [failed("connection")],
       workers_ai: [answered(JSON.stringify({ answer: "ok" }), "hosted-beta")],
     });
-    const result = await callModelGateway(baseInput({ chain: ["local_box", "workers_ai"] }), h.deps);
+    const result = await callModelGateway(
+      baseInput({ chain: ["local_box", "workers_ai"] }),
+      h.deps,
+    );
     if (!result.ok) throw new Error(`expected an answer, got ${result.reason}`);
     const [first, second] = result.attempts;
     if (!first || !second) throw new Error("expected two attempts");
@@ -264,11 +354,17 @@ describe("metering every attempt (plan §12.3, F19 reserve-only)", () => {
         local_box: [failed(kind, true)],
         workers_ai: [answered(JSON.stringify({ answer: "ok" }), "hosted-beta")],
       });
-      const result = await callModelGateway(baseInput({ chain: ["local_box", "workers_ai"] }), h.deps);
-      if (!result.ok) throw new Error(`expected an answer, got ${result.reason}`);
+      const result = await callModelGateway(
+        baseInput({ chain: ["local_box", "workers_ai"] }),
+        h.deps,
+      );
+      if (!result.ok)
+        throw new Error(`expected an answer, got ${result.reason}`);
       const [first] = result.attempts;
       if (!first) throw new Error("expected an attempt");
-      expect(h.meter.byAttempt.get(first.attemptId)?.reconciled, kind).toBe("ambiguous");
+      expect(h.meter.byAttempt.get(first.attemptId)?.reconciled, kind).toBe(
+        "ambiguous",
+      );
       expect(h.meter.byAttempt.get(first.attemptId)?.reserved, kind).toBe(true);
     }
   });
@@ -303,6 +399,57 @@ describe("metering every attempt (plan §12.3, F19 reserve-only)", () => {
     expect(freeAllowances.snapshot("local_box").cashCost).toBe(0);
   });
 
+  it("a free attempt that fails cleanly gives its held units back; a success settles what it used", async () => {
+    const freeAllowances = createFreeAllowanceBook({
+      allowances: { local_box: 10_000, workers_ai: 10_000 },
+    });
+    const h = harness(
+      {
+        local_box: [failed("connection")],
+        workers_ai: [
+          answered(JSON.stringify({ answer: "free" }), "hosted-beta"),
+        ],
+      },
+      { freeAllowances },
+    );
+    const result = await callModelGateway(
+      baseInput({ chain: ["local_box", "workers_ai", "claude"] }),
+      h.deps,
+    );
+    if (!result.ok) throw new Error(`expected an answer, got ${result.reason}`);
+    expect(result.providerKey).toBe("workers_ai");
+    expect(freeAllowances.snapshot("local_box")).toMatchObject({
+      remainingUnits: 10_000,
+      settledUnits: 0,
+    });
+    // answered() reports 40 + 12 units.
+    expect(freeAllowances.snapshot("workers_ai")).toMatchObject({
+      remainingUnits: 10_000 - 52,
+      settledUnits: 52,
+    });
+  });
+
+  it("a free attempt that may have been billed keeps its whole hold", async () => {
+    const freeAllowances = createFreeAllowanceBook({
+      allowances: { local_box: 10_000 },
+    });
+    const h = harness(
+      {
+        local_box: [failed("connection", true)],
+        claude: [answered(JSON.stringify({ answer: "paid" }), "claude-sonnet")],
+      },
+      { freeAllowances },
+    );
+    const result = await callModelGateway(
+      baseInput({ chain: ["local_box", "claude"] }),
+      h.deps,
+    );
+    if (!result.ok) throw new Error(`expected an answer, got ${result.reason}`);
+    const snap = freeAllowances.snapshot("local_box");
+    expect(snap.settledUnits).toBeGreaterThan(0);
+    expect(snap.remainingUnits + snap.settledUnits).toBe(10_000);
+  });
+
   it("fails closed when the reservation authority is unavailable: no provider is called at all", async () => {
     const h = harness({ local_box: [answered("never", "open-weights-alpha")] });
     h.meter.reserveThrows = true;
@@ -315,7 +462,10 @@ describe("metering every attempt (plan §12.3, F19 reserve-only)", () => {
 
   it("the stage deadline stops the walk instead of letting it run on (plan §8.3)", async () => {
     const h = harness({ local_box: [failed("connection")] });
-    const result = await callModelGateway(baseInput({ stageDeadlineMs: 0 }), h.deps);
+    const result = await callModelGateway(
+      baseInput({ stageDeadlineMs: 0 }),
+      h.deps,
+    );
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.reason).toBe("deadline");
@@ -327,8 +477,15 @@ describe("verify through the gateway: rule (e) is not the caller's job (plan §1
   it("skips the model that composed the answer and asks the next eligible one", async () => {
     const h = harness(
       {
-        local_box: [answered(JSON.stringify({ answer: "must not verify its own work" }), "open-weights-alpha")],
-        claude: [answered(JSON.stringify({ answer: "supported" }), "hosted-gamma")],
+        local_box: [
+          answered(
+            JSON.stringify({ answer: "must not verify its own work" }),
+            "open-weights-alpha",
+          ),
+        ],
+        claude: [
+          answered(JSON.stringify({ answer: "supported" }), "hosted-gamma"),
+        ],
       },
       {
         // A box verifier model is recorded (issue #9 option B, later decision) and it is the same
@@ -336,7 +493,13 @@ describe("verify through the gateway: rule (e) is not the caller's job (plan §1
         config: testConfiguration({
           endpoints: M1_ENDPOINTS.map((endpoint) =>
             endpoint.providerKey === "local_box"
-              ? { ...endpoint, verifierModel: { model: "open-weights-alpha", evalSetVersion: "ev-0002" } }
+              ? {
+                  ...endpoint,
+                  verifierModel: {
+                    model: "open-weights-alpha",
+                    evalSetVersion: "ev-0002",
+                  },
+                }
               : endpoint,
           ),
         }),
@@ -352,26 +515,42 @@ describe("verify through the gateway: rule (e) is not the caller's job (plan §1
       },
       h.deps,
     );
-    if (!result.ok) throw new Error(`expected a verifier, got ${result.reason}`);
+    if (!result.ok)
+      throw new Error(`expected a verifier, got ${result.reason}`);
     expect(result.providerKey).toBe("claude");
     expect(result.chainPosition).toBe(2);
-    expect(result.skipped).toContainEqual({ providerKey: "local_box", reason: "composed_the_answer" });
+    expect(result.skipped).toContainEqual({
+      providerKey: "local_box",
+      reason: "composed_the_answer",
+    });
     expect(adapterFor(h, "local_box").calls).toHaveLength(0);
-    expect(result.attempts.map((attempt) => attempt.providerKey)).toEqual(["claude"]);
+    expect(result.attempts.map((attempt) => attempt.providerKey)).toEqual([
+      "claude",
+    ]);
   });
 });
 
 describe("the selected model reaches the provider, and the attempt identity says which call it was", () => {
   it("a verify call asks the adapter for the evaluated verifier model, not the endpoint's composing model (plan §12.4 rule (e) on the wire)", async () => {
     const h = harness(
-      { claude: [answered(JSON.stringify({ answer: "supported" }), "hosted-gamma-verifier")] },
+      {
+        claude: [
+          answered(
+            JSON.stringify({ answer: "supported" }),
+            "hosted-gamma-verifier",
+          ),
+        ],
+      },
       {
         config: testConfiguration({
           endpoints: M1_ENDPOINTS.map((endpoint) =>
             endpoint.providerKey === "claude"
               ? {
                   ...endpoint,
-                  verifierModel: { model: "hosted-gamma-verifier", evalSetVersion: "ev-0003" },
+                  verifierModel: {
+                    model: "hosted-gamma-verifier",
+                    evalSetVersion: "ev-0003",
+                  },
                 }
               : endpoint,
           ),
@@ -388,7 +567,8 @@ describe("the selected model reaches the provider, and the attempt identity says
       },
       h.deps,
     );
-    if (!result.ok) throw new Error(`expected a verifier, got ${result.reason}`);
+    if (!result.ok)
+      throw new Error(`expected a verifier, got ${result.reason}`);
     const [request] = adapterFor(h, "claude").calls;
     // Selecting a verifier is worthless if the call then asks the provider for `endpoint.model`,
     // which is the model that composed the answer. The request itself is the assertion.
@@ -397,21 +577,49 @@ describe("the selected model reaches the provider, and the attempt identity says
   });
 
   it("a compose and a verify at one chain position are separate attempts, and the same call retried keeps one id (§12.3)", async () => {
-    const composeInput = baseInput({ chain: ["claude"], runId: "run-identity" });
+    const composeInput = baseInput({
+      chain: ["claude"],
+      runId: "run-identity",
+    });
     const verifyInput = {
-      ...baseInput({ chain: ["claude"], runId: "run-identity", dataClass: "internal" }),
+      ...baseInput({
+        chain: ["claude"],
+        runId: "run-identity",
+        dataClass: "internal",
+      }),
       task: "verify" as const,
       minTier: "medium" as const,
-      composedWith: { providerKey: "local_box" as const, model: "open-weights-alpha" },
+      composedWith: {
+        providerKey: "local_box" as const,
+        model: "open-weights-alpha",
+      },
       passTag: "pass-1" as const,
     };
 
-    const firstCompose = await callModelGateway(composeInput, harness({ claude: [answered(JSON.stringify({ answer: "a" }), "hosted-gamma")] }).deps);
-    const verify = await callModelGateway(verifyInput, harness({ claude: [answered(JSON.stringify({ answer: "supported" }), "hosted-gamma")] }).deps);
-    const retryOfCompose = await callModelGateway(composeInput, harness({ claude: [answered(JSON.stringify({ answer: "a" }), "hosted-gamma")] }).deps);
+    const firstCompose = await callModelGateway(
+      composeInput,
+      harness({
+        claude: [answered(JSON.stringify({ answer: "a" }), "hosted-gamma")],
+      }).deps,
+    );
+    const verify = await callModelGateway(
+      verifyInput,
+      harness({
+        claude: [
+          answered(JSON.stringify({ answer: "supported" }), "hosted-gamma"),
+        ],
+      }).deps,
+    );
+    const retryOfCompose = await callModelGateway(
+      composeInput,
+      harness({
+        claude: [answered(JSON.stringify({ answer: "a" }), "hosted-gamma")],
+      }).deps,
+    );
 
     for (const outcome of [firstCompose, verify, retryOfCompose]) {
-      if (!outcome.ok) throw new Error(`expected an answer, got ${outcome.reason}`);
+      if (!outcome.ok)
+        throw new Error(`expected an answer, got ${outcome.reason}`);
     }
     const composeId = firstCompose.attempts[0]?.attemptId;
     const verifyId = verify.attempts[0]?.attemptId;
@@ -428,24 +636,57 @@ describe("the selected model reaches the provider, and the attempt identity says
 
 describe("a call that is the gateway's own bug is refused, not charged to the provider (plan §12.3, §12.4)", () => {
   const verifyBase = () => ({
-    ...baseInput({ chain: ["claude"], runId: "run-pass", dataClass: "internal" }),
+    ...baseInput({
+      chain: ["claude"],
+      runId: "run-pass",
+      dataClass: "internal",
+    }),
     task: "verify" as const,
     minTier: "medium" as const,
-    composedWith: { providerKey: "local_box" as const, model: "open-weights-alpha" },
+    composedWith: {
+      providerKey: "local_box" as const,
+      model: "open-weights-alpha",
+    },
   });
 
   /** `undefined` here is a *runtime* case: a replay or a queue payload can arrive without a tag. */
-  function verifyCall(tag: string | undefined): GatewayCallInput<{ answer: string }> {
+  function verifyCall(
+    tag: string | undefined,
+  ): GatewayCallInput<{ answer: string }> {
     const base = verifyBase();
-    return (tag === undefined ? base : { ...base, passTag: tag }) as GatewayCallInput<{ answer: string }>;
+    return (
+      tag === undefined ? base : { ...base, passTag: tag }
+    ) as GatewayCallInput<{ answer: string }>;
   }
 
   it("two per-claim verifies at one chain position get different attempt ids, and a replay of one keeps its own", async () => {
-    const first = await callModelGateway(verifyCall("claim-1"), harness({ claude: [answered(JSON.stringify({ answer: "supported" }), "hosted-gamma")] }).deps);
-    const second = await callModelGateway(verifyCall("claim-2"), harness({ claude: [answered(JSON.stringify({ answer: "supported" }), "hosted-gamma")] }).deps);
-    const replay = await callModelGateway(verifyCall("claim-1"), harness({ claude: [answered(JSON.stringify({ answer: "supported" }), "hosted-gamma")] }).deps);
+    const first = await callModelGateway(
+      verifyCall("claim-1"),
+      harness({
+        claude: [
+          answered(JSON.stringify({ answer: "supported" }), "hosted-gamma"),
+        ],
+      }).deps,
+    );
+    const second = await callModelGateway(
+      verifyCall("claim-2"),
+      harness({
+        claude: [
+          answered(JSON.stringify({ answer: "supported" }), "hosted-gamma"),
+        ],
+      }).deps,
+    );
+    const replay = await callModelGateway(
+      verifyCall("claim-1"),
+      harness({
+        claude: [
+          answered(JSON.stringify({ answer: "supported" }), "hosted-gamma"),
+        ],
+      }).deps,
+    );
     for (const outcome of [first, second, replay]) {
-      if (!outcome.ok) throw new Error(`expected a verifier, got ${outcome.reason}`);
+      if (!outcome.ok)
+        throw new Error(`expected a verifier, got ${outcome.reason}`);
     }
     const firstId = first.attempts[0]?.attemptId;
     // Two claims verified at the same position are two calls: one id for both lets one reservation
@@ -457,9 +698,16 @@ describe("a call that is the gateway's own bug is refused, not charged to the pr
   });
 
   it("a verify call that names no pass is refused before anything is reserved or called (§12.3)", async () => {
-    const h = harness({ claude: [answered(JSON.stringify({ answer: "supported" }), "hosted-gamma")] });
+    const h = harness({
+      claude: [
+        answered(JSON.stringify({ answer: "supported" }), "hosted-gamma"),
+      ],
+    });
     const result = await callModelGateway(verifyCall(undefined), h.deps);
-    if (result.ok) throw new Error(`expected a refusal, got an answer from ${result.providerKey}`);
+    if (result.ok)
+      throw new Error(
+        `expected a refusal, got an answer from ${result.providerKey}`,
+      );
     // `verify:single` was the old fallback: every untagged claim in a run shared one metering key.
     expect(result.reason).toBe("misconfigured_call");
     expect(result.attempts).toHaveLength(0);
@@ -472,7 +720,11 @@ describe("a call that is the gateway's own bug is refused, not charged to the pr
   });
 
   it("a blank pass tag is the same bug as no pass tag", async () => {
-    const h = harness({ claude: [answered(JSON.stringify({ answer: "supported" }), "hosted-gamma")] });
+    const h = harness({
+      claude: [
+        answered(JSON.stringify({ answer: "supported" }), "hosted-gamma"),
+      ],
+    });
     const result = await callModelGateway(verifyCall("   "), h.deps);
     if (result.ok) throw new Error("expected a refusal for a blank pass tag");
     expect(result.reason).toBe("misconfigured_call");
@@ -483,17 +735,30 @@ describe("a call that is the gateway's own bug is refused, not charged to the pr
     const base = baseInput({ dataClass: "internal" });
     // `tsc --noEmit` fails while this directive is unused, i.e. the moment `passTag` is optional again.
     // @ts-expect-error plan §12.3 — a verify call without its pass tag must not typecheck.
-    const untagged: VerifierCallInput<{ answer: string }> = { ...base, task: "verify", minTier: "medium", composedWith: { providerKey: "local_box", model: "open-weights-alpha" } };
+    const untagged: VerifierCallInput<{ answer: string }> = {
+      ...base,
+      task: "verify",
+      minTier: "medium",
+      composedWith: { providerKey: "local_box", model: "open-weights-alpha" },
+    };
     expect(untagged.task).toBe("verify");
   });
 
   it("a provider that reports our request as invalid stops the walk instead of failing over the chain (§12.4)", async () => {
     const h = harness({
       local_box: [failed("invalid_request")],
-      claude: [answered(JSON.stringify({ answer: "supported" }), "hosted-gamma")],
+      claude: [
+        answered(JSON.stringify({ answer: "supported" }), "hosted-gamma"),
+      ],
     });
-    const result = await callModelGateway(baseInput({ chain: ["local_box", "claude"], dataClass: "internal" }), h.deps);
-    if (result.ok) throw new Error(`expected the walk to stop, got an answer from ${result.providerKey}`);
+    const result = await callModelGateway(
+      baseInput({ chain: ["local_box", "claude"], dataClass: "internal" }),
+      h.deps,
+    );
+    if (result.ok)
+      throw new Error(
+        `expected the walk to stop, got an answer from ${result.providerKey}`,
+      );
     expect(result.reason).toBe("misconfigured_call");
     expect(result.attempts).toHaveLength(1);
     expect(result.attempts[0]?.outcome).toBe("invalid_request");
@@ -507,7 +772,9 @@ describe("a call that is the gateway's own bug is refused, not charged to the pr
     const attemptId = result.attempts[0]?.attemptId;
     expect(h.meter.events).toContain(`reserve:local_box:${attemptId}`);
     expect(h.meter.events).toContain(`reconcile:released:${attemptId}`);
-    expect(h.meter.byAttempt.get(String(attemptId))?.reconciled).toBe("released");
+    expect(h.meter.byAttempt.get(String(attemptId))?.reconciled).toBe(
+      "released",
+    );
   });
   it("a success that reports no usage still keeps its reservation settled — pinned behaviour, not an improvement (§12.3)", async () => {
     // Some routes answer without a usage block. The ledger then has no measured amount, and this is the
@@ -517,19 +784,35 @@ describe("a call that is the gateway's own bug is refused, not charged to the pr
     // test being edited on purpose, not by accident in a PR about something else.
     const h = harness({
       claude: [
-        { ok: true, text: JSON.stringify({ answer: "No usage block came back." }), model: "hosted-gamma", finishReason: "stop" },
+        {
+          ok: true,
+          text: JSON.stringify({ answer: "No usage block came back." }),
+          model: "hosted-gamma",
+          finishReason: "stop",
+        },
       ],
     });
-    const result = await callModelGateway(baseInput({ chain: ["claude"], runId: "run-unmeasured", dataClass: "internal" }), h.deps);
+    const result = await callModelGateway(
+      baseInput({
+        chain: ["claude"],
+        runId: "run-unmeasured",
+        dataClass: "internal",
+      }),
+      h.deps,
+    );
     if (!result.ok) throw new Error(`expected an answer, got ${result.reason}`);
     const attemptId = result.attempts[0]?.attemptId;
     expect(result.usage).toBeNull();
     expect(h.meter.events).toContain(`reserve:claude:${attemptId}`);
     expect(h.meter.events).toContain(`reconcile:settled:${attemptId}`);
-    expect(h.meter.byAttempt.get(String(attemptId))?.reconciled).toBe("settled");
+    expect(h.meter.byAttempt.get(String(attemptId))?.reconciled).toBe(
+      "settled",
+    );
     // And the ledger cannot tell this apart from a measured settle: the reconcile record carries no
     // usage field at all. That is the finding, recorded here so a later F19 slice changes it on purpose.
-    expect(h.meter.events.filter((event) => event.startsWith("reconcile:"))).toEqual([`reconcile:settled:${attemptId}`]);
+    expect(
+      h.meter.events.filter((event) => event.startsWith("reconcile:")),
+    ).toEqual([`reconcile:settled:${attemptId}`]);
   });
 });
 
@@ -540,23 +823,43 @@ describe("configuration error and deployment gap are different findings (F40 rep
         local_box: [failed("connection")],
         claude: [answered(JSON.stringify({ answer: "never" }), "hosted-gamma")],
       },
-      { config: testConfiguration({ endpoints: M1_ENDPOINTS.filter((entry) => entry.providerKey !== "claude") }) },
+      {
+        config: testConfiguration({
+          endpoints: M1_ENDPOINTS.filter(
+            (entry) => entry.providerKey !== "claude",
+          ),
+        }),
+      },
     );
-    const result = await callModelGateway(baseInput({ chain: ["local_box", "claude"], dataClass: "internal" }), h.deps);
+    const result = await callModelGateway(
+      baseInput({ chain: ["local_box", "claude"], dataClass: "internal" }),
+      h.deps,
+    );
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.skipped).toEqual([{ providerKey: "claude", reason: "no_endpoint" }]);
-    expect(result.attempts.map((attempt) => attempt.providerKey)).toEqual(["local_box"]);
+    expect(result.skipped).toEqual([
+      { providerKey: "claude", reason: "no_endpoint" },
+    ]);
+    expect(result.attempts.map((attempt) => attempt.providerKey)).toEqual([
+      "local_box",
+    ]);
     expect(adapterFor(h, "claude").calls).toHaveLength(0);
   });
 
   it("no adapter registered in this deployment skips with no_adapter (issue #46: Claude lands in T-215)", async () => {
     const h = harness({ local_box: [failed("connection")] });
-    const result = await callModelGateway(baseInput({ chain: ["local_box", "claude"], dataClass: "internal" }), h.deps);
+    const result = await callModelGateway(
+      baseInput({ chain: ["local_box", "claude"], dataClass: "internal" }),
+      h.deps,
+    );
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.skipped).toEqual([{ providerKey: "claude", reason: "no_adapter" }]);
-    expect(result.attempts.map((attempt) => attempt.providerKey)).toEqual(["local_box"]);
+    expect(result.skipped).toEqual([
+      { providerKey: "claude", reason: "no_adapter" },
+    ]);
+    expect(result.attempts.map((attempt) => attempt.providerKey)).toEqual([
+      "local_box",
+    ]);
   });
 });
 
@@ -567,45 +870,78 @@ describe("progress events and employee-visible output (plan §9.3, issue #16 N5)
       workers_ai: [failed("connection")],
       claude: [answered(JSON.stringify({ answer: "ok" }), "hosted-gamma")],
     });
-    const result = await callModelGateway(baseInput({ chain: ["local_box", "workers_ai", "claude"] }), h.deps);
+    const result = await callModelGateway(
+      baseInput({ chain: ["local_box", "workers_ai", "claude"] }),
+      h.deps,
+    );
     if (!result.ok) throw new Error(`expected an answer, got ${result.reason}`);
     expect(h.events).toHaveLength(2);
     for (const event of h.events) {
       ProgressEvent.parse(event);
       expect(event.type).toBe("tier_changed");
     }
-    const reasons: TierChangeReason[] = ["quota_exhausted", "provider_unavailable"];
-    expect(h.events.map((event) => (event.type === "tier_changed" ? event.reason : null))).toEqual(reasons);
+    const reasons: TierChangeReason[] = [
+      "quota_exhausted",
+      "provider_unavailable",
+    ];
     expect(
-      h.events.map((event) => (event.type === "tier_changed" ? [event.fromTier, event.toTier] : null)),
+      h.events.map((event) =>
+        event.type === "tier_changed" ? event.reason : null,
+      ),
+    ).toEqual(reasons);
+    expect(
+      h.events.map((event) =>
+        event.type === "tier_changed" ? [event.fromTier, event.toTier] : null,
+      ),
     ).toEqual([
       [1, 2],
       [2, 3],
     ]);
     const serialized = JSON.stringify(h.events);
-    for (const name of ["local_box", "workers_ai", "claude", "deepseek", "openrouter", "hosted-"]) {
+    for (const name of [
+      "local_box",
+      "workers_ai",
+      "claude",
+      "deepseek",
+      "openrouter",
+      "hosted-",
+    ]) {
       expect(serialized).not.toContain(name);
     }
   });
 
   it("no provider name or model id reaches the employee-visible unavailable message", async () => {
     const h = harness({ local_box: [failed("connection")] });
-    const result = await callModelGateway(baseInput({ dataClass: "restricted", chain: ["local_box"] }), h.deps);
+    const result = await callModelGateway(
+      baseInput({ dataClass: "restricted", chain: ["local_box"] }),
+      h.deps,
+    );
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(UNAVAILABLE_MESSAGE).not.toMatch(/local_box|workers_ai|claude|deepseek|openrouter|hosted-/i);
+    expect(UNAVAILABLE_MESSAGE).not.toMatch(
+      /local_box|workers_ai|claude|deepseek|openrouter|hosted-/i,
+    );
     expect(result.reason).toBe("all_attempts_failed");
     // `attempts` and `skipped` are run-audit content (F40); the chat layer renders `reason` only.
-    expect(JSON.stringify({ rendered: UNAVAILABLE_MESSAGE, reason: result.reason })).not.toMatch(
-      /local_box|hosted-|open-weights/i,
-    );
+    expect(
+      JSON.stringify({ rendered: UNAVAILABLE_MESSAGE, reason: result.reason }),
+    ).not.toMatch(/local_box|hosted-|open-weights/i);
   });
 
   it("organisation and run come from TenantContext and the run, not from a free parameter (AGENTS.md §4.1)", async () => {
     const context = syntheticContext();
-    const h = harness({ local_box: [answered(JSON.stringify({ answer: "ok" }), "open-weights-alpha")] });
-    await callModelGateway(baseInput({ context, chain: ["local_box"] }), h.deps);
-    expect(h.meter.reserveCalls.map((call) => call.organisationId)).toEqual([context.organisationId]);
+    const h = harness({
+      local_box: [
+        answered(JSON.stringify({ answer: "ok" }), "open-weights-alpha"),
+      ],
+    });
+    await callModelGateway(
+      baseInput({ context, chain: ["local_box"] }),
+      h.deps,
+    );
+    expect(h.meter.reserveCalls.map((call) => call.organisationId)).toEqual([
+      context.organisationId,
+    ]);
     expect(h.meter.reserveCalls.map((call) => call.runId)).toEqual([RUN_ID]);
   });
 });
