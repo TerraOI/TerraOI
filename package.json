@@ -15,7 +15,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "eval:ci": "vitest run src/platform/evals src/contracts/eval-case.test.ts",
+    "eval:ci": "vitest run src/platform/evals src/contracts/eval-case.test.ts evals",
     "eval:nightly": "node scripts/eval-nightly.mjs",
     "db:start": "supabase start",
     "db:reset": "supabase db reset",

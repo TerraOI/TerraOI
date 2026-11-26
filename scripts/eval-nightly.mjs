@@ -53,7 +53,14 @@ function defaultRunEval() {
   // The full Vitest eval suite is the M1 stand-in for a live staging asker until T-315/T-403 wire one.
   const child = spawnSync(
     process.platform === "win32" ? "pnpm.cmd" : "pnpm",
-    ["exec", "vitest", "run", "src/platform/evals", "src/contracts/eval-case.test.ts"],
+    [
+      "exec",
+      "vitest",
+      "run",
+      "src/platform/evals",
+      "src/contracts/eval-case.test.ts",
+      "evals",
+    ],
     { stdio: "inherit", shell: process.platform === "win32" },
   );
   return { status: child.status ?? 1 };
