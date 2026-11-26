@@ -167,6 +167,14 @@ export async function buildAdminCollectionsView(input: {
   return buildAdminFormView(input);
 }
 
+export async function buildAdminMembersView(input: {
+  request: Request;
+  hostOptions?: HostAdapterOptions;
+  ports: AdminPorts;
+}): Promise<AdminFormView> {
+  return buildAdminFormView(input);
+}
+
 const CreateProjectBodySchema = z.strictObject({
   csrfToken: z.string().min(1).max(512),
   key: z.string().min(1).max(63),
@@ -181,6 +189,13 @@ const CreateCollectionBodySchema = z.strictObject({
   service: z.string().min(1).max(64),
   dataClass: z.enum(["public", "internal", "client_confidential"]),
   projectId: z.uuid().nullable(),
+});
+
+const MembershipRoleBodySchema = z.strictObject({
+  csrfToken: z.string().min(1).max(512),
+  action: z.enum(["grant", "revoke"]),
+  userId: z.uuid(),
+  roleId: z.uuid(),
 });
 
 function jsonReply(status: number, body: Record<string, unknown>): Response {
@@ -364,4 +379,42 @@ export async function handleCreateCollection(input: {
     projectId: data.projectId,
   });
   return createdReply(created, "collectionId");
+}
+
+export async function handleMembershipRoleAction(input: {
+  request: Request;
+  hostOptions?: HostAdapterOptions;
+  ports: AdminPorts;
+}): Promise<Response> {
+  // Supervisor round 1 on #236: the shared guard (round 1 on #234) rather than a copy of it, so the
+  // three admin POSTs cannot drift apart on method, auth, origin, size, JSON or CSRF checks.
+  const guarded = await guardAdminPost(
+    input,
+    MembershipRoleBodySchema,
+    "The membership role request is invalid.",
+  );
+  if (!guarded.ok) return guarded.response;
+  const { auth, data } = guarded;
+  const { ports } = input;
+
+  const args = {
+    context: auth.context,
+    accessToken: auth.accessToken,
+    userId: data.userId,
+    roleId: data.roleId,
+  };
+  const outcome =
+    data.action === "grant"
+      ? await ports.adminRpc.grantMembershipRole(args)
+      : await ports.adminRpc.revokeMembershipRole(args);
+
+  if (!outcome.ok) {
+    return jsonReply(statusForRpcFailure(outcome.kind), {
+      ok: false,
+      code: outcome.kind,
+      message: outcome.message,
+    });
+  }
+
+  return jsonReply(200, { ok: true, action: data.action });
 }
