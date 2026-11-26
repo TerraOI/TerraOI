@@ -244,7 +244,7 @@ insert into public.source_versions (
    'knowledge/11111111-1111-4111-8111-111111111111/61000000-0000-4000-8000-000000003607/v3.pdf',
    'failed', 'v1', null, null);
 
--- TOI-013 (T-113 × T-213, 20261126210000_publish_respects_review.sql): the worker publish path now
+-- TOI-013 (T-113 × T-213, 20261126200000_publish_stage_lease (section 3).sql): the worker publish path now
 -- applies T-213's publication rule. The publication mechanics this file pins (atomic pointer switch,
 -- monotonic versions, lease compare) are exercised on reviewer-approved versions; the parked path is
 -- pinned in 049_publish_respects_review.test.sql.

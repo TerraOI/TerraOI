@@ -1,5 +1,5 @@
 -- TOI-013: the worker publish path honours T-213's publication rule
--- (supabase/migrations/20261126210000_publish_respects_review.sql). Slot 049, next to 048.
+-- (supabase/migrations/20261126200000_publish_stage_lease (section 3).sql). Slot 049, next to 048.
 -- Synthetic fixtures only (AGENTS.md §4.7). Runs as the owner, like 045/047/048.
 begin;
 create extension if not exists pgtap with schema extensions;
