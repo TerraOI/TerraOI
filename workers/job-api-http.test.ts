@@ -39,7 +39,11 @@ function leaseRow(overrides: Partial<LeaseRow> = {}): LeaseRow {
 function fakeApi(overrides: Partial<JobApiPort> = {}): JobApiPort {
   return {
     lease: async () => leaseRow(),
-    renew: async () => ({ outcome: "renewed", expiresAt: "2026-11-21T12:00:00.000Z", fence: 3 }),
+    renew: async () => ({
+      outcome: "renewed",
+      expiresAt: "2026-11-21T12:00:00.000Z",
+      fence: 3,
+    }),
     objectRefForLease: async () => ({ found: false }),
     complete: async () => ({ outcome: "completed", artifactCount: 1 }),
     abort: async () => ({ outcome: "aborted" }),
@@ -49,7 +53,10 @@ function fakeApi(overrides: Partial<JobApiPort> = {}): JobApiPort {
 }
 
 function post(path: string, body: unknown, auth?: string): Request {
-  const headers = new Headers({ "content-type": "application/json", accept: "application/json" });
+  const headers = new Headers({
+    "content-type": "application/json",
+    accept: "application/json",
+  });
   if (auth !== undefined) headers.set("authorization", auth);
   return new Request(`https://company1.terraoi.app${path}`, {
     method: "POST",
@@ -72,13 +79,20 @@ describe("job-api-http — box-facing /api/jobs surface (T-211 PR-3a)", () => {
 
   it("missing Bearer is 401", async () => {
     const api = fakeApi();
-    const response = await handleJobLease(post("/api/jobs/lease", { stage: "extract", leaseSeconds: 300 }), api);
+    const response = await handleJobLease(
+      post("/api/jobs/lease", { stage: "extract", leaseSeconds: 300 }),
+      api,
+    );
     expect(response.status).toBe(401);
   });
 
   it("lease returns found:true with the camelCase row the box client parses", async () => {
     const response = await handleJobLease(
-      post("/api/jobs/lease", { stage: "extract", leaseSeconds: 300 }, `Bearer ${TOKEN}`),
+      post(
+        "/api/jobs/lease",
+        { stage: "extract", leaseSeconds: 300 },
+        `Bearer ${TOKEN}`,
+      ),
       fakeApi(),
     );
     expect(response.status).toBe(200);
@@ -98,7 +112,11 @@ describe("job-api-http — box-facing /api/jobs surface (T-211 PR-3a)", () => {
 
   it("lease with no work returns found:false", async () => {
     const response = await handleJobLease(
-      post("/api/jobs/lease", { stage: "extract", leaseSeconds: 300 }, `Bearer ${TOKEN}`),
+      post(
+        "/api/jobs/lease",
+        { stage: "extract", leaseSeconds: 300 },
+        `Bearer ${TOKEN}`,
+      ),
       fakeApi({ lease: async () => null }),
     );
     expect(response.status).toBe(200);
@@ -108,11 +126,18 @@ describe("job-api-http — box-facing /api/jobs surface (T-211 PR-3a)", () => {
   it("renew / complete / abort return closed outcomes", async () => {
     const api = fakeApi({
       renew: async () => ({ outcome: "refused" }),
-      complete: async () => ({ outcome: "already_completed", artifactCount: 2 }),
+      complete: async () => ({
+        outcome: "already_completed",
+        artifactCount: 2,
+      }),
       abort: async () => ({ outcome: "refused" }),
     });
     const renew = await handleJobRenew(
-      post("/api/jobs/renew", { jobId: JOB, leaseToken: "t", fence: 1, leaseSeconds: 300 }, `Bearer ${TOKEN}`),
+      post(
+        "/api/jobs/renew",
+        { jobId: JOB, leaseToken: "t", fence: 1, leaseSeconds: 300 },
+        `Bearer ${TOKEN}`,
+      ),
       api,
     );
     expect(await bodyOf(renew)).toEqual({ outcome: "refused" });
@@ -135,10 +160,17 @@ describe("job-api-http — box-facing /api/jobs surface (T-211 PR-3a)", () => {
       ),
       api,
     );
-    expect(await bodyOf(complete)).toEqual({ outcome: "already_completed", artifactCount: 2 });
+    expect(await bodyOf(complete)).toEqual({
+      outcome: "already_completed",
+      artifactCount: 2,
+    });
 
     const abort = await handleJobAbort(
-      post("/api/jobs/abort", { jobId: JOB, leaseToken: "t", fence: 1, reason: "object_missing" }, `Bearer ${TOKEN}`),
+      post(
+        "/api/jobs/abort",
+        { jobId: JOB, leaseToken: "t", fence: 1, reason: "object_missing" },
+        `Bearer ${TOKEN}`,
+      ),
       api,
     );
     expect(await bodyOf(abort)).toEqual({ outcome: "refused" });
@@ -148,7 +180,10 @@ describe("job-api-http — box-facing /api/jobs surface (T-211 PR-3a)", () => {
     const response = await handleJobLease(
       new Request("https://company1.terraoi.app/api/jobs/lease", {
         method: "POST",
-        headers: { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" },
+        headers: {
+          authorization: `Bearer ${TOKEN}`,
+          "content-type": "application/json",
+        },
         body: "{",
       }),
       fakeApi(),
@@ -167,7 +202,11 @@ describe("job-api-http — box-facing /api/jobs surface (T-211 PR-3a)", () => {
     });
     for (const leaseSeconds of [0, 59, 1801, 30.5]) {
       const response = await handleJobLease(
-        post("/api/jobs/lease", { stage: "extract", leaseSeconds }, `Bearer ${TOKEN}`),
+        post(
+          "/api/jobs/lease",
+          { stage: "extract", leaseSeconds },
+          `Bearer ${TOKEN}`,
+        ),
         api,
       );
       expect(response.status).toBe(400);
@@ -177,7 +216,9 @@ describe("job-api-http — box-facing /api/jobs surface (T-211 PR-3a)", () => {
 
   it("maps database errors to safe answers and never echoes postgres text", async () => {
     const pgError = (code: string) =>
-      Object.assign(new Error("boom at postgres://inner-host:5432/prod"), { code });
+      Object.assign(new Error("boom at postgres://inner-host:5432/prod"), {
+        code,
+      });
     const cases: Array<[string, number, Record<string, unknown> | null]> = [
       ["22023", 400, null],
       ["42501", 200, { outcome: "refused" }],
@@ -190,7 +231,11 @@ describe("job-api-http — box-facing /api/jobs surface (T-211 PR-3a)", () => {
         },
       });
       const response = await handleJobRenew(
-        post("/api/jobs/renew", { jobId: JOB, leaseToken: "t", fence: 1, leaseSeconds: 300 }, `Bearer ${TOKEN}`),
+        post(
+          "/api/jobs/renew",
+          { jobId: JOB, leaseToken: "t", fence: 1, leaseSeconds: 300 },
+          `Bearer ${TOKEN}`,
+        ),
         api,
       );
       expect(response.status).toBe(status);
@@ -218,9 +263,12 @@ describe("job-api-http — box-facing /api/jobs surface (T-211 PR-3a)", () => {
 });
 
 describe("job-api-http — object-url (#170)", () => {
-  const URL_ONLY = "https://storage.example.test/object/sign/knowledge/org/key.pdf?token=abc";
+  const URL_ONLY =
+    "https://storage.example.test/object/sign/knowledge/org/key.pdf?token=abc";
 
-  function mintStub(overrides: Partial<ObjectUrlMintBinding> = {}): ObjectUrlMintBinding {
+  function mintStub(
+    overrides: Partial<ObjectUrlMintBinding> = {},
+  ): ObjectUrlMintBinding {
     return {
       mintObjectUrl: async () => ({ ok: true, url: URL_ONLY }),
       ...overrides,
@@ -236,7 +284,11 @@ describe("job-api-http — object-url (#170)", () => {
       },
     });
     await handleJobObjectUrl(
-      post("/api/jobs/object-url", { jobId: JOB, leaseToken: "lease-1", fence: 2 }, `Bearer ${TOKEN}`),
+      post(
+        "/api/jobs/object-url",
+        { jobId: JOB, leaseToken: "lease-1", fence: 2 },
+        `Bearer ${TOKEN}`,
+      ),
       mint,
     );
     expect(seen).toEqual({
@@ -250,7 +302,11 @@ describe("job-api-http — object-url (#170)", () => {
 
   it("returns found:true with url and expiresInSeconds; URL appears only in the response body", async () => {
     const response = await handleJobObjectUrl(
-      post("/api/jobs/object-url", { jobId: JOB, leaseToken: "lease-1", fence: 2 }, `Bearer ${TOKEN}`),
+      post(
+        "/api/jobs/object-url",
+        { jobId: JOB, leaseToken: "lease-1", fence: 2 },
+        `Bearer ${TOKEN}`,
+      ),
       mintStub(),
     );
     expect(response.status).toBe(200);
@@ -269,9 +325,51 @@ describe("job-api-http — object-url (#170)", () => {
 
   it("maps a generic mint refusal to found:false with no existence signal", async () => {
     const response = await handleJobObjectUrl(
-      post("/api/jobs/object-url", { jobId: JOB, leaseToken: "lease-1", fence: 2 }, `Bearer ${TOKEN}`),
+      post(
+        "/api/jobs/object-url",
+        { jobId: JOB, leaseToken: "lease-1", fence: 2 },
+        `Bearer ${TOKEN}`,
+      ),
       mintStub({ mintObjectUrl: async () => ({ ok: false }) }),
     );
     expect(await bodyOf(response)).toEqual({ found: false });
+  });
+
+  it("a binding that throws is a safe 503, not a 500 carrying the error", async () => {
+    const response = await handleJobObjectUrl(
+      post(
+        "/api/jobs/object-url",
+        { jobId: JOB, leaseToken: "lease-1", fence: 2 },
+        `Bearer ${TOKEN}`,
+      ),
+      mintStub({
+        mintObjectUrl: async () => {
+          throw new Error(
+            "service terraoi-extraction not found at pooler.internal",
+          );
+        },
+      }),
+    );
+    expect(response.status).toBe(503);
+    expect(await response.text()).not.toMatch(/terraoi-extraction|pooler/);
+  });
+
+  it("refuses an oversized object-url body before calling the binding", async () => {
+    let called = false;
+    const response = await handleJobObjectUrl(
+      post(
+        "/api/jobs/object-url",
+        { jobId: JOB, leaseToken: "x".repeat(MAX_BODY_BYTES), fence: 2 },
+        `Bearer ${TOKEN}`,
+      ),
+      mintStub({
+        mintObjectUrl: async () => {
+          called = true;
+          return { ok: false };
+        },
+      }),
+    );
+    expect(response.status).toBe(413);
+    expect(called).toBe(false);
   });
 });
