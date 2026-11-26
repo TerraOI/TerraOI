@@ -463,6 +463,146 @@ export function createClaudeAdapter(options: ClaudeAdapterOptions): ProviderAdap
   };
 }
 
+/**
+ * T-314 PR-1: DeepSeek and OpenRouter (plan §12.4 rows 4–5). Both speak the same OpenAI-compatible
+ * chat shape the local box already uses; each is a separate factory so the secret binding, base URL
+ * and (for OpenRouter) the pinned-model allow-list stay per-provider configuration. Clearance is
+ * still decided upstream — these adapters never branch on `dataClass`, and the platform default
+ * matrix keeps them at `public` only.
+ *
+ * No SDK: plain `fetch`, Bearer auth, error bodies classified and dropped. OpenRouter additionally
+ * refuses a model outside the pinned allow-list *before* the request leaves the process, so an
+ * upstream the platform never evaluated cannot be reached by a mis-set endpoint row.
+ */
+const DEEPSEEK_BASE_URL = "https://api.deepseek.com";
+const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+
+/**
+ * Synthetic placeholder ids matching the M1 endpoint fixtures (`hosted-epsilon`) until the owner
+ * supplies evaluated upstream model ids in `model_providers` (issue #9). Deployment configuration
+ * may pass a wider list via `allowedModels`; this constant is the platform default pin set.
+ */
+export const OPENROUTER_PINNED_MODELS: readonly string[] = ["hosted-epsilon"];
+
+export interface DeepSeekAdapterOptions {
+  endpoint: ProviderEndpoint;
+  /** Defaults to DeepSeek's public API. Override is for the loopback harness (COORDINATION.md §6a). */
+  baseUrl?: string;
+  /** Read from the Worker secret binding at call time — same per-request rule as Workers AI / Claude. */
+  apiKey: () => string | undefined;
+  fetchImpl?: FetchImpl;
+}
+
+export interface OpenRouterAdapterOptions {
+  endpoint: ProviderEndpoint;
+  /** Defaults to OpenRouter's `/api/v1` root. Override is for the loopback harness. */
+  baseUrl?: string;
+  apiKey: () => string | undefined;
+  /**
+   * Upstream model ids this deployment is allowed to call. A request naming anything else is
+   * `invalid_request` with nothing sent (plan §12.4: "pin allowed upstream models").
+   */
+  allowedModels?: readonly string[];
+  fetchImpl?: FetchImpl;
+}
+
+async function completeOpenAiCompatibleChat(options: {
+  baseUrl: string;
+  apiKey: string;
+  request: AdapterCallRequest;
+  model: string;
+  fetchImpl: FetchImpl;
+  /** Extra headers (OpenRouter optionally carries a referer); never a second auth scheme. */
+  extraHeaders?: Record<string, string>;
+}): Promise<AdapterCallOutcome> {
+  const base = options.baseUrl.replace(/\/+$/, "");
+  const response = await post(
+    `${base}/chat/completions`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${options.apiKey}`,
+        ...options.extraHeaders,
+      },
+      body: JSON.stringify({
+        model: options.model,
+        max_tokens: options.request.maxOutputUnits,
+        messages: options.request.messages.map((message) => ({
+          role: message.role,
+          content: message.text,
+        })),
+      }),
+    },
+    options.request.timeoutMs,
+    options.fetchImpl,
+  );
+  if ("failure" in response) return { ok: false, ...response.failure };
+
+  const body = await readOutcomeText(response);
+  if (!response.ok) {
+    return { ok: false, ...classifyStatus(response.status, body), statusCode: response.status };
+  }
+
+  const completion = asRecord(parseJson(body));
+  const choice = asRecord(Array.isArray(completion?.["choices"]) ? completion["choices"][0] : undefined);
+  const message = asRecord(choice?.["message"]);
+  const text = message?.["content"];
+  if (typeof text !== "string" || text.length === 0) {
+    return { ok: false, kind: "invalid_output", possiblyBilled: true };
+  }
+  const usage = usageOf(completion?.["usage"]);
+  return {
+    ok: true,
+    text,
+    model: options.model,
+    finishReason: choice?.["finish_reason"] === "length" ? "length" : "stop",
+    ...(usage === undefined ? {} : { usage }),
+  };
+}
+
+export function createDeepSeekAdapter(options: DeepSeekAdapterOptions): ProviderAdapter {
+  const fetchImpl = options.fetchImpl ?? globalThis.fetch;
+  const baseUrl = options.baseUrl ?? DEEPSEEK_BASE_URL;
+
+  return {
+    providerKey: options.endpoint.providerKey,
+    async complete(request) {
+      const apiKey = options.apiKey();
+      if (apiKey === undefined || apiKey.length === 0) {
+        return { ok: false, kind: "provider_denied", possiblyBilled: false };
+      }
+      const model = modelOf(request);
+      if (model === undefined) return { ok: false, kind: "invalid_request", possiblyBilled: false };
+      return completeOpenAiCompatibleChat({ baseUrl, apiKey, request, model, fetchImpl });
+    },
+  };
+}
+
+export function createOpenRouterAdapter(options: OpenRouterAdapterOptions): ProviderAdapter {
+  const fetchImpl = options.fetchImpl ?? globalThis.fetch;
+  const baseUrl = options.baseUrl ?? OPENROUTER_BASE_URL;
+  const allowed = new Set(options.allowedModels ?? OPENROUTER_PINNED_MODELS);
+
+  return {
+    providerKey: options.endpoint.providerKey,
+    async complete(request) {
+      const apiKey = options.apiKey();
+      if (apiKey === undefined || apiKey.length === 0) {
+        return { ok: false, kind: "provider_denied", possiblyBilled: false };
+      }
+      const model = modelOf(request);
+      if (model === undefined) return { ok: false, kind: "invalid_request", possiblyBilled: false };
+      // Pin check before the socket: an allow-list miss is our wiring, not an upstream 404 that
+      // would look like a provider outage and open a circuit (§12.4 chain rule (b)).
+      if (!allowed.has(model)) {
+        return { ok: false, kind: "invalid_request", possiblyBilled: false };
+      }
+      return completeOpenAiCompatibleChat({ baseUrl, apiKey, request, model, fetchImpl });
+    },
+  };
+}
+
 function parseJson(text: string): unknown {
   try {
     return JSON.parse(text);
