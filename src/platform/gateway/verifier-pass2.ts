@@ -151,8 +151,11 @@ export function createSemanticVerifier(
           tenantPolicy: meta.tenantPolicy,
           chain: meta.verifyChain,
           minTier: meta.minVerifierTier,
-          composedWith: meta.composedWith,
-          passTag: "pass2",
+          // The live composer from the call wins over the one fixed at construction: a retry's
+          // verifier must exclude the model that just composed (§12.4 (e)).
+          composedWith: input.composedWith ?? meta.composedWith,
+          // A second compose pass re-runs pass 2: tag it so its attempt ids are its own (§12.3).
+          passTag: (input.composePass ?? 1) > 1 ? `pass2-c${input.composePass}` : "pass2",
           outputSchema: Pass2Output,
         },
         gateway,
