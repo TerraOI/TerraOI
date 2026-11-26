@@ -238,7 +238,9 @@ select is_empty($$
            -- T-302b PR-1 (`20261126120000_knowledge_submissions.sql`): F15 submit / review / withdraw.
            ('public.submit_employee_knowledge_v1(uuid, uuid, text, text, text, uuid[], uuid, timestamptz)'::regprocedure),
            ('public.review_knowledge_submission_v1(uuid, uuid, text, text)'::regprocedure),
-           ('public.withdraw_knowledge_submission_v1(uuid, uuid)'::regprocedure)
+           ('public.withdraw_knowledge_submission_v1(uuid, uuid)'::regprocedure),
+           -- T-213 PR-3 (`20261126130000_review_reclass.sql`): atomic data-class raise (#21).
+           ('public.review_reclass_v1(uuid, uuid, text)'::regprocedure)
          ) as allowed(proc)
      )
 $$, '32 no function in public is executable by authenticated beyond the named allow-list (§4.3, #60)');
