@@ -1,6 +1,6 @@
 # T-112 Upload session, completion and cloud extraction of digital PDFs
 
-Lane: 2 · Week: 1 · Protected: yes (`src/app/api/knowledge/`, and any migration here) · Depends on: T-111 · Status: in progress — **code complete; staging evidence owed**: T-112 a/b/c are on `main` ([PR #32](https://github.com/TerraOI/TerraOI/pull/32), [PR #54](https://github.com/TerraOI/TerraOI/pull/54), [PR #168](https://github.com/TerraOI/TerraOI/pull/168)); #37/#38/#75 are closed, but `uploadDeps()` is still null so the routes answer 503 (`upload-adapters.ts:8-21`) until the Postgres `UploadStore` and storage `ObjectStore` are wired, after which the Done-evidence staging run (company1 → `indexing`, same upload refused on company2) can be recorded in `docs/status/`
+Lane: 2 · Week: 1 · Protected: yes (`src/app/api/knowledge/`, and any migration here) · Depends on: T-111 · Status: in progress — **U-1 wiring**: T-112 a/b/c on `main`; #37/#38 closed; branch `t-112d-upload-adapters` wires `uploadDepsForRequest` (Postgres `UploadStore` via `withTenantRpc`, Supabase Storage `ObjectStore` + signed upload URL, `find_upload_session_v1` + storage RLS). Staging Done-evidence (company1 → `indexing`, refused on company2) still owed after merge + secrets.
 Plan refs: §7.2 steps 1–3, §9.2.1, §6.2; F09, F10, F12
 
 ## Supervisor rulings to apply (2026-11-09)

@@ -3,6 +3,8 @@
 Lane: 2 · Week: 2 · Protected: no · Depends on: T-111, T-112, T-211 · Status: in progress — claim `t-212-docx-xlsx-extract` [#224](https://github.com/TerraOI/TerraOI/pull/224): extractors + routing + mapper. Cloud loop wire claimed on `t-211-cloud-extractor` (T-211 Cut E). Staging deferred
 Plan refs: §7.1 (M1 file types), §7.2 steps 2–3 and "extraction executors", §7.5, §16 (ingestion row); F09, F10, F12
 
+**Images at capture (#135):** capture checks an image's signature, size and digest only, and then routes it to the box. The box-side image parser is therefore the component that must treat image bytes as hostile.
+
 ## Supervisor rulings to apply (2026-11-09)
 These supersede anything below that disagrees.
 - **No artifact writer here** ([#135](https://github.com/TerraOI/TerraOI/issues/135)): the Owns item "artifact writer" becomes an **artifact mapper** — pure functions from extractor output to the `complete_parse_job_v1` artifact payload, with locators, tested against that contract. This packet writes nothing to the database and calls no job-API function; T-211's cloud loop stores the result.
