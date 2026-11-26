@@ -1,16 +1,31 @@
 import type { IngestionStage } from "@/contracts/ingestion-job";
 
+import { digestWorkerCredential } from "./job-db";
+import {
+  SIGNED_URL_TTL_SECONDS,
+  type MintObjectUrlArgs,
+  type MintObjectUrlResult,
+} from "./mint-object-url";
 import type { AbortReason, ArtifactInput, JobApiPort } from "./ocr-pull";
 
 /**
- * Box-facing HTTP handlers for `src/app/api/jobs/*` (FAQ-0005, #152; T-211 PR-3a).
+ * Box-facing HTTP handlers for `src/app/api/jobs/*` (FAQ-0005, #152; T-211 PR-3a/3b).
  *
  * Speaks the same JSON shapes `localbox/ocr-pull.ts` `createHttpBoxJobApi` already posts and
- * parses. Identity is the `Authorization: Bearer <token>` header — hashed in the JOB_DB adapter
- * before SQL (#134). Responses never carry postgres detail, hosts, or pool names.
+ * parses. Identity is the `Authorization: Bearer <token>` header — hashed before SQL (#134) or
+ * before the #170 service-binding hop for `object-url`. Responses never carry postgres detail,
+ * hosts, pool names, or `object_ref`.
  */
 
-const SAFE_JSON = { "content-type": "application/json", "cache-control": "no-store" } as const;
+/** RPC surface the app Worker binds as `OBJECT_URL_MINT` (#170). */
+export type ObjectUrlMintBinding = {
+  mintObjectUrl(args: MintObjectUrlArgs): Promise<MintObjectUrlResult>;
+};
+
+const SAFE_JSON = {
+  "content-type": "application/json",
+  "cache-control": "no-store",
+} as const;
 
 const ABORT_REASONS: readonly AbortReason[] = [
   "abandoned_by_worker",
@@ -23,10 +38,13 @@ const ABORT_REASONS: readonly AbortReason[] = [
 ];
 
 export function jobApiUnavailableResponse(): Response {
-  return new Response(JSON.stringify({ error: { code: "job_api_unavailable" } }), {
-    status: 503,
-    headers: SAFE_JSON,
-  });
+  return new Response(
+    JSON.stringify({ error: { code: "job_api_unavailable" } }),
+    {
+      status: 503,
+      headers: SAFE_JSON,
+    },
+  );
 }
 
 function unauthorized(): Response {
@@ -44,10 +62,13 @@ function badRequest(): Response {
 }
 
 function payloadTooLarge(): Response {
-  return new Response(JSON.stringify({ error: { code: "payload_too_large" } }), {
-    status: 413,
-    headers: SAFE_JSON,
-  });
+  return new Response(
+    JSON.stringify({ error: { code: "payload_too_large" } }),
+    {
+      status: 413,
+      headers: SAFE_JSON,
+    },
+  );
 }
 
 /** Mirrors `job_api.max_lease_seconds()` and the RPC's 60-second floor (20261120212000:326). */
@@ -70,7 +91,10 @@ function leaseSecondsOk(value: number | null): value is number {
 }
 
 function pgCode(err: unknown): string | null {
-  return typeof err === "object" && err !== null && "code" in err && typeof err.code === "string"
+  return typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    typeof err.code === "string"
     ? err.code
     : null;
 }
@@ -80,7 +104,10 @@ function pgCode(err: unknown): string | null {
  * 400; a permission refusal is the endpoint's closed "refused" answer; anything else is the same
  * honest 503 an unbound `JOB_DB` gives.
  */
-async function guarded(run: () => Promise<Response>, refused: () => Response): Promise<Response> {
+async function guarded(
+  run: () => Promise<Response>,
+  refused: () => Response,
+): Promise<Response> {
   try {
     return await run();
   } catch (err) {
@@ -92,7 +119,10 @@ async function guarded(run: () => Promise<Response>, refused: () => Response): P
 }
 
 function ok(body: unknown): Response {
-  return new Response(JSON.stringify(body), { status: 200, headers: SAFE_JSON });
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: SAFE_JSON,
+  });
 }
 
 function bearerCredential(request: Request): string | null {
@@ -110,12 +140,16 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-async function readJson(request: Request): Promise<Record<string, unknown> | null | "too_large"> {
+async function readJson(
+  request: Request,
+): Promise<Record<string, unknown> | null | "too_large"> {
   const declared = Number(request.headers.get("content-length") ?? "0");
-  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return "too_large";
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES)
+    return "too_large";
   try {
     const text = await request.text();
-    if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) return "too_large";
+    if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES)
+      return "too_large";
     const parsed: unknown = JSON.parse(text);
     return asRecord(parsed);
   } catch {
@@ -134,11 +168,21 @@ function numberOf(record: Record<string, unknown>, key: string): number | null {
 }
 
 function isUuid(value: string | null): value is string {
-  return value !== null && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+  return (
+    value !== null &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      value,
+    )
+  );
 }
 
 function isStage(value: string | null): value is IngestionStage {
-  return value === "validate" || value === "extract" || value === "index" || value === "publish";
+  return (
+    value === "validate" ||
+    value === "extract" ||
+    value === "index" ||
+    value === "publish"
+  );
 }
 
 function isAbortReason(value: string | null): value is AbortReason {
@@ -153,7 +197,12 @@ function parseArtifacts(value: unknown): ArtifactInput[] | null {
     if (row === null) return null;
     const artifactIndex = numberOf(row, "artifactIndex");
     const bodyText = stringOf(row, "bodyText");
-    if (artifactIndex === null || !Number.isInteger(artifactIndex) || bodyText === null) return null;
+    if (
+      artifactIndex === null ||
+      !Number.isInteger(artifactIndex) ||
+      bodyText === null
+    )
+      return null;
     const artifact: ArtifactInput = { artifactIndex, bodyText };
     const locator = row.locator;
     if (locator !== undefined) {
@@ -167,7 +216,11 @@ function parseArtifacts(value: unknown): ArtifactInput[] | null {
       artifact.confidence = confidence;
     }
     if (row.notes !== undefined) {
-      if (!Array.isArray(row.notes) || !row.notes.every((n) => typeof n === "string")) return null;
+      if (
+        !Array.isArray(row.notes) ||
+        !row.notes.every((n) => typeof n === "string")
+      )
+        return null;
       artifact.notes = row.notes as string[];
     }
     out.push(artifact);
@@ -175,7 +228,10 @@ function parseArtifacts(value: unknown): ArtifactInput[] | null {
   return out;
 }
 
-export async function handleJobLease(request: Request, api: JobApiPort): Promise<Response> {
+export async function handleJobLease(
+  request: Request,
+  api: JobApiPort,
+): Promise<Response> {
   const credential = bearerCredential(request);
   if (credential === null) return unauthorized();
   const body = await readJson(request);
@@ -195,7 +251,10 @@ export async function handleJobLease(request: Request, api: JobApiPort): Promise
   );
 }
 
-export async function handleJobRenew(request: Request, api: JobApiPort): Promise<Response> {
+export async function handleJobRenew(
+  request: Request,
+  api: JobApiPort,
+): Promise<Response> {
   const credential = bearerCredential(request);
   if (credential === null) return unauthorized();
   const body = await readJson(request);
@@ -215,12 +274,18 @@ export async function handleJobRenew(request: Request, api: JobApiPort): Promise
     return badRequest();
   }
   return guarded(
-    async () => ok(await api.renew({ credential, jobId, leaseToken, fence, leaseSeconds })),
+    async () =>
+      ok(
+        await api.renew({ credential, jobId, leaseToken, fence, leaseSeconds }),
+      ),
     () => ok({ outcome: "refused" }),
   );
 }
 
-export async function handleJobComplete(request: Request, api: JobApiPort): Promise<Response> {
+export async function handleJobComplete(
+  request: Request,
+  api: JobApiPort,
+): Promise<Response> {
   const credential = bearerCredential(request);
   if (credential === null) return unauthorized();
   const body = await readJson(request);
@@ -258,7 +323,12 @@ export async function handleJobComplete(request: Request, api: JobApiPort): Prom
     body.confidence === null || body.confidence === undefined
       ? null
       : numberOf(body, "confidence");
-  if (body.confidence !== null && body.confidence !== undefined && confidence === null) return badRequest();
+  if (
+    body.confidence !== null &&
+    body.confidence !== undefined &&
+    confidence === null
+  )
+    return badRequest();
 
   return guarded(
     async () =>
@@ -280,7 +350,10 @@ export async function handleJobComplete(request: Request, api: JobApiPort): Prom
   );
 }
 
-export async function handleJobAbort(request: Request, api: JobApiPort): Promise<Response> {
+export async function handleJobAbort(
+  request: Request,
+  api: JobApiPort,
+): Promise<Response> {
   const credential = bearerCredential(request);
   if (credential === null) return unauthorized();
   const body = await readJson(request);
@@ -290,11 +363,66 @@ export async function handleJobAbort(request: Request, api: JobApiPort): Promise
   const leaseToken = stringOf(body, "leaseToken");
   const fence = numberOf(body, "fence");
   const reason = stringOf(body, "reason");
-  if (!isUuid(jobId) || leaseToken === null || fence === null || !Number.isInteger(fence) || !isAbortReason(reason)) {
+  if (
+    !isUuid(jobId) ||
+    leaseToken === null ||
+    fence === null ||
+    !Number.isInteger(fence) ||
+    !isAbortReason(reason)
+  ) {
     return badRequest();
   }
   return guarded(
-    async () => ok(await api.abort({ credential, jobId, leaseToken, fence, reason })),
+    async () =>
+      ok(await api.abort({ credential, jobId, leaseToken, fence, reason })),
     () => ok({ outcome: "refused" }),
+  );
+}
+
+/**
+ * Box-facing object URL (#170). Hashes the Bearer token, sends only the digest + lease
+ * identity over the binding, and returns `{ found, url?, expiresInSeconds? }`. The URL is
+ * never logged here — the handler test asserts it appears only in the response body.
+ */
+export async function handleJobObjectUrl(
+  request: Request,
+  mint: ObjectUrlMintBinding,
+): Promise<Response> {
+  const credential = bearerCredential(request);
+  if (credential === null) return unauthorized();
+  const body = await readJson(request);
+  if (body === "too_large") return payloadTooLarge();
+  if (body === null) return badRequest();
+  const jobId = stringOf(body, "jobId");
+  const leaseToken = stringOf(body, "leaseToken");
+  const fence = numberOf(body, "fence");
+  if (
+    !isUuid(jobId) ||
+    leaseToken === null ||
+    fence === null ||
+    !Number.isInteger(fence)
+  ) {
+    return badRequest();
+  }
+
+  const tokenHash = digestWorkerCredential(credential);
+  // A service-binding RPC can throw (the extraction Worker is down or not deployed): that is the
+  // same honest 503 as an unbound binding, never a framework 500 carrying the error text.
+  return guarded(
+    async () => {
+      const result = await mint.mintObjectUrl({
+        tokenHash,
+        jobId,
+        leaseToken,
+        fence,
+      });
+      if (!result.ok) return ok({ found: false });
+      return ok({
+        found: true,
+        url: result.url,
+        expiresInSeconds: SIGNED_URL_TTL_SECONDS,
+      });
+    },
+    () => ok({ found: false }),
   );
 }
