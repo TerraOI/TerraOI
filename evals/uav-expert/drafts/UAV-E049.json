@@ -26,6 +26,7 @@
     "SYNTH-UAV-MAINT-L2-09"
   ],
   "expectedEvidence": [],
+  "expectedRefusalKey": "no_evidence",
   "approvedBy": null,
   "approvedAt": null,
   "draftedBy": "agent (T-315 draft)",

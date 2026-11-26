@@ -132,10 +132,19 @@ describe("createJobApi — JOB_DB Hyperdrive adapter (T-211 PR-3a)", () => {
         confidence: 0.8,
       }),
     ).resolves.toEqual({ outcome: "completed", artifactCount: 1 });
+    // complete_parse_job_v1 types p_artifacts and p_notes as jsonb (20261120212000:454-455). A JS
+    // array would be sent as a Postgres array and fail function resolution, so both go as JSON
+    // text with an explicit cast, independent of driver type inference.
     const artifactsArg = calls[0]?.values[7];
-    expect(JSON.stringify(artifactsArg)).toContain("artifact_index");
-    expect(JSON.stringify(artifactsArg)).toContain("body_text");
-    expect(JSON.stringify(artifactsArg)).not.toContain("artifactIndex");
+    const notesArg = calls[0]?.values[8];
+    expect(typeof artifactsArg).toBe("string");
+    expect(typeof notesArg).toBe("string");
+    expect(JSON.parse(artifactsArg as string)).toEqual([
+      { artifact_index: 0, body_text: "hello", locator: { page: 1 }, confidence: 0.9 },
+    ]);
+    expect(JSON.parse(notesArg as string)).toEqual(["n1"]);
+    expect(calls[0]?.sql).toContain("$8::jsonb");
+    expect(calls[0]?.sql).toContain("$9::jsonb");
   });
 
   it("maps SQL 42501 to refused without leaking postgres detail", async () => {

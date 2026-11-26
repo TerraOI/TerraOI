@@ -259,8 +259,8 @@ export function createJobApi(deps: JobDbDeps): JobApiPort | null {
                 ${args.sourceVersionId}::uuid,
                 ${args.stage},
                 ${args.indexGeneration},
-                ${artifacts},
-                ${notes},
+                ${JSON.stringify(artifacts)}::jsonb,
+                ${JSON.stringify(notes)}::jsonb,
                 ${args.confidence}
               )
           `,
