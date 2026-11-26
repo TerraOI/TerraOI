@@ -5,7 +5,16 @@
   "compatibility_date": "2026-11-03",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "assets": { "directory": ".open-next/assets", "binding": "ASSETS" },
-  "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "terraoi-web" }],
+  "services": [
+    { "binding": "WORKER_SELF_REFERENCE", "service": "terraoi-web" },
+    // T-211 PR-3b / #170: app Worker is the only config that declares this binding.
+    // Targets named WorkerEntrypoint RPC `mintObjectUrl` on terraoi-extraction — not fetch.
+    {
+      "binding": "OBJECT_URL_MINT",
+      "service": "terraoi-extraction",
+      "entrypoint": "ObjectUrlMint"
+    }
+  ],
   // workers.dev and preview URLs must not become a tenant entry point (plan §4.1).
   "workers_dev": false,
   "preview_urls": false,
@@ -15,6 +24,9 @@
   // T-102h / #75: SESSION_DB Hyperdrive (login user IN ROLE toi_session_worker) and
   // SESSION_TOKEN_KEY / IDENTITY_SESSION_KEY secrets are owner steps on T-004 — bind them under
   // env.staging only; never put connection strings or key material in this file.
+  // T-211 PR-3a / ADR-0005 §9: JOB_DB Hyperdrive (login user IN ROLE toi_job_api) is the same
+  // owner step — bind under env.staging only; the app Worker uses it for /api/jobs/* and never
+  // for table grants. PR-3b: OBJECT_URL_MINT → workers/ ObjectUrlMint (service-role stays there).
   "ratelimits": [{ "name": "INQUIRY_RATE_LIMITER", "namespace_id": "1001", "simple": { "limit": 3, "period": 60 } }],
   "vars": { "TURNSTILE_SITE_KEY": "" },
   // Routes (e.g. "*.terraoi.app/*") are added in T-004 after DNS is verified (human-only, plan §20.8).
@@ -23,7 +35,14 @@
       "name": "terraoi-web-staging",
       "workers_dev": false,
       "preview_urls": false,
-      "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "terraoi-web-staging" }],
+      "services": [
+        { "binding": "WORKER_SELF_REFERENCE", "service": "terraoi-web-staging" },
+        {
+          "binding": "OBJECT_URL_MINT",
+          "service": "terraoi-extraction-staging",
+          "entrypoint": "ObjectUrlMint"
+        }
+      ],
       "ratelimits": [{ "name": "INQUIRY_RATE_LIMITER", "namespace_id": "1002", "simple": { "limit": 3, "period": 60 } }],
       "vars": { "TURNSTILE_SITE_KEY": "" },
       // T-004: exact staging hosts only, each with a proxied DNS record (AAAA 100::) in the

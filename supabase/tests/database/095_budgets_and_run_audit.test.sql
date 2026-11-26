@@ -4,7 +4,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(21);
+select plan(30);
 
 select has_schema('budget_ledger', '1 budget_ledger schema exists');
 select has_role('toi_budget_ledger', '2 toi_budget_ledger NOLOGIN role exists');
@@ -206,63 +206,96 @@ select ok(
   '18 company1 account is not charged by company2 reservations'
 );
 
--- company1 was ensure'd with concurrent_run_cap=2 and burst_per_user=2 (§12.3).
-select ok(
-  pg_temp.reserve_id(
-    '11111111-1111-4111-8111-111111111111',
-    'cccccccc-cccc-4ccc-8ccc-ccccccccccc1',
-    'conc-a',
-    '00000000-0000-4000-8000-0000000000a1',
-    'compose',
-    'local_box',
-    10,
-    10
-  ) ~ '^[0-9a-f-]{36}$'
-  and pg_temp.reserve_id(
-    '11111111-1111-4111-8111-111111111111',
-    'cccccccc-cccc-4ccc-8ccc-ccccccccccc2',
-    'conc-b',
-    '00000000-0000-4000-8000-0000000000a1',
-    'compose',
-    'local_box',
-    10,
-    10
-  ) ~ '^[0-9a-f-]{36}$',
-  '19 company1 admits exactly concurrent_run_cap open runs'
-);
+-- ================================================================ 19-30 the limits this PR adds
+-- (supervisor round 1 on #255, B1-B3). Every scenario runs on company1's account, which holds no open
+-- reservation after test 14, and releases what it opened so the next one starts clean. Ceilings are
+-- moved as the test owner: they are tenant policy, not something the ledger role may change.
+create or replace function pg_temp.res(p_run text, p_attempt text, p_user uuid, p_units bigint)
+returns text language sql as $$
+  select pg_temp.reserve_id('11111111-1111-4111-8111-111111111111', p_run::uuid, p_attempt, p_user, 'compose', 'local_box', p_units, 0)
+$$;
+create or replace function pg_temp.rec(p_attempt text, p_outcome text, p_used bigint)
+returns text language plpgsql as $$
+declare
+  v_id uuid;
+begin
+  select id into v_id from public.budget_reservations
+   where organisation_id = '11111111-1111-4111-8111-111111111111' and attempt_id = p_attempt;
+  return pg_temp.as_ledger(format(
+    'select budget_ledger.reconcile_v1(%L::uuid, %L, %L::uuid, %L, %s)',
+    '11111111-1111-4111-8111-111111111111', p_attempt, v_id, p_outcome, coalesce(p_used::text, 'null')));
+end;
+$$;
+create or replace function pg_temp.acct() returns public.budget_accounts
+language sql as $$ select * from public.budget_accounts where organisation_id = '11111111-1111-4111-8111-111111111111' $$;
 
-select is(
-  pg_temp.reserve_id(
-    '11111111-1111-4111-8111-111111111111',
-    'cccccccc-cccc-4ccc-8ccc-ccccccccccc3',
-    'conc-c',
-    '00000000-0000-4000-8000-0000000000a1',
-    'compose',
-    'local_box',
-    10,
-    10
-  ),
-  'P0001',
-  '20 a third concurrent run at the cap is refused (§14)'
-);
+-- Monthly ceiling: 250 + 100 fits the daily 1000 but not a monthly 300.
+update public.budget_accounts set monthly_ceiling_units = 300 where organisation_id = '11111111-1111-4111-8111-111111111111';
+select pg_temp.res('00000000-0000-4000-8000-00000000d001', 'm-1', null, 250) is not null as done;
+select is(pg_temp.res('00000000-0000-4000-8000-00000000d002', 'm-2', null, 100), 'P0001',
+  '19 a reserve within the daily ceiling but past the monthly ceiling is refused');
+select pg_temp.rec('m-1', 'released', null) is not null as done;
+update public.budget_accounts set monthly_ceiling_units = 10000 where organisation_id = '11111111-1111-4111-8111-111111111111';
 
--- burst_per_user=2 and both open runs already belong to a1, so another attempt for a1 (same or
--- new run) must hit the per-user burst before anything else. Use a fresh attempt on an existing
--- open run: concurrent allows the same run_id, burst counts reserved rows for the user.
-select is(
-  pg_temp.reserve_id(
-    '11111111-1111-4111-8111-111111111111',
-    'cccccccc-cccc-4ccc-8ccc-ccccccccccc1',
-    'burst-extra',
-    '00000000-0000-4000-8000-0000000000a1',
-    'compose',
-    'local_box',
-    10,
-    10
-  ),
-  'P0001',
-  '21 per-user burst limit refuses a third reserved attempt for the same user'
-);
+-- Settled units count against the next reserve: 150 settled + 200 > a daily 300.
+update public.budget_accounts set daily_ceiling_units = 300 where organisation_id = '11111111-1111-4111-8111-111111111111';
+select pg_temp.res('00000000-0000-4000-8000-00000000d003', 's-1', null, 200) is not null as done;
+select pg_temp.rec('s-1', 'settled', 150) is not null as done;
+select is(((pg_temp.acct()).day_reserved_units, (pg_temp.acct()).day_settled_units)::text, '(0,150)',
+  '20 settling moves the reservation''s max out of reserved and the used units into settled');
+select is(pg_temp.res('00000000-0000-4000-8000-00000000d004', 's-2', null, 200), 'P0001',
+  '21 used units count against the next reserve''s ceiling');
+update public.budget_accounts set daily_ceiling_units = 1000 where organisation_id = '11111111-1111-4111-8111-111111111111';
+
+-- Ambiguous with no reported usage keeps the full max billed (packet negative 2).
+select pg_temp.res('00000000-0000-4000-8000-00000000d005', 'a-1', null, 200) is not null as done;
+select pg_temp.rec('a-1', 'ambiguous', null) is not null as done;
+select is((select (state, used_units)::text from public.budget_reservations
+            where organisation_id = '11111111-1111-4111-8111-111111111111' and attempt_id = 'a-1'), '(ambiguous,200)',
+  '22 an ambiguous attempt with no used units stays billed at its full max_units');
+select is((pg_temp.acct()).day_settled_units, 350::bigint,
+  '23 …and the account carries it as settled spend (150 + 200)');
+
+-- concurrent_run_cap = 2: a third run is refused, a new attempt of an open run is admitted.
+select pg_temp.res('00000000-0000-4000-8000-00000000c001', 'c-1', null, 2) is not null as done;
+select pg_temp.res('00000000-0000-4000-8000-00000000c002', 'c-2', null, 2) is not null as done;
+select is(pg_temp.res('00000000-0000-4000-8000-00000000c003', 'c-3', null, 2), 'P0001',
+  '24 a third concurrent run is refused at concurrent_run_cap 2');
+select ok(pg_temp.res('00000000-0000-4000-8000-00000000c001', 'c-1b', null, 2) ~ '^[0-9a-f-]{36}$',
+  '25 a new attempt of an already-open run is admitted at the cap');
+select pg_temp.rec('c-1', 'released', null) is not null as done;
+select pg_temp.rec('c-1b', 'released', null) is not null as done;
+select pg_temp.rec('c-2', 'released', null) is not null as done;
+
+-- burst_per_user = 2: …a2's third open reservation is refused; another user is not affected.
+update public.budget_accounts set concurrent_run_cap = 10 where organisation_id = '11111111-1111-4111-8111-111111111111';
+select pg_temp.res('00000000-0000-4000-8000-00000000b001', 'b-1', '00000000-0000-4000-8000-0000000000a2', 2) is not null as done;
+select pg_temp.res('00000000-0000-4000-8000-00000000b002', 'b-2', '00000000-0000-4000-8000-0000000000a2', 2) is not null as done;
+select is(pg_temp.res('00000000-0000-4000-8000-00000000b003', 'b-3', '00000000-0000-4000-8000-0000000000a2', 2),
+  'P0001', '26 a user''s third open reservation is refused at burst_per_user 2');
+select ok(pg_temp.res('00000000-0000-4000-8000-00000000b004', 'b-4', '00000000-0000-4000-8000-0000000000a1', 2)
+          ~ '^[0-9a-f-]{36}$',
+  '27 …while another user of the same tenant can still reserve');
+select pg_temp.rec('b-1', 'released', null) is not null as done;
+select pg_temp.rec('b-2', 'released', null) is not null as done;
+select pg_temp.rec('b-4', 'released', null) is not null as done;
+
+-- Cross-period reconcile (B1). x-1 is booked "yesterday" (account and reservation day_key backdated),
+-- y-1 is booked today after the rollover, then x-1 settles. Today's counters must be exactly y-1's
+-- reservation: x-1 neither releases today's liability nor lands its spend in today.
+select pg_temp.res('00000000-0000-4000-8000-00000000e001', 'x-1', null, 100) is not null as done;
+update public.budget_accounts set day_key = day_key - 1 where organisation_id = '11111111-1111-4111-8111-111111111111';
+update public.budget_reservations set day_key = day_key - 1
+ where organisation_id = '11111111-1111-4111-8111-111111111111' and attempt_id = 'x-1';
+select pg_temp.res('00000000-0000-4000-8000-00000000e002', 'y-1', null, 100) is not null as done;
+select pg_temp.rec('x-1', 'settled', 80) is not null as done;
+select is((pg_temp.acct()).day_reserved_units, 100::bigint,
+  '28 settling yesterday''s reservation leaves today''s reserved units (y-1) untouched');
+select is((pg_temp.acct()).day_settled_units, 0::bigint,
+  '29 …and books none of its spend into today''s settled units');
+select is((select (state, used_units)::text from public.budget_reservations
+            where organisation_id = '11111111-1111-4111-8111-111111111111' and attempt_id = 'x-1'), '(settled,80)',
+  '30 the reservation itself is settled with its reported usage');
 
 select * from finish();
 rollback;
