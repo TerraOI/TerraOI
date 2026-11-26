@@ -5,6 +5,13 @@ import type { DataClass } from "@/contracts/data-class";
 import type { IngestionStage, JobExecutor } from "@/contracts/ingestion-job";
 
 import type {
+  ArtifactRow,
+  ArtifactsOutcome,
+  ChunkWriteRow,
+  IndexJobApiPort,
+  WriteChunksOutcome,
+} from "./index-pull";
+import type {
   AbortOutcome,
   AbortReason,
   ArtifactInput,
@@ -69,6 +76,40 @@ function artifactsToSql(artifacts: readonly ArtifactInput[]): unknown {
     if (artifact.notes !== undefined) row.notes = artifact.notes;
     return row;
   });
+}
+
+function chunksToSql(chunks: readonly ChunkWriteRow[]): unknown {
+  return chunks.map((chunk) => {
+    const row: Record<string, unknown> = {
+      chunk_index: chunk.chunkIndex,
+      body_text: chunk.bodyText,
+    };
+    if (chunk.chunkId !== undefined) row.chunk_id = chunk.chunkId;
+    if (chunk.locator !== undefined) row.locator = chunk.locator;
+    if (chunk.dataClass !== undefined) row.data_class = chunk.dataClass;
+    if (chunk.tokenCount !== undefined) row.token_count = chunk.tokenCount;
+    if (chunk.embedding !== undefined) row.embedding = [...chunk.embedding];
+    return row;
+  });
+}
+
+function mapArtifactRows(rows: readonly Record<string, unknown>[]): ArtifactRow[] | null {
+  const out: ArtifactRow[] = [];
+  for (const row of rows) {
+    if (typeof row.o_artifact_index !== "number" || typeof row.o_body_text !== "string") {
+      return null;
+    }
+    const artifact: ArtifactRow = {
+      artifactIndex: row.o_artifact_index,
+      bodyText: row.o_body_text,
+    };
+    if (row.o_locator !== undefined && row.o_locator !== null) {
+      if (typeof row.o_locator !== "object" || Array.isArray(row.o_locator)) return null;
+      artifact.locator = row.o_locator as Record<string, unknown>;
+    }
+    out.push(artifact);
+  }
+  return out;
 }
 
 function expiresAtIso(value: unknown): string | null {
@@ -218,8 +259,8 @@ export function createJobApi(deps: JobDbDeps): JobApiPort | null {
                 ${args.sourceVersionId}::uuid,
                 ${args.stage},
                 ${args.indexGeneration},
-                ${artifacts},
-                ${notes},
+                ${JSON.stringify(artifacts)}::jsonb,
+                ${JSON.stringify(notes)}::jsonb,
                 ${args.confidence}
               )
           `,
@@ -330,6 +371,153 @@ export async function dispatchOutboxEvents(
   } finally {
     await sql.end({ timeout: 5 });
   }
+}
+
+/**
+ * Index-stage Job API over `JOB_DB` (T-113): lease `index`, read extract artifacts under the
+ * lease compare, and write chunks/vectors through `write_chunks_v1`. Same digest discipline as
+ * `createJobApi`.
+ */
+export function createIndexJobApi(deps: JobDbDeps): IndexJobApiPort | null {
+  const open: (() => JobSql) | null =
+    deps.openSql ?? (deps.binding ? () => openFromBinding(deps.binding as JobDbBinding) : null);
+  if (open === null) return null;
+  const openSql = open;
+
+  async function withSql<T>(run: (sql: JobSql) => Promise<T>): Promise<T> {
+    const sql = openSql();
+    try {
+      return await run(sql);
+    } finally {
+      await sql.end({ timeout: 5 });
+    }
+  }
+
+  return {
+    async lease({ credential, stage, leaseSeconds }) {
+      const tokenHash = digestOf(credential);
+      const rows = await withSql(async (sql) =>
+        sql`
+          select o_found, o_job_id, o_organisation_id, o_source_version_id, o_stage, o_executor,
+                 o_parser_generation, o_index_generation, o_data_class, o_lease_token, o_fence, o_attempt
+            from job_api.lease_parse_job_v1(${tokenHash}, ${stage}, ${leaseSeconds})
+        `,
+      );
+      const row = rows[0];
+      if (!row) return null;
+      return mapLeaseRow(row);
+    },
+
+    async renew({ credential, jobId, leaseToken, fence, leaseSeconds }) {
+      const tokenHash = digestOf(credential);
+      const rows = await withSql(async (sql) =>
+        sql<{ o_outcome: string; o_expires_at: Date | string | null; o_fence: number | null }>`
+          select o_outcome, o_expires_at, o_fence
+            from job_api.renew_parse_lease_v1(
+              ${tokenHash}, ${jobId}::uuid, ${leaseToken}, ${fence}, ${leaseSeconds}
+            )
+        `,
+      );
+      const row = rows[0];
+      if (!row || row.o_outcome !== "renewed") return { outcome: "refused" };
+      const expiresAt = expiresAtIso(row.o_expires_at);
+      if (expiresAt === null || typeof row.o_fence !== "number") return { outcome: "refused" };
+      return { outcome: "renewed", expiresAt, fence: row.o_fence } satisfies RenewOutcome;
+    },
+
+    async abort({ credential, jobId, leaseToken, fence, reason }) {
+      const tokenHash = digestOf(credential);
+      const rows = await withSql(async (sql) =>
+        sql<{ o_outcome: string }>`
+          select o_outcome
+            from job_api.abort_parse_job_v1(
+              ${tokenHash}, ${jobId}::uuid, ${leaseToken}, ${fence}, ${reason}
+            )
+        `,
+      );
+      const row = rows[0];
+      if (!row || row.o_outcome !== "aborted") return { outcome: "refused" } satisfies AbortOutcome;
+      return { outcome: "aborted" };
+    },
+
+    async artifactsForLease({ credential, jobId, leaseToken, fence }) {
+      const tokenHash = digestOf(credential);
+      try {
+        const rows = await withSql(async (sql) =>
+          sql`
+            select o_found, o_artifact_index, o_body_text, o_locator
+              from job_api.artifacts_for_lease_v1(
+                ${tokenHash}, ${jobId}::uuid, ${leaseToken}, ${fence}
+              )
+          `,
+        );
+        const first = rows[0];
+        if (!first || first.o_found !== true) return { found: false } satisfies ArtifactsOutcome;
+        const mapped = mapArtifactRows(rows);
+        if (mapped === null) return { found: false };
+        return { found: true, artifacts: mapped };
+      } catch (err) {
+        if (isPgCode(err, "42501")) return { found: false };
+        throw err;
+      }
+    },
+
+    async writeChunks(args) {
+      const tokenHash = digestOf(args.credential);
+      const chunks = chunksToSql(args.chunks);
+      try {
+        const rows = await withSql(async (sql) =>
+          sql<{
+            o_outcome: string;
+            o_chunk_count: number | null;
+            o_vector_count: number | null;
+            o_event_id: string | null;
+          }>`
+            select o_outcome, o_chunk_count, o_vector_count, o_event_id
+              from job_api.write_chunks_v1(
+                ${tokenHash},
+                ${args.jobId}::uuid,
+                ${args.leaseToken},
+                ${args.fence},
+                ${args.sourceVersionId}::uuid,
+                ${args.indexGeneration},
+                ${args.embeddingIndexId}::uuid,
+                ${chunks}
+              )
+          `,
+        );
+        const row = rows[0];
+        if (!row) return { outcome: "refused" } satisfies WriteChunksOutcome;
+        if (
+          row.o_outcome === "completed" &&
+          typeof row.o_chunk_count === "number" &&
+          typeof row.o_vector_count === "number"
+        ) {
+          return {
+            outcome: "completed",
+            chunkCount: row.o_chunk_count,
+            vectorCount: row.o_vector_count,
+            eventId: typeof row.o_event_id === "string" ? row.o_event_id : null,
+          };
+        }
+        if (
+          row.o_outcome === "already_completed" &&
+          typeof row.o_chunk_count === "number" &&
+          typeof row.o_vector_count === "number"
+        ) {
+          return {
+            outcome: "already_completed",
+            chunkCount: row.o_chunk_count,
+            vectorCount: row.o_vector_count,
+          };
+        }
+        return { outcome: "refused" };
+      } catch (err) {
+        if (isPgCode(err, "42501")) return { outcome: "refused" };
+        throw err;
+      }
+    },
+  };
 }
 
 /**

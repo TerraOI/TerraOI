@@ -1,13 +1,14 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
-import { createJobApi, dispatchOutboxEvents, type JobSql } from "./job-db";
+import { createIndexJobApi, createJobApi, dispatchOutboxEvents, type JobSql } from "./job-db";
 
 const TOKEN = "Qh7X3m1pL0aZ8sW2kD5vN9tY4bC6rE0uI1oP3qS7wX2";
 const DIGEST = createHash("sha256").update(TOKEN, "utf8").digest("hex");
 const JOB = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const ORG = "11111111-1111-4111-8111-111111111111";
 const VERSION = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const EVENT = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 
 type Call = { sql: string; values: unknown[] };
 
@@ -131,10 +132,19 @@ describe("createJobApi — JOB_DB Hyperdrive adapter (T-211 PR-3a)", () => {
         confidence: 0.8,
       }),
     ).resolves.toEqual({ outcome: "completed", artifactCount: 1 });
+    // complete_parse_job_v1 types p_artifacts and p_notes as jsonb (20261120212000:454-455). A JS
+    // array would be sent as a Postgres array and fail function resolution, so both go as JSON
+    // text with an explicit cast, independent of driver type inference.
     const artifactsArg = calls[0]?.values[7];
-    expect(JSON.stringify(artifactsArg)).toContain("artifact_index");
-    expect(JSON.stringify(artifactsArg)).toContain("body_text");
-    expect(JSON.stringify(artifactsArg)).not.toContain("artifactIndex");
+    const notesArg = calls[0]?.values[8];
+    expect(typeof artifactsArg).toBe("string");
+    expect(typeof notesArg).toBe("string");
+    expect(JSON.parse(artifactsArg as string)).toEqual([
+      { artifact_index: 0, body_text: "hello", locator: { page: 1 }, confidence: 0.9 },
+    ]);
+    expect(JSON.parse(notesArg as string)).toEqual(["n1"]);
+    expect(calls[0]?.sql).toContain("$8::jsonb");
+    expect(calls[0]?.sql).toContain("$9::jsonb");
   });
 
   it("maps SQL 42501 to refused without leaking postgres detail", async () => {
@@ -189,5 +199,59 @@ describe("createJobApi — JOB_DB Hyperdrive adapter (T-211 PR-3a)", () => {
 
   it("dispatchOutboxEvents returns null when JOB_DB is unbound", async () => {
     await expect(dispatchOutboxEvents({}, { credential: TOKEN })).resolves.toBeNull();
+  });
+
+  it("createIndexJobApi writeChunks hashes the credential and maps snake chunk keys (T-113)", async () => {
+    const { sql, calls } = recordingSql(async () => [
+      { o_outcome: "completed", o_chunk_count: 1, o_vector_count: 1, o_event_id: EVENT },
+    ]);
+    const api = createIndexJobApi({ openSql: () => sql })!;
+    await expect(
+      api.writeChunks({
+        credential: TOKEN,
+        jobId: JOB,
+        leaseToken: "lease",
+        fence: 2,
+        sourceVersionId: VERSION,
+        indexGeneration: 1,
+        embeddingIndexId: "55555555-5555-4555-8555-555555555555",
+        chunks: [
+          {
+            chunkIndex: 0,
+            bodyText: "synthetic chunk",
+            chunkId: "66666666-6666-4666-8666-666666666666",
+            embedding: [0.1, 0.2],
+          },
+        ],
+      }),
+    ).resolves.toEqual({
+      outcome: "completed",
+      chunkCount: 1,
+      vectorCount: 1,
+      eventId: EVENT,
+    });
+    expect(calls[0]?.sql).toContain("job_api.write_chunks_v1");
+    expect(calls[0]?.values[0]).toBe(DIGEST);
+    expect(calls[0]?.values).not.toContain(TOKEN);
+    expect(JSON.stringify(calls[0]?.values)).toContain("chunk_index");
+    expect(JSON.stringify(calls[0]?.values)).toContain("body_text");
+  });
+
+  it("createIndexJobApi artifactsForLease maps found rows", async () => {
+    const { sql } = recordingSql(async () => [
+      {
+        o_found: true,
+        o_artifact_index: 0,
+        o_body_text: "extract text",
+        o_locator: { page: 1 },
+      },
+    ]);
+    const api = createIndexJobApi({ openSql: () => sql })!;
+    await expect(
+      api.artifactsForLease({ credential: TOKEN, jobId: JOB, leaseToken: "t", fence: 1 }),
+    ).resolves.toEqual({
+      found: true,
+      artifacts: [{ artifactIndex: 0, bodyText: "extract text", locator: { page: 1 } }],
+    });
   });
 });

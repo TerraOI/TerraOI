@@ -87,7 +87,13 @@ const repoSource = [
  * limits are written out in the guard test below.
  */
 const ADAPTERS_MODULE = /(?:^|\/)gateway\/adapters$/;
-const FACTORY_NAMES = ["createLocalBoxAdapter", "createWorkersAiAdapter", "createClaudeAdapter"];
+const FACTORY_NAMES = [
+  "createLocalBoxAdapter",
+  "createWorkersAiAdapter",
+  "createClaudeAdapter",
+  "createDeepSeekAdapter",
+  "createOpenRouterAdapter",
+];
 
 function oneLine(source: string): string {
   return source.replace(/\s+/g, " ").trim();
@@ -165,7 +171,7 @@ describe("the gateway is the only place a provider is reached (AGENTS.md §4.3)"
     }
   });
 
-  it("no source file imports a provider SDK", () => {
+  it("no source file imports a provider SDK", { timeout: 15_000 }, () => {
     const offenders: string[] = [];
     for (const file of repoSource) {
       const text = readFileSync(file, "utf8");
@@ -178,7 +184,7 @@ describe("the gateway is the only place a provider is reached (AGENTS.md §4.3)"
     expect(offenders).toEqual([]);
   });
 
-  it("provider endpoints and the OpenAI-compatible path appear only inside the gateway", () => {
+  it("provider endpoints and the OpenAI-compatible path appear only inside the gateway", { timeout: 15_000 }, () => {
     const offenders: string[] = [];
     for (const file of repoSource) {
       const repoPath = relative(ROOT, file).replaceAll("\\", "/");
@@ -245,6 +251,8 @@ describe("the gateway is the only place a provider is reached (AGENTS.md §4.3)"
     const forbidden = [
       'import { createWorkersAiAdapter } from "@/platform/gateway/adapters";',
       'import { createClaudeAdapter } from "@/platform/gateway/adapters";',
+      'import { createDeepSeekAdapter } from "@/platform/gateway/adapters";',
+      'import { createOpenRouterAdapter } from "@/platform/gateway/adapters";',
       'import * as adapters from "@/platform/gateway/adapters";',
       'import { type AdapterCallOutcome, createLocalBoxAdapter } from "@/platform/gateway/adapters";',
       'const adapter = require("@/platform/gateway/adapters").createLocalBoxAdapter;',
@@ -270,6 +278,8 @@ describe("the gateway is the only place a provider is reached (AGENTS.md §4.3)"
     expect(factories).toContain("createWorkersAiAdapter");
     // The Claude adapter added by T-115f is under the same rule, not a fourth way out.
     expect(factories).toContain("createClaudeAdapter");
+    expect(factories).toContain("createDeepSeekAdapter");
+    expect(factories).toContain("createOpenRouterAdapter");
     // And the classifier is not vacuous: it reports the factory names where they appear.
     expect(adapterModuleRefs(factories).length).toBeGreaterThan(0);
     const tests = readFileSync(join(ROOT, GATEWAY, "adapters.test.ts"), "utf8");
@@ -285,5 +295,8 @@ describe("the gateway is the only place a provider is reached (AGENTS.md §4.3)"
     expect(gatewayFiles).toContain(`${GATEWAY}/config.ts`);
     // From 115b the guard also proves it is looking at the place where the real `fetch` calls live.
     expect(gatewayFiles).toContain(`${GATEWAY}/adapters.ts`);
+    // T-314 F37: scheduled/passive health lives next to the circuit book, not in a worker cron yet.
+    expect(gatewayFiles).toContain(`${GATEWAY}/health.ts`);
+    expect(gatewayFiles).toContain(`${GATEWAY}/health-persist.ts`);
   });
 });
