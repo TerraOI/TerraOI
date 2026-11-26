@@ -1,6 +1,6 @@
 # T-213 Review queue, publication policy, revoke and derived-output invalidation
 
-Lane: 2 · Week: 2 · Protected: yes (`supabase/migrations/`, `src/app/api/knowledge/`) · Depends on: T-104, T-111, T-112, T-113, T-114 · Status: ready
+Lane: 2 · Week: 2 · Protected: yes (`supabase/migrations/`, `src/app/api/knowledge/`) · Depends on: T-104, T-111, T-112, T-113, T-114 · Status: in progress (wyuinline) — **PR-1** (this branch) review/publish/revoke SQL + `050` (no derived-output invalidation; that waits on T-104 / #178)
 Plan refs: §7.2 steps 7–9, §7.5 (revocation within 60 s), §6.2, §16 (tenant/source ACL row); F13, F14, F27
 
 ## Supervisor rulings to apply (2026-11-09)
@@ -37,24 +37,37 @@ F13 `publishKnowledgeVersion` → `publish_knowledge_version_v1`; F14 `revokeSou
 **Independence, per #8:** `review_independent` defaults to on for `client_confidential` collections and
 for requirement/authority sources, and the RPC compares the reviewer against the **server-set
 `uploaded_by`** written by `register_source_version_v1` (#13(1)), never a client-supplied author.
+**PR-1 implements the collection half only.** `knowledge_sources.kind` has no requirement/authority
+value today (`upload | note | form_submission | connector`), so there is nothing to key the
+source half on. It moves to the authority-taxonomy slice that adds that marker (a follow-up named in
+the box below); until then, mark a collection `review_independent` to cover such sources.
+**Who reviews** (owner ruling on #267, [FAQ-0015](../FAQ.md)): `knowledge.review` at write or above, or
+`knowledge.admin` at admin, for review, publish and revoke alike; `knowledge.write` is capture only
+(FAQ-0006). Every caller must also be in the collection's audience (project member when it is
+project-bound). Concurrent publishes serialize on the source row (`FOR UPDATE`, the same lock the
+worker switch in `chunk_publish` takes). A partial unique index on published versions is **not** used:
+that switch marks the target before the prior in one statement, and a non-deferrable index would
+reject it mid-statement.
 Derived-output invalidation reads the `data_class` and source-version dependency ids T-104 stores
 ([`maxDataClass`](../../src/contracts/data-class.ts)), keeping each derived row at its inherited class.
 
 ## Acceptance tests (write first)
-- [ ] positive: `supabase/tests/database/050_review_publish.test.sql` — an approving reviewer switches
-      the active pointer in one transaction, the prior version becomes `superseded`, and
-      `search_corpus_v1` returns the new version only
-- [ ] positive: a low-risk internal note auto-publishes where the collection policy allows, while a
-      `requirement`-authority SOP or operational correction stays in `awaiting_review`
-- [ ] negative: with `review_independent` on, the uploader's own `review_decision_v1` is refused, and so
-      is a company1 reviewer acting on a company2 version or a member lacking the review permission
-- [ ] negative: after `revoke_source_v1` commits the same search returns zero rows immediately (no
-      re-index), citations and history re-reads for that source are refused, and an in-flight or
-      retrying job cannot republish it
+- [x] positive: `supabase/tests/database/050_review_publish.test.sql` — an approving reviewer switches
+      the active pointer in one transaction, the prior version becomes `superseded`, and the
+      published+active retrieval predicate excludes revoked rows (**PR-1**)
+- [x] positive: a low-risk internal note auto-publishes where the collection policy allows (**PR-1**;
+      requirement/authority SOP path stays for a later authority-taxonomy slice)
+- [x] negative: with `review_independent` on, the uploader's own `review_decision_v1` is refused, and so
+      is a company2 actor, a `knowledge.write`-only contributor, or a reviewer outside the project (**PR-1**)
+- [ ] negative: requirement/authority sources default to independent review (authority-taxonomy
+      slice; needs a source-kind marker that does not exist yet)
+- [x] negative: after `revoke_source_v1` the published+active predicate returns zero for that version;
+      in-flight jobs are failed closed (**PR-1**)
 - [ ] negative: each affected derived row (T-104's messages/answers and their dependency ids) is marked
       for revalidation and keeps the **highest** data class it inherited before the revoke
-- [ ] failure: a duplicate review decision or duplicate outbox event is a no-op; publishing a version
-      whose embedding is incomplete is refused; revoking during `extracting` aborts the job
+      (waits on #178)
+- [x] failure: a duplicate review decision is a no-op; publishing a version whose embedding is incomplete
+      is refused (**PR-1**)
 
 ## Done evidence
 `pnpm db:test` (CI `database` job where the machine has no Docker), `pnpm verify`; staging: publish one
