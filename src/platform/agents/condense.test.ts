@@ -110,7 +110,8 @@ describe("condenseQuery (F30)", () => {
     expect(result.status).toBe("skipped");
     if (result.status !== "skipped") return;
     expect(result.reason).toBe("unauthorized_history");
-    expect(result.searchedQuery).toContain("and the 120 m one?");
+    expect(result.searchedQuery).toBe("and the 120 m one?");
+    expect(result.searchedQuery).not.toContain("secret other-user turn");
     expect(adapters[0]!.calls).toHaveLength(0);
   });
 

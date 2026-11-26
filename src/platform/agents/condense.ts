@@ -145,7 +145,9 @@ export async function condenseQuery(
 
   for (const turn of history) {
     if (turn.conversationUserId !== input.context.userId) {
-      return skipped(followUp, history, "unauthorized_history");
+      // The fallback must not draw on refused history either: search with the follow-up alone
+      // (supervisor round 1 on #266 — the prior-turn fallback leaked another user's text).
+      return skipped(followUp, [], "unauthorized_history");
     }
   }
 
