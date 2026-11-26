@@ -1,5 +1,5 @@
 -- T-312 PR-5: scoped writers for eval_runs / eval_results (F35 persistence).
--- Timestamp after 20261121220000_evals.sql (#240). One migration per PR.
+-- Timestamp after 20261125100000_evals.sql (#240, COORDINATION §3). One migration per PR.
 -- Rerun = new call = new run row; completed runs are never updated by these RPCs.
 
 create or replace function public.record_eval_run_v1(
@@ -89,9 +89,22 @@ begin
     if not found then
       raise exception 'not permitted to record eval runs' using errcode = '42501';
     end if;
+    -- Supervisor round 1 on #243: a run scores one expert; another expert's case is not its result.
+    if not exists (
+      select 1 from public.eval_cases c where c.id = v_case_id and c.expert_key = v_expert
+    ) then
+      raise exception 'eval result case belongs to another expert' using errcode = '22023';
+    end if;
 
     if v_item ? 'score' and v_item ->> 'score' is not null and v_item ->> 'score' <> 'null' then
-      v_score := (v_item ->> 'score')::numeric;
+      begin
+        v_score := (v_item ->> 'score')::numeric;
+      exception when others then
+        raise exception 'eval result score must be a number' using errcode = '22023';
+      end;
+      if v_score < 0 or v_score > 1 then
+        raise exception 'eval result score must be between 0 and 1' using errcode = '22023';
+      end if;
     else
       v_score := null;
     end if;

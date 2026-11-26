@@ -198,6 +198,71 @@ describe("runExpertEvalAndPersist", () => {
     expect(recordBody.p_results[0]?.case_id).toBe(CASE_A);
   });
 
+  it("maps only the run's own expert when two experts share a case key (round 1 on #277)", async () => {
+    const adapter = fakeAdapter("local_box", [answered('{"status":"answered"}', "box")]);
+    const book = new CircuitBook({ openAfterFailures: 2, cooldownMs: 30_000 });
+    const sent: { url: string; body: string }[] = [];
+    const fetchImpl: FetchImpl = async (input, init) => {
+      sent.push({
+        url: input,
+        body: typeof init?.body === "string" ? init.body : "",
+      });
+      if (input.includes("/rpc/list_eval_cases_v1")) {
+        return new Response(
+          JSON.stringify([
+            {
+              id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+              case_key: "UAV-E001",
+              expert_key: "gpr-expert",
+              status: "approved",
+            },
+            {
+              id: CASE_A,
+              case_key: "UAV-E001",
+              expert_key: "uav-expert",
+              status: "approved",
+            },
+          ]),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify("cccccccc-cccc-4ccc-8ccc-cccccccccccc"), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+
+    const result = await runExpertEvalAndPersist({
+      context: syntheticContext({ organisationId: ORG }),
+      accessToken: TOKEN,
+      expertKey: "uav-expert",
+      expertVersion: "1.0.0-test",
+      chainConfig: { compose: FULL_COMPOSE_CHAIN },
+      corpusGeneration: "gen-list",
+      cases: [approvedFixture()],
+      evalRunId: RUN_ID,
+      gatewayDeps: {
+        config: testConfiguration(),
+        adapters: registryOf(adapter),
+        health: book,
+        meter: recordingMeter(),
+      },
+      recordDeps: { postgrestBaseUrl: "http://127.0.0.1:1", fetchImpl },
+    });
+
+    expect(result.run.status).toBe("completed");
+    expect(result.persist.ok).toBe(true);
+    expect(sent.map((s) => s.url)).toEqual([
+      expect.stringMatching(/\/rpc\/list_eval_cases_v1$/),
+      expect.stringMatching(/\/rpc\/record_eval_run_v1$/),
+    ]);
+    const listBody = JSON.parse(sent[0]?.body ?? "{}") as Record<string, unknown>;
+    expect(listBody.p_status).toBe("approved");
+    expect(listBody.p_organisation_id).toBe(ORG);
+    const recordBody = JSON.parse(sent[1]?.body ?? "{}") as { p_results: { case_id: string }[] };
+    expect(recordBody.p_results[0]?.case_id).toBe(CASE_A);
+  });
+
   it("fails persist (without inventing uuids) when list_eval_cases_v1 fails", async () => {
     const adapter = fakeAdapter("local_box", [answered('{"status":"answered"}', "box")]);
     const book = new CircuitBook({ openAfterFailures: 2, cooldownMs: 30_000 });

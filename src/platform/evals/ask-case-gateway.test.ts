@@ -181,6 +181,58 @@ describe("createEvalGatewayAsker", () => {
     expect(meter.reserveCalls).toHaveLength(1);
   });
 
+  it("keeps the run's UUID as runId and tells cases apart in the attempt id (supervisor round 1 on #274)", async () => {
+    const adapter = fakeAdapter("local_box", [
+      answered('{"status":"answered"}', "box"),
+      answered('{"status":"answered"}', "box"),
+    ]);
+    const meter = recordingMeter();
+    const askCase = createEvalGatewayAsker({
+      context: syntheticContext(),
+      runId: RUN_ID,
+      gatewayDeps: {
+        config: testConfiguration(),
+        adapters: registryOf(adapter),
+        health: new CircuitBook({ openAfterFailures: 2, cooldownMs: 30_000 }),
+        meter,
+      },
+      composeChain: FULL_COMPOSE_CHAIN,
+    });
+    await runExpertEval({
+      expertKey: "uav-expert",
+      expertVersion: "1.0.0-test",
+      chainConfig: { compose: FULL_COMPOSE_CHAIN },
+      corpusGeneration: "gen-gw",
+      cases: [approvedFixture({ caseId: "UAV-E001" }), approvedFixture({ caseId: "UAV-E002" })],
+      askCase,
+    });
+    expect(meter.reserveCalls.map((c) => c.runId)).toEqual([RUN_ID, RUN_ID]);
+    const attempts = meter.reserveCalls.map((c) => c.attemptId);
+    expect(new Set(attempts).size).toBe(2);
+    expect(attempts.some((id) => id.includes("UAV-E001"))).toBe(true);
+  });
+
+  it("routes under the case's narrowed clearance, so a stricter matrix stops a call before it is made", async () => {
+    const local = fakeAdapter("local_box", [answered('{"status":"answered"}', "box")]);
+    const claude = fakeAdapter("claude", [answered('{"status":"answered"}', "c")]);
+    const askCase = createEvalGatewayAsker({
+      context: syntheticContext(),
+      runId: RUN_ID,
+      gatewayDeps: {
+        config: testConfiguration(),
+        adapters: registryOf(local, claude),
+        health: new CircuitBook({ openAfterFailures: 2, cooldownMs: 30_000 }),
+        meter: recordingMeter(),
+      },
+      composeChain: ["local_box", "claude"],
+    });
+    const evalCase = approvedFixture({ caseId: "UAV-E060", dataClass: "internal" });
+    const strict = clearanceForEvalCase({ dataClass: "internal", tenantPolicy: { internal: ["claude"] } });
+    await askCase({ evalCase, clearance: strict, corpusGeneration: "gen-a", expertVersion: "1.0.0" });
+    expect(local.calls).toHaveLength(0);
+    expect(claude.calls).toHaveLength(1);
+  });
+
   it("honours clearance: client_confidential cases never record deepseek/openrouter attempts", async () => {
     const local = fakeAdapter("local_box", [answered('{"status":"answered"}', "box")]);
     const deepseek = fakeAdapter("deepseek", [answered('{"status":"answered"}', "ds")]);

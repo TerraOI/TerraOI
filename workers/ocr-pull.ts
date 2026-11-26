@@ -68,7 +68,9 @@ export type AbortReason =
   | "object_missing"
   | "quality_failed"
   | "operator_cancel"
-  | "clearance_refused";
+  | "clearance_refused"
+  /** T-113 / #99: pinned embedding route down; index job aborts, pointer does not move. */
+  | "embedding_route_unavailable";
 
 /** Mirrors `job_api.retarget_reasons()` (`:120-126`), same note. T-212's routing decision names them. */
 export type RetargetReason =

@@ -1,6 +1,6 @@
 # T-113 Chunk, embed with the pinned model, and auto-publish for the skeleton
 
-Lane: 2 · Week: 1 · Protected: yes (`src/platform/gateway/` route config) · Depends on: T-111, T-112, T-115, T-211 (its `job_api` migration) · Status: in progress (wyuinline) — the chunker and the embedding gate are on `main` via [#80](https://github.com/TerraOI/TerraOI/pull/80): `src/platform/knowledge/chunker.ts` (headings and table headers carried with their rows, page attribution, chunk ids stable per source version and parser generation, and a derived chunk that can never be labeled below its source class) and `src/platform/retrieval/embeddings.ts` (refuses a route whose model or dimension differs from the index, refuses a chunk whose class is outside that index's `cleared_for` and says why, refuses `restricted` outright, contacts no provider when the plan already refuses, and publishes only once every planned chunk is embedded). Still open in this packet: the database-side boxes — cross-tenant chunk rows rejected by the FK, the pointer switch as one transaction with an idempotent re-run of the same stage — which need a pgTAP suite whose slot is **not yet claimed**; and the staging evidence below, which waits on [#38](https://github.com/TerraOI/TerraOI/issues/38) (the upload storage path and credential) and on the pin decision in [#6](https://github.com/TerraOI/TerraOI/issues/6). `045` is already proposed by [ADR-0005](../decisions/0005-ocr-job-api-and-artifact-home.md) for the job API, `050` belongs to T-213 and `060` to T-214, so this suite needs its own number.
+Lane: 2 · Week: 1 · Protected: yes (`src/platform/gateway/` route config) · Depends on: T-111, T-112, T-115, T-211 (its `job_api` migration) · Status: in progress (wyuinline) — the chunker and the embedding gate are on `main` via [#80](https://github.com/TerraOI/TerraOI/pull/80). The write/publish RPC slice (`20261120217000_chunk_publish.sql` + `036`: `write_chunks_v1` / `publish_version_v1`) is on the merge train in [#219](https://github.com/TerraOI/TerraOI/pull/219) (do not vendor). **Index-stage consumer** (lease `index` + `artifacts_for_lease_v1` + `workers/index-pull.ts`, outbox `extract_succeeded` → index) is stacked as [#282](https://github.com/TerraOI/TerraOI/pull/282). **Publish handoff** (this PR): `20261124130000_publish_stage_lease.sql` opens lease for `publish` (cloud_worker only), extends `dispatch_outbox_v1` for `index_succeeded` → publish enqueue, pgTAP `048`, and `workers/publish-pull.ts` calling `publish_version_v1` via injected port — skeleton auto-publish stays T-113; T-213 owns review/revoke policy later. Staging evidence remains owed on [#38](https://github.com/TerraOI/TerraOI/issues/38) and [#6](https://github.com/TerraOI/TerraOI/issues/6) (OWNER: staging / embed / #219 merge).
 Plan refs: §7.2 steps 4–8, §12.4 (pinned embeddings and embedding clearance), §8.3; F12, F13
 
 ## Supervisor rulings to apply (2026-11-09)
@@ -36,6 +36,16 @@ documents in TOI-04. E1 is decided for every tenant (#6, [ADR-0007](../decisions
 `cleared_for = {public, internal, client_confidential}`, so `client_confidential` chunks are embedded
 rather than taking the `lexical_only` lane. `restricted` is never embedded.
 
+**All-lexical write path (`p_embedding_index_id = null` in `job_api.write_chunks_v1`):** legitimate
+only when the tenant has no active embedding index cleared for any chunk of the version (for example
+an E2/public-only index policy where `planEmbeddings` refuses every chunk for
+`class_not_cleared_for_index`, or a deliberately lexical-only tenant configuration). When an active
+index is cleared for any chunk of the version and the pinned embedding route is unavailable, the
+worker must **not** omit `p_embedding_index_id` to skip embedding; it must abort the `index` job
+with `embedding_route_unavailable` ([#99](https://github.com/TerraOI/TerraOI/issues/99),
+[#136](https://github.com/TerraOI/TerraOI/issues/136)) so the version waits in `indexing` with no
+pointer movement.
+
 ## Acceptance tests (write first)
 - [ ] positive: chunking keeps headings and table headers with the rows, and a chunk id is stable
       for the same (source version, parser generation)
@@ -62,3 +72,12 @@ database (CI `database` job for pgTAP where the machine has no Docker).
 ## Out of scope
 Review queue and publication policy (T-213), revoke and derived-output invalidation (T-213),
 shadow re-index runbook (§8.3, later), OCR inputs (T-211/T-212).
+
+**Pipeline wiring status:**
+- Outbox `extract_succeeded` → index enqueue and `workers/` / `JOB_DB` extract pull: **T-211 PR-3**
+  (landed).
+- Index lease + cloud index consumer (`write_chunks_v1`): **T-113 follow-up** [#282](https://github.com/TerraOI/TerraOI/pull/282).
+- Publish lease + `index_succeeded` → publish enqueue + cloud publish consumer
+  (`publish_version_v1`): **this T-113 follow-up** (skeleton auto-publish; review/revoke policy
+  moves to **T-213** ([T-213](./T-213-review-publish-revoke.md))).
+- Still owed for end-to-end: `#219` merge, OWNER staging embed wiring, evidence on [#38](https://github.com/TerraOI/TerraOI/issues/38) / [#6](https://github.com/TerraOI/TerraOI/issues/6).
