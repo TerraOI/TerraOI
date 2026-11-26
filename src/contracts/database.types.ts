@@ -1306,6 +1306,9 @@ isOneToOne: false
 "update_collection_v1":
 { Args: { "p_collection_id": string,"p_name": string,"p_organisation_id": string }; Returns: undefined
                            },
+"user_in_collection_audience":
+{ Args: { "p_collection_id": string }; Returns: boolean
+                           },
 "user_may_access_knowledge_object":
 { Args: { "p_object_name": string }; Returns: boolean
                            },
