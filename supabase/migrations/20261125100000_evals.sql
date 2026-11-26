@@ -1,5 +1,6 @@
 -- T-312 PR-2: Evaluation tables + scoped review RPCs (#82, #102; plan §6.1 / §14.1).
--- Timestamp after 20261121210000 (T-211 outbox on #231). Does not edit merged migrations.
+-- Renamed to a fresh timestamp after 20261124140000 (project ACL) per COORDINATION §3. Does not
+-- edit merged migrations.
 --
 -- Tables: eval_cases, eval_reviews, eval_runs, eval_results.
 -- Permission: seeded `evals.review` (write = approve/edit/reject, admin = export) on role
@@ -209,6 +210,12 @@ begin
   if v_actor is null or v_org is null or not public.is_active_member(v_org) then
     raise exception 'not an active member of this organization' using errcode = '28000';
   end if;
+  -- Supervisor round 1 on #240: drafting writes into the scored set's queue and asserts an origin
+  -- (`expert_written`, `pilot`), so it needs the review area too; any member could otherwise seed
+  -- cases they cannot even read back.
+  if not public.member_has_evals_review(v_org, 'write') then
+    raise exception 'not permitted to draft eval cases' using errcode = '42501';
+  end if;
   if p_body is null or jsonb_typeof(p_body) <> 'object' then
     raise exception 'eval case body is required' using errcode = '22023';
   end if;
@@ -220,7 +227,11 @@ begin
   v_question := nullif(btrim(p_body ->> 'question'), '');
   v_data_class := nullif(btrim(p_body ->> 'data_class'), '');
   v_drafted_by := nullif(btrim(p_body ->> 'drafted_by'), '');
-  v_drafted_on := (p_body ->> 'drafted_on')::date;
+  begin
+    v_drafted_on := (p_body ->> 'drafted_on')::date;
+  exception when invalid_datetime_format or datetime_field_overflow then
+    raise exception 'drafted_on must be a date' using errcode = '22023';
+  end;
   v_payload := coalesce(p_body -> 'payload', '{}'::jsonb);
 
   if v_case_key is null or v_expert is null or v_origin is null or v_case_type is null
@@ -240,7 +251,7 @@ begin
 end;
 $$;
 comment on function public.create_eval_case_draft_v1(uuid, jsonb) is
-  'Scoped draft insert for eval_cases. Status is always drafted; claim/approval is review_eval_case_v1.';
+  'Scoped draft insert for eval_cases (evals.review write). Status is always drafted; approval is review_eval_case_v1.';
 
 create or replace function public.review_eval_case_v1(
   p_organisation_id uuid,
@@ -320,7 +331,8 @@ create or replace function public.list_eval_cases_v1(
   approved_at timestamptz,
   created_by uuid
 )
-language plpgsql stable security definer set search_path = public, pg_temp as $$
+-- volatile, not stable: it sets the tenant scope (FAQ-0011).
+language plpgsql volatile security definer set search_path = public, pg_temp as $$
 begin
   perform public.set_tenant_scope(p_organisation_id);
   if public.current_organisation_id() is null
@@ -354,7 +366,8 @@ create or replace function public.export_approved_eval_cases_v1(
   approved_at timestamptz,
   payload jsonb
 )
-language plpgsql stable security definer set search_path = public, pg_temp as $$
+-- volatile, not stable: it sets the tenant scope (FAQ-0011).
+language plpgsql volatile security definer set search_path = public, pg_temp as $$
 begin
   perform public.set_tenant_scope(p_organisation_id);
   if public.current_organisation_id() is null
@@ -371,11 +384,20 @@ begin
        and c.status = 'approved'
        and c.approved_by is not null
        and c.origin <> 'pilot'
+       -- T-312 acceptance: an approval by a member who is no longer active is not valid, so that
+       -- case stays out of the exported (scored) set until an active reviewer approves it again.
+       and exists (
+         select 1
+           from public.organisation_memberships m
+          where m.organisation_id = c.organisation_id
+            and m.user_id = c.approved_by
+            and m.status = 'active'
+       )
      order by c.expert_key, c.case_key, c.id;
 end;
 $$;
 comment on function public.export_approved_eval_cases_v1(uuid) is
-  'Export approved non-pilot cases for evals/<expert>/ fixtures (#82 / #102). Requires evals.review admin.';
+  'Export approved non-pilot cases whose approver is still an active member, for evals/<expert>/ fixtures (#82 / #102). Requires evals.review admin.';
 
 revoke execute on function
   public.create_eval_case_draft_v1(uuid, jsonb),
