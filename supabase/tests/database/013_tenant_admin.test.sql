@@ -1,11 +1,8 @@
--- T-202 PR-1 — the tenant-admin scoped RPCs and the `policy_revision` writer.
+-- T-202 PR-1 + PR-1b — tenant-admin scoped RPCs, policy_revision writer, and invitations.
 -- pgTAP slot 013 (docs/COORDINATION.md §6b: "013 | 013_tenant_admin | T-202 (also policy_revision,
--- #98)"). Packet: docs/tasks/T-202-tenant-admin.md with its 2026-11-09 supervisor rulings, which
--- supersede the packet body. The packet Status / Out of scope make this file the **database half**:
--- the admin pages, `src/components/admin/`, the collection UI and the brand-fallback banner are
--- T-202 PR-2, so nothing here touches a page, and the collection page calls T-111b's RPCs (slot 025),
--- not anything new (FAQ-0004 / #41: this packet writes no knowledge table).
--- Migration under test: supabase/migrations/20261120215000_tenant_admin_rpc.sql.
+-- #98)"). Packet: docs/tasks/T-202-tenant-admin.md. Admin pages remain T-202 PR-2.
+-- Migrations under test: 20261120215000_tenant_admin_rpc.sql and
+-- 20261121190000_tenant_invitations.sql (invite_member_v1).
 --
 -- What is under test, and the packet box it answers:
 --   * the FAQ-0010 grants and revokes, the signatures, the definer clause, and the FAQ-0011
@@ -13,7 +10,7 @@
 --   * no direct write door came with the definer path
 --   * no admin RPC activates; a catalog pin over the 001 allow-list refuses any authenticated-
 --     granted function (except redeem_invitation_v1 once it exists) that inserts active membership
---     or writes status='active' (B2/B6); invite_member_v1 is out of this PR (PR-1b)
+--     or writes status='active' (B2/B6); invite_member_v1 lands in PR-1b (this file)
 --   * a company1 admin cannot read or modify company2 rows, and a company2 `project_id`
 --     or `role_id` is refused by the composite FK with 23503, never ignored
 --   * a member without the matching `*.admin` level is refused; a suspended membership fails as
@@ -104,6 +101,19 @@ begin
 end;
 $fn$;
 
+-- Same as try_revoke but keeps the fixed FAQ-0014 message for the last-admin pin.
+create function pg_temp.try_revoke_detail(p_organisation_id uuid, p_user_id uuid, p_role_id uuid) returns text
+language plpgsql security invoker as $fn$
+begin
+  begin
+    perform public.revoke_membership_role_v1(p_organisation_id, p_user_id, p_role_id);
+    return 'ok';
+  exception when others then
+    return sqlstate::text || '|' || sqlerrm;
+  end;
+end;
+$fn$;
+
 create function pg_temp.try_project(p_organisation_id uuid, p_key text, p_name text, p_visibility text)
 returns text language plpgsql security invoker as $fn$
 begin
@@ -145,6 +155,19 @@ begin
   begin
     perform public.remove_project_member_v1(p_organisation_id, p_project_id, p_user_id);
     return 'ok';
+  exception when others then
+    return sqlstate::text;
+  end;
+end;
+$fn$;
+
+create function pg_temp.try_invite(p_organisation_id uuid, p_email text, p_role_id uuid)
+returns text language plpgsql security invoker as $fn$
+declare v_out text;
+begin
+  begin
+    v_out := public.invite_member_v1(p_organisation_id, p_email, p_role_id);
+    return coalesce(v_out, 'returned null');
   exception when others then
     return sqlstate::text;
   end;
@@ -317,8 +340,10 @@ insert into public.organisation_memberships (organisation_id, user_id, status)
   values ('11111111-1111-4111-8111-111111111111', '00000000-0000-4000-8000-0000000000b1', 'invited')
 on conflict (organisation_id, user_id) do nothing;
 
--- 137 numbered assertions below; pgTAP fails if plan and finish() disagree.
-select plan(137);
+-- 176 numbered assertions below; pgTAP fails if plan and finish() disagree.
+-- PR-1b grows this slot (COORDINATION §6b): invite_member_v1 + tenant_invitations bump watch; #229
+-- adds the last-admin guard (186-194).
+select plan(176);
 
 -- ================================================================ privileges, shape, no activate
 -- PostgreSQL hands EXECUTE on a new function in `public` to PUBLIC, and a migration cannot close that
@@ -356,8 +381,8 @@ select is(pg_temp.priv_of('authenticated', 'public.add_project_member_v1(uuid,uu
   '14 add_project_member_v1 likewise');
 select is(pg_temp.priv_of('authenticated', 'public.remove_project_member_v1(uuid,uuid,uuid)'), 'true',
   '15 remove_project_member_v1 likewise');
-select ok(to_regprocedure('public.invite_member_v1(uuid,text)') is null,
-  '16 invite_member_v1 is not in this PR (lands in T-202 PR-1b)');
+select is(pg_temp.priv_of('authenticated', 'public.invite_member_v1(uuid,text,uuid)'), 'true',
+  '16 invite_member_v1 is granted to authenticated (T-202 PR-1b)');
 
 select is(pg_temp.args_of('public.grant_membership_role_v1(uuid,uuid,uuid)'),
   'p_organisation_id uuid, p_user_id uuid, p_role_id uuid',
@@ -723,9 +748,9 @@ select is((select after_rev - before_rev from t_rev where case_name = 'revoke'),
   '90 the revocation moved policy_revision by exactly one, which is what invalidates a run that was '
   || 'authorized under the promoted state (#98, plan §9.4)');
 select is((select count(*)::int from public.role_permissions rp
-            where rp.organisation_id = '11111111-1111-4111-8111-111111111111'), 6::int,
-  '91 and the permission matrix is exactly the six seeded company1 rows: grant and revoke move '
-  || '**assignments**, never areas, so an admin cannot invent a permission (plan §5.2)');
+            where rp.organisation_id = '11111111-1111-4111-8111-111111111111'), 7::int,
+  '91 and the permission matrix is exactly the seven seeded company1 rows: grant and revoke move '
+  || '**assignments**, never areas, so an admin cannot invent a permission (plan §5.2; #39 contributor)');
 
 -- ================================================================ 103-131 projects, audience and the
 -- validation-with-no-partial-write box
@@ -780,7 +805,7 @@ select is((select result from t_out where case_name = 'grant_null_user'), '22023
   || 'argument is a validation error with no partial write)');
 select is((select result from t_out where case_name = 'grant_unknown_role'), '23503',
   '101 a role id that exists nowhere is refused by the same composite FK — the failed grant leaves '
-  || 'permissions exactly as they were (test 102 pins the company1 matrix at its six seeded rows), so '
+  || 'permissions exactly as they were (test 91 pins the company1 matrix at its seven seeded rows), so '
   || 'there is no half-applied role');
 -- Both counts are read as the migration owner, after `reset role`.
 select is((select count(*)::int from public.organisation_memberships
@@ -1133,7 +1158,8 @@ select is((select after_rev - before_rev from t_rev where case_name = 'noop_org'
 select is_empty($$
   select want.tbl
     from (values ('organisation_memberships'), ('membership_roles'), ('role_permissions'),
-                 ('project_memberships'), ('organisations')) as want(tbl)
+                 ('project_memberships'), ('organisations'), ('tenant_services'),
+                 ('tenant_experts'), ('tenant_invitations')) as want(tbl)
    where not exists (
      select 1
        from pg_trigger t
@@ -1143,11 +1169,10 @@ select is_empty($$
       where n.nspname = 'public' and c.relname = want.tbl
         and p.proname = 'bump_policy_revision' and not t.tgisinternal
    )
-$$, '145 every table #98 names carries a trigger backed by public.bump_policy_revision(): '
-  || 'organisation_memberships, membership_roles, role_permissions, project_memberships and '
-  || 'organisations. A writer attached to only the tables one RPC touches is the bug #98 was opened '
-  || 'for: a membership suspension would move no stamp and a run authorized under the old state would '
-  || 'keep riding');
+$$, '145 every watched table carries a trigger backed by public.bump_policy_revision(): the five #98 '
+  || 'names (organisation_memberships, membership_roles, role_permissions, project_memberships, '
+  || 'organisations), #221''s tenant_services and tenant_experts, and PR-1b''s tenant_invitations. This '
+  || 'list is the authoritative set; test 148 counts over the same set');
 
 select is_empty($$
   select tr.tgname || ' on ' || c.relname
@@ -1189,11 +1214,13 @@ select is((select count(*)::int from pg_trigger tr
              join pg_proc p on p.oid = tr.tgfoid
              join pg_namespace n on n.oid = c.relnamespace
             where n.nspname = 'public' and p.proname = 'bump_policy_revision'
-              and c.relname in ('organisation_memberships', 'membership_roles',
-                                'role_permissions', 'project_memberships', 'organisations')
-              and not tr.tgisinternal), 15::int,
-  '148 five tables x (insert, update, delete): the count is pinned so a fourth table or a dropped '
-  || 'event fails by number rather than by a reviewer noticing an absent row');
+              and c.relname in ('organisation_memberships', 'membership_roles', 'role_permissions',
+                                'project_memberships', 'organisations', 'tenant_services',
+                                'tenant_experts', 'tenant_invitations')
+              and not tr.tgisinternal),
+          3 * 8,
+  '148 the eight tables test 145 names x (insert, update, delete) = 24: the count is derived from '
+  || 'that set, so a dropped event fails by number rather than by a reviewer noticing an absent row');
 
 select is((select coalesce(obj_description('public.organisations'::regclass), '')),
   'Tenant root. Status is authoritative for every access decision. policy_revision is a monotonic stamp bumped on every access change; it is recorded for audit and used as a cache key. Access is always re-derived.',
@@ -1242,6 +1269,278 @@ select is((select name from public.projects where id = '41000000-0000-4000-8000-
   'Site A survey (renamed by 013)',
   '155 and the UPDATE wrote the name it was given, so the ok above is a real write and not a statement that '
   || 'matched nothing — and the row still has no updated_at column, because this migration adds none');
+
+-- ================================================================ T-202 PR-1b invite_member_v1
+select is(pg_temp.priv_of('anon', 'public.invite_member_v1(uuid,text,uuid)'), 'false',
+  '156 anon cannot execute invite_member_v1');
+select is(pg_temp.priv_of('service_role', 'public.invite_member_v1(uuid,text,uuid)'), 'false',
+  '157 service_role cannot execute invite_member_v1');
+select is(pg_temp.args_of('public.invite_member_v1(uuid,text,uuid)'),
+  'p_organisation_id uuid, p_email text, p_role_id uuid',
+  '158 invite_member_v1 takes tenant first (FAQ-0011)');
+select is(pg_temp.definer_of('public.invite_member_v1(uuid,text,uuid)'),
+  'definer=true config=search_path=public,pg_temp',
+  '159 invite_member_v1 is SECURITY DEFINER with pinned search_path');
+select is(pg_temp.vol_of('public.invite_member_v1(uuid,text,uuid)'), 'v',
+  '160 invite_member_v1 is volatile (sets tenant scope)');
+select is(has_table_privilege('authenticated', 'public.tenant_invitations', 'insert'), false,
+  '161 authenticated cannot insert invitations directly');
+select is(has_table_privilege('authenticated', 'public.tenant_invitations', 'update'), false,
+  '162 …nor update them');
+select is(has_table_privilege('authenticated', 'public.tenant_invitations', 'delete'), false,
+  '163 …nor delete them');
+
+-- Positive: unknown address → one pending row, no membership, revision +1
+insert into t_rev values ('invite_unknown',
+  pg_temp.rev_of('11111111-1111-4111-8111-111111111111'), 0);
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+insert into t_out values ('invite_unknown',
+  pg_temp.try_invite('11111111-1111-4111-8111-111111111111',
+                     'brand-new@company1.test',
+                     '31000000-0000-4000-8000-000000000001'));
+reset role;
+update t_rev set after_rev = pg_temp.rev_of('11111111-1111-4111-8111-111111111111')
+ where case_name = 'invite_unknown';
+select is((select result from t_out where case_name = 'invite_unknown'), 'invited',
+  '164 admin invite of an unknown address returns invited');
+select is((select count(*)::int from public.tenant_invitations
+            where organisation_id = '11111111-1111-4111-8111-111111111111'
+              and email = 'brand-new@company1.test' and status = 'pending'), 1::int,
+  '165 …and exactly one pending invitation row exists');
+select ok((select expires_at > now() + interval '6 days 23 hours'
+             and expires_at < now() + interval '7 days 1 hour'
+           from public.tenant_invitations
+          where organisation_id = '11111111-1111-4111-8111-111111111111'
+            and email = 'brand-new@company1.test' and status = 'pending'),
+  '166 …with expires_at ≈ now() + 7 days');
+select is((select count(*)::int from public.organisation_memberships m
+             join public.profiles p on p.id = m.user_id
+            where m.organisation_id = '11111111-1111-4111-8111-111111111111'
+              and p.email = 'brand-new@company1.test'), 0::int,
+  '167 …and no organisation_memberships row was created');
+select is((select after_rev - before_rev from t_rev where case_name = 'invite_unknown'), 1::bigint,
+  '168 …and policy_revision moved by exactly one');
+
+-- Same answer for a known non-member profile (…c4 outsider)
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+insert into t_out values ('invite_outsider',
+  pg_temp.try_invite('11111111-1111-4111-8111-111111111111',
+                     'outsider@example.test',
+                     '31000000-0000-4000-8000-000000000001'));
+reset role;
+select is((select result from t_out where case_name = 'invite_outsider'), 'invited',
+  '169 invite of a known non-member profile email also returns invited (no existence oracle)');
+
+-- Idempotent re-invite refreshes one pending row
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+insert into t_out values ('invite_unknown_again',
+  pg_temp.try_invite('11111111-1111-4111-8111-111111111111',
+                     'Brand-New@company1.test',
+                     '31000000-0000-4000-8000-000000000001'));
+reset role;
+select is((select result from t_out where case_name = 'invite_unknown_again'), 'invited',
+  '170 re-invite of the same address (different casing) returns invited');
+select is((select count(*)::int from public.tenant_invitations
+            where organisation_id = '11111111-1111-4111-8111-111111111111'
+              and email = 'brand-new@company1.test' and status = 'pending'), 1::int,
+  '171 …and still exactly one pending row');
+
+-- Already a member of this tenant → 42501
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+insert into t_out values ('invite_owner',
+  pg_temp.try_invite('11111111-1111-4111-8111-111111111111',
+                     'owner1@company1.test',
+                     '31000000-0000-4000-8000-000000000001'));
+insert into t_out values ('invite_suspended',
+  pg_temp.try_invite('11111111-1111-4111-8111-111111111111',
+                     'left@company1.test',
+                     '31000000-0000-4000-8000-000000000001'));
+insert into t_out values ('invite_removed',
+  pg_temp.try_invite('11111111-1111-4111-8111-111111111111',
+                     'departed@company1.test',
+                     '31000000-0000-4000-8000-000000000001'));
+reset role;
+select is((select result from t_out where case_name = 'invite_owner'), '42501',
+  '172 invite of an active member is refused with 42501');
+select is((select result from t_out where case_name = 'invite_suspended'), '42501',
+  '173 invite of a suspended member likewise');
+select is((select result from t_out where case_name = 'invite_removed'), '42501',
+  '174 invite of a removed member likewise');
+
+-- Negatives: permission, scope, FK, validation
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a2';
+insert into t_out values ('invite_non_admin',
+  pg_temp.try_invite('11111111-1111-4111-8111-111111111111',
+                     'someone@company1.test',
+                     '31000000-0000-4000-8000-000000000001'));
+reset role;
+select is((select result from t_out where case_name = 'invite_non_admin'), '42501',
+  '175 a member without members.admin is refused');
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a3';
+insert into t_out values ('invite_suspended_actor',
+  pg_temp.try_invite('11111111-1111-4111-8111-111111111111',
+                     'someone@company1.test',
+                     '31000000-0000-4000-8000-000000000001'));
+reset role;
+select is((select result from t_out where case_name = 'invite_suspended_actor'), '28000',
+  '176 a suspended actor cannot invite');
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+insert into t_out values ('invite_other_tenant',
+  pg_temp.try_invite('22222222-2222-4222-8222-222222222222',
+                     'someone@company2.test',
+                     '32000000-0000-4000-8000-000000000001'));
+insert into t_out values ('invite_foreign_role',
+  pg_temp.try_invite('11111111-1111-4111-8111-111111111111',
+                     'foreign-role@company1.test',
+                     '32000000-0000-4000-8000-000000000001'));
+insert into t_out values ('invite_bad_email',
+  pg_temp.try_invite('11111111-1111-4111-8111-111111111111',
+                     'not an email',
+                     '31000000-0000-4000-8000-000000000001'));
+insert into t_out values ('invite_null_role',
+  pg_temp.try_invite('11111111-1111-4111-8111-111111111111',
+                     'null-role@company1.test',
+                     null));
+reset role;
+select is((select result from t_out where case_name = 'invite_other_tenant'), '28000',
+  '177 company1 admin cannot invite into company2');
+select is((select result from t_out where case_name = 'invite_foreign_role'), '23503',
+  '178 a company2 role_id is refused by the composite FK with 23503');
+select is((select result from t_out where case_name = 'invite_bad_email'), '22023',
+  '179 a malformed email is a validation error');
+select is((select result from t_out where case_name = 'invite_null_role'), '22023',
+  '180 a null role_id is a validation error');
+
+-- RLS: non-admin cannot see invitations; admin under scope can
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a2';
+select public.set_tenant_scope('11111111-1111-4111-8111-111111111111');
+insert into t_read select 'a2_invites', count(*)::int from public.tenant_invitations;
+reset role;
+select is((select n from t_read where case_name = 'a2_invites'), 0::int,
+  '181 a non-admin under scope cannot SELECT tenant_invitations');
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+select public.set_tenant_scope('11111111-1111-4111-8111-111111111111');
+insert into t_read select 'a1_invites', count(*)::int from public.tenant_invitations
+ where organisation_id = '11111111-1111-4111-8111-111111111111';
+reset role;
+select ok((select n from t_read where case_name = 'a1_invites') >= 1,
+  '182 an admin under scope can SELECT this tenant''s invitations');
+
+-- Cross-tenant READ negatives (AGENTS.md §4.4; supervisor round 1 on #226, B3). Company1 holds pending
+-- invitations at this point (164-171); one company2 invitation goes in as the test owner so both
+-- tenants have rows that a wrong reader could see. Neither query has a `where`: visibility is the
+-- policy's job alone.
+insert into public.tenant_invitations (organisation_id, email, role_id, invited_by, expires_at)
+values ('22222222-2222-4222-8222-222222222222', 'pending@company2.test',
+        '32000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-0000000000b1',
+        now() + interval '7 days');
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000b1';
+select public.set_tenant_scope('22222222-2222-4222-8222-222222222222');
+insert into t_read
+select 'b1_company1_invites', count(*) filter (where organisation_id = '11111111-1111-4111-8111-111111111111')::int
+  from public.tenant_invitations;
+reset role;
+select is((select n from t_read where case_name = 'b1_company1_invites'), 0::int,
+  '183 company2''s admin, scoped to company2, sees zero company1 invitations with no where clause');
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a4';
+select public.set_tenant_scope('11111111-1111-4111-8111-111111111111');
+insert into t_read select 'a4_scope1_invites', count(*)::int from public.tenant_invitations;
+select public.set_tenant_scope('22222222-2222-4222-8222-222222222222');
+insert into t_read select 'a4_scope2_invites', count(*)::int from public.tenant_invitations;
+reset role;
+select is((select n from t_read where case_name = 'a4_scope1_invites'), 0::int,
+  '184 …a4 (member of both tenants, admin of neither) scoped to company1 sees zero invitations');
+select is((select n from t_read where case_name = 'a4_scope2_invites'), 0::int,
+  '185 …and scoped to company2 likewise');
+
+-- ================================================================ #202 / FAQ-0014 last-admin guard
+-- Seeded company1 has one active `admin` holder (…a1). Revoking that assignment must 23514; with two
+-- admins one demotion may pass and the remaining one may not; a suspended admin does not count.
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+insert into t_out values ('last_admin_self',
+  pg_temp.try_revoke_detail('11111111-1111-4111-8111-111111111111',
+                            '00000000-0000-4000-8000-0000000000a1',
+                            '31000000-0000-4000-8000-000000000002'));
+reset role;
+
+select is(split_part((select result from t_out where case_name = 'last_admin_self'), '|', 1), '23514',
+  '186 the last active members.admin holder cannot revoke that role from themself (#202 / FAQ-0014)');
+select is(split_part((select result from t_out where case_name = 'last_admin_self'), '|', 2),
+  'cannot remove the last active members.admin holder',
+  '187 and the refusal is the fixed state-rule message, not a permission failure');
+select is((select count(*)::int from public.membership_roles mr
+            join public.organisation_memberships m on m.id = mr.membership_id
+           where m.user_id = '00000000-0000-4000-8000-0000000000a1'
+             and mr.role_id = '31000000-0000-4000-8000-000000000002'), 1::int,
+  '188 the refused revoke wrote nothing: …a1 still holds `admin`');
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+insert into t_out values ('grant_second_admin',
+  pg_temp.try_grant('11111111-1111-4111-8111-111111111111',
+                    '00000000-0000-4000-8000-0000000000a2',
+                    '31000000-0000-4000-8000-000000000002'));
+insert into t_out values ('demote_second',
+  pg_temp.try_revoke('11111111-1111-4111-8111-111111111111',
+                     '00000000-0000-4000-8000-0000000000a2',
+                     '31000000-0000-4000-8000-000000000002'));
+insert into t_out values ('last_again',
+  pg_temp.try_revoke('11111111-1111-4111-8111-111111111111',
+                     '00000000-0000-4000-8000-0000000000a1',
+                     '31000000-0000-4000-8000-000000000002'));
+reset role;
+
+select is((select result from t_out where case_name = 'grant_second_admin'), 'ok',
+  '189 with a second admin granted, the tenant has two active members.admin holders');
+select is((select result from t_out where case_name = 'demote_second'), 'ok',
+  '190 one of two admins can be demoted');
+select is((select result from t_out where case_name = 'last_again'), '23514',
+  '191 and the remaining admin then cannot demote themself');
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+insert into t_out values ('grant_for_suspend',
+  pg_temp.try_grant('11111111-1111-4111-8111-111111111111',
+                    '00000000-0000-4000-8000-0000000000a2',
+                    '31000000-0000-4000-8000-000000000002'));
+reset role;
+select is((select result from t_out where case_name = 'grant_for_suspend'), 'ok',
+  '192 fixture: …a2 holds `admin` again so a suspended holder can be set up');
+
+-- Suspend …a2 as the migration owner (no member-status RPC in M1 yet). Rolled back with this file.
+select is(pg_temp.try_owner_sql(
+  'update public.organisation_memberships set status = ''suspended'' '
+  || 'where organisation_id = ''11111111-1111-4111-8111-111111111111'' '
+  || 'and user_id = ''00000000-0000-4000-8000-0000000000a2'''), 'ok',
+  '193 …a2 is suspended while still holding the `admin` role assignment');
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+insert into t_out values ('suspend_does_not_count',
+  pg_temp.try_revoke('11111111-1111-4111-8111-111111111111',
+                     '00000000-0000-4000-8000-0000000000a1',
+                     '31000000-0000-4000-8000-000000000002'));
+reset role;
+
+select is((select result from t_out where case_name = 'suspend_does_not_count'), '23514',
+  '194 a suspended admin does not count: …a1 is still the only **active** members.admin holder and cannot leave');
 
 select * from finish();
 rollback;
