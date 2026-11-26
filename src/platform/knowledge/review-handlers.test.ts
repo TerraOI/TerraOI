@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { createTenantContext, type TenantContext } from "@/contracts/tenant-context";
+import {
+  createTenantContext,
+  type TenantContext,
+} from "@/contracts/tenant-context";
 import type { TenantResolution } from "@/platform/tenancy/resolve-tenant-context";
 
 import {
@@ -50,7 +53,10 @@ function deps(overrides?: {
   token?: string | null;
   client?: Partial<ReviewRpcClient>;
 }): ReviewDeps {
-  const resolution: TenantResolution = overrides?.resolution ?? { ok: true, context: context() };
+  const resolution: TenantResolution = overrides?.resolution ?? {
+    ok: true,
+    context: context(),
+  };
   const client: ReviewRpcClient = {
     reviewDecision: async () => ({ ok: true, id: DECISION_ID }),
     publishKnowledgeVersion: async () => ({ ok: true, id: VERSION }),
@@ -59,13 +65,14 @@ function deps(overrides?: {
   };
   return {
     resolveContext: async () => resolution,
-    accessToken: async () => (overrides?.token === undefined ? TOKEN : overrides.token),
+    accessToken: async () =>
+      overrides?.token === undefined ? TOKEN : overrides.token,
     client,
   };
 }
 
 describe("review handlers", () => {
-  it("approve decision returns the decision id and never echoes a body org", async () => {
+  it("approve decision returns the decision id, with the organisation from the context", async () => {
     let seenOrg: string | undefined;
     const d = deps({
       client: {
@@ -79,7 +86,6 @@ describe("review handlers", () => {
       request("/api/knowledge/review/decision", {
         sourceVersionId: VERSION,
         decision: "approve",
-        organisationId: "22222222-2222-4222-8222-222222222222",
       }),
       d,
     );
@@ -88,10 +94,57 @@ describe("review handlers", () => {
     expect(seenOrg).toBe(ORG);
   });
 
+  it("refuses a body that names an organisation instead of quietly dropping it", async () => {
+    let called = false;
+    const d = deps({
+      client: {
+        reviewDecision: async () => {
+          called = true;
+          return { ok: true, id: DECISION_ID };
+        },
+      },
+    });
+    const res = await handleReviewDecision(
+      request("/api/knowledge/review/decision", {
+        sourceVersionId: VERSION,
+        decision: "approve",
+        organisationId: "22222222-2222-4222-8222-222222222222",
+      }),
+      d,
+    );
+    expect(res.status).toBe(400);
+    expect(called).toBe(false);
+  });
+
+  it("bounds a reason to the 500 characters the database stores", async () => {
+    const d = deps();
+    const ok = await handleRevokeSource(
+      request("/api/knowledge/review/revoke", {
+        sourceId: VERSION,
+        reason: "x".repeat(500),
+      }),
+      d,
+    );
+    expect(ok.status).toBe(200);
+    const tooLong = await handleReviewDecision(
+      request("/api/knowledge/review/decision", {
+        sourceVersionId: VERSION,
+        decision: "reject",
+        reason: "x".repeat(501),
+      }),
+      d,
+    );
+    expect(tooLong.status).toBe(400);
+  });
+
   it("refuses origin mismatch, missing session, and invalid bodies", async () => {
     const d = deps();
     const badOrigin = await handleReviewDecision(
-      request("/api/knowledge/review/decision", { sourceVersionId: VERSION, decision: "approve" }, "https://evil.test"),
+      request(
+        "/api/knowledge/review/decision",
+        { sourceVersionId: VERSION, decision: "approve" },
+        "https://evil.test",
+      ),
       d,
     );
     expect(badOrigin.status).toBe(403);
@@ -112,13 +165,17 @@ describe("review handlers", () => {
 
   it("maps RPC tenancy refusal to a safe 403 and publish/revoke succeed", async () => {
     const tenancy = await handleReviewDecision(
-      request("/api/knowledge/review/decision", { sourceVersionId: VERSION, decision: "reject" }),
+      request("/api/knowledge/review/decision", {
+        sourceVersionId: VERSION,
+        decision: "reject",
+      }),
       deps({
         client: {
           reviewDecision: async () => ({
             ok: false,
             kind: "tenancy",
-            message: "You do not have permission to perform this action in this workspace.",
+            message:
+              "You do not have permission to perform this action in this workspace.",
           }),
         },
       }),
@@ -136,7 +193,10 @@ describe("review handlers", () => {
     expect(await published.json()).toEqual({ sourceVersionId: VERSION });
 
     const revoked = await handleRevokeSource(
-      request("/api/knowledge/review/revoke", { sourceId: SOURCE, reason: "stale" }),
+      request("/api/knowledge/review/revoke", {
+        sourceId: SOURCE,
+        reason: "stale",
+      }),
       deps(),
     );
     expect(revoked.status).toBe(200);
