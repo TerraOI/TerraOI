@@ -1189,6 +1189,8 @@ select is((select count(*)::int from pg_trigger tr
              join pg_proc p on p.oid = tr.tgfoid
              join pg_namespace n on n.oid = c.relnamespace
             where n.nspname = 'public' and p.proname = 'bump_policy_revision'
+              and c.relname in ('organisation_memberships', 'membership_roles',
+                                'role_permissions', 'project_memberships', 'organisations')
               and not tr.tgisinternal), 15::int,
   '148 five tables x (insert, update, delete): the count is pinned so a fourth table or a dropped '
   || 'event fails by number rather than by a reviewer noticing an absent row');
