@@ -1510,6 +1510,9 @@ isOneToOne: false
 "put_tenant_brand_v1":
 { Args: { "p_assets": Json,"p_brand": Json,"p_organisation_id": string }; Returns: number
                            },
+"record_eval_run_v1":
+{ Args: { "p_organisation_id": string,"p_results": Json,"p_run": Json }; Returns: string
+                           },
 "record_upload_outcome_v1":
 { Args: { "p_organisation_id": string,"p_reason_code": string,"p_state": string,"p_upload_session_id": string }; Returns: undefined
                            },
