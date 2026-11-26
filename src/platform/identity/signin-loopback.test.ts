@@ -108,12 +108,12 @@ beforeAll(async () => {
       if (path.startsWith("/auth/v1/recover")) {
         return send(res, 200, {});
       }
-      if (path.startsWith("/rpc/resolve_tenant_host")) {
+      if (path.startsWith("/rest/v1/rpc/resolve_tenant_host")) {
         const host = (JSON.parse(body || "{}") as Record<string, unknown>)["p_host"];
         if (host !== HOST_COMPANY1) return send(res, 200, []);
         return send(res, 200, [{ organisation_id: ORG_COMPANY1, organisation_status: "active" }]);
       }
-      if (path.startsWith("/rpc/current_membership_v1")) {
+      if (path.startsWith("/rest/v1/rpc/current_membership_v1")) {
         const organisation = (JSON.parse(body || "{}") as Record<string, unknown>)["p_organisation_id"];
         if (membershipRefuses || organisation !== ORG_COMPANY1) {
           return send(res, 401, { code: "28000", message: DB_TEXT, details: DB_TEXT });
@@ -249,20 +249,20 @@ describe("loopback: what a password sign-in actually puts on the wire", () => {
       extraQuery: `?organisation_id=${ORG_COMPANY2}&host=company2.terraoi.app`,
       cookieHeader: `org=${ORG_COMPANY2}; tenant_hint=company2`,
     });
-    const reads = callsTo("/rpc/current_membership_v1");
+    const reads = callsTo("/rest/v1/rpc/current_membership_v1");
     expect(reads).toHaveLength(1);
     const bodies = reads.map((call) => JSON.parse(call.body) as Record<string, unknown>);
     expect(bodies).toEqual([{ p_organisation_id: ORG_COMPANY1 }]);
-    const hostReads = callsTo("/rpc/resolve_tenant_host").map((call) => JSON.parse(call.body) as Record<string, unknown>);
+    const hostReads = callsTo("/rest/v1/rpc/resolve_tenant_host").map((call) => JSON.parse(call.body) as Record<string, unknown>);
     expect(hostReads).toEqual([{ p_host: HOST_COMPANY1 }]);
     // No second read aimed at the planted organization: one host, one membership read.
-    expect(reads.length + callsTo("/rpc/current_policy_revision_v1").length).toBe(1);
+    expect(reads.length + callsTo("/rest/v1/rpc/current_policy_revision_v1").length).toBe(1);
   });
 
   it("the membership read carries the user's own access token, and no privileged key is on the wire", async () => {
     captured.length = 0;
     await signInPost();
-    const read = callsTo("/rpc/current_membership_v1")[0] as Captured;
+    const read = callsTo("/rest/v1/rpc/current_membership_v1")[0] as Captured;
     const bearer = headerValues(read, "authorization");
     expect(bearer).toHaveLength(1);
     const token = (bearer[0] as string).replace(/^Bearer /, "");
@@ -305,8 +305,8 @@ describe("loopback: what a password sign-in actually puts on the wire", () => {
       expect(sessionCookieOf(response)).toMatch(/SameSite=Lax/);
       expect(cookiesOf(response).join("\n")).not.toMatch(/domain=/i);
       expect(store.rows.size).toBe(1);
-      expect(callsTo("/rpc/current_membership_v1")).toHaveLength(1);
-      expect(JSON.parse((callsTo("/rpc/current_membership_v1")[0] as Captured).body)).toEqual({ p_organisation_id: ORG_COMPANY1 });
+      expect(callsTo("/rest/v1/rpc/current_membership_v1")).toHaveLength(1);
+      expect(JSON.parse((callsTo("/rest/v1/rpc/current_membership_v1")[0] as Captured).body)).toEqual({ p_organisation_id: ORG_COMPANY1 });
     } finally {
       membershipStatus = "active";
       providerUser = { id: OWNER1, email: "Owner1@Company1.test", confirmed: true };
@@ -336,7 +336,7 @@ describe("loopback: what a password sign-in actually puts on the wire", () => {
       expect(outcomeOf(known.response)).toBe("invalid_credentials");
       expect(known.response.headers.get("location")).toBe(unknown.response.headers.get("location"));
       expect(unknown.response.status).toBe(known.response.status);
-      expect(callsTo("/rpc/current_membership_v1")).toHaveLength(0);
+      expect(callsTo("/rest/v1/rpc/current_membership_v1")).toHaveLength(0);
       // Exactly one provider call per attempt: no retry, no second probe.
       expect(after).toBe(2); // host read + token call
       expect(captured.filter((call) => call.url.startsWith("/auth/v1/token"))).toHaveLength(2);
