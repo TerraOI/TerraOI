@@ -21,9 +21,11 @@ refusal vocabulary (#97 / #137 / #151); ADR-0010 for T-312; ADR-0011 for #149 â€
 `toi_control_plane` is a **NOLOGIN** group role. It receives:
 
 - `USAGE` on the non-exposed schema `toi_control` (not listed in `supabase/config.toml` `[api] schemas`)
-- `EXECUTE`, by full signature, on exactly the six control-plane functions suite 52 counts:
-  `set_lifecycle_switch_v1`, `lifecycle_switch_state_v1`, `lifecycle_switch_history_v1`,
-  `suspend_tenant_v1`, `resume_tenant_v1`, `provision_tenant_v1`
+- `EXECUTE`, by full signature, on the six lifecycle / provisioning functions suite 52 counts
+  (`set_lifecycle_switch_v1`, `lifecycle_switch_state_v1`, `lifecycle_switch_history_v1`,
+  `suspend_tenant_v1`, `resume_tenant_v1`, `provision_tenant_v1`) plus the T-311 entitlement definer
+  added per `#193 E3`:
+  `toi_control.entitle_tenant_service_v1(uuid, text, text, text, uuid[], text, text)`
 
 It receives **no table grants**, no privilege on `public` tables, and no special `USAGE` on `public`
 beyond what every role already has. `require_control_plane()` stays an internal helper (revoked from
@@ -49,6 +51,7 @@ A leaked control-plane credential can:
 - create tenants
 - suspend or resume any tenant
 - flip expert and provider switches
+- entitle tenants to services and approved expert versions (`toi_control.entitle_tenant_service_v1`, T-311 / #193 E3)
 
 It **cannot** read documents, chats, memberships or any tenant row, and it **cannot** grant a
 membership (F05; suite 59). Both halves belong in this record so a later change that adds a table
@@ -71,9 +74,9 @@ path means "which login", not a verified human identity.
 
 - T-304's migration and pgTAP suite 50 / 52 are the living grant list; changing it updates this ADR
   in the same PR.
-- A follow-up T-304 slice that seeds entitlements after T-311 merges will call a T-311 definer
-  function granted to `toi_control_plane` and add that signature here â€” it never writes T-311's
-  tables directly (#193 E3).
+- T-311's migration (`20261120218000_experts_and_prompts.sql`) grants `toi_control.entitle_tenant_service_v1`
+  to `toi_control_plane` and adds it to suite 50 and this ADR (#193 E3); a follow-up T-304 slice
+  will call it from `scripts/provision-tenant.mjs` without writing T-311's tables directly.
 
 ## Alternatives considered
 

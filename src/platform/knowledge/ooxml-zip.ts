@@ -81,7 +81,13 @@ export async function readZipEntries(
       data = compressed.slice();
       budget -= data.byteLength;
     } else if (method === 8) {
-      const inflated = await inflateBounded(compressed, Math.min(budget, Math.max(uncompSize, 1)));
+      // ZIP method 8 is raw DEFLATE (no zlib header). The cap is the smaller of what is left of the
+      // shared budget and what the entry declares, so a lying size header is refused, not trusted.
+      const inflated = await inflateBounded(
+        compressed,
+        Math.min(budget, Math.max(uncompSize, 1)),
+        "deflate-raw",
+      );
       if (!inflated.ok) return { ok: false, reason: inflated.reason === "budget" ? "bomb" : "malformed" };
       data = inflated.data;
       budget -= data.byteLength;

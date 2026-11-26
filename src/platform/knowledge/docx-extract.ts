@@ -21,6 +21,10 @@ export interface DocxExtractResult {
   notes: string[];
 }
 
+function codePoint(n: number): string {
+  return Number.isInteger(n) && n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : "\uFFFD";
+}
+
 function stripTags(xml: string): string {
   return xml
     .replace(/<w:tab\b[^]*?\/>/g, "\t")
@@ -28,9 +32,12 @@ function stripTags(xml: string): string {
     .replace(/<[^>]+>/g, "")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
-    .replace(/&amp;/g, "&")
     .replace(/&quot;/g, '"')
-    .replace(/&#(\d+);/g, (_, n: string) => String.fromCharCode(Number(n)))
+    .replace(/&apos;/g, "'")
+    .replace(/&#x([0-9a-f]{1,6});/gi, (_, n: string) => codePoint(Number.parseInt(n, 16)))
+    .replace(/&#(\d{1,7});/g, (_, n: string) => codePoint(Number(n)))
+    // `&amp;` last, so `&amp;#60;` stays the literal text `&#60;` instead of decoding twice.
+    .replace(/&amp;/g, "&")
     .replace(/\s+/g, " ")
     .trim();
 }

@@ -16,6 +16,19 @@
     // Names only; values are owner deploy settings (T-004 §20.8).
     "TOI_SUPABASE_URL": "",
     "TOI_STORAGE_BUCKET": "knowledge"
+  },
+  "env": {
+    // The app Worker's env.staging binds OBJECT_URL_MINT to `terraoi-extraction-staging`, so the
+    // staging deploy of this Worker must exist under that name with the same closed surface.
+    "staging": {
+      "name": "terraoi-extraction-staging",
+      "workers_dev": false,
+      "preview_urls": false,
+      "vars": {
+        "TOI_SUPABASE_URL": "",
+        "TOI_STORAGE_BUCKET": "knowledge"
+      }
+    }
   }
   // Secrets (wrangler secret put): TOI_STORAGE_SERVICE_ROLE_KEY, TOI_WORKER_TOKEN
   // Hyperdrive JOB_DB: bind under the staging/production env by the owner — same pattern as
