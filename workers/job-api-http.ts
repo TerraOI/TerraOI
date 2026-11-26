@@ -43,6 +43,54 @@ function badRequest(): Response {
   });
 }
 
+function payloadTooLarge(): Response {
+  return new Response(JSON.stringify({ error: { code: "payload_too_large" } }), {
+    status: 413,
+    headers: SAFE_JSON,
+  });
+}
+
+/** Mirrors `job_api.max_lease_seconds()` and the RPC's 60-second floor (20261120212000:326). */
+export const MIN_LEASE_SECONDS = 60;
+export const MAX_LEASE_SECONDS = 1800;
+
+/**
+ * Bodies above this are refused before parsing. `complete_parse_job_v1` caps an artifact set at
+ * 2,000,000 characters (`:16-18`); 2.5× leaves room for JSON keys and multi-byte text.
+ */
+export const MAX_BODY_BYTES = 5_000_000;
+
+function leaseSecondsOk(value: number | null): value is number {
+  return (
+    value !== null &&
+    Number.isInteger(value) &&
+    value >= MIN_LEASE_SECONDS &&
+    value <= MAX_LEASE_SECONDS
+  );
+}
+
+function pgCode(err: unknown): string | null {
+  return typeof err === "object" && err !== null && "code" in err && typeof err.code === "string"
+    ? err.code
+    : null;
+}
+
+/**
+ * Database errors never reach the box as postgres text. `22023` (an argument the RPC refused) is a
+ * 400; a permission refusal is the endpoint's closed "refused" answer; anything else is the same
+ * honest 503 an unbound `JOB_DB` gives.
+ */
+async function guarded(run: () => Promise<Response>, refused: () => Response): Promise<Response> {
+  try {
+    return await run();
+  } catch (err) {
+    const code = pgCode(err);
+    if (code === "22023") return badRequest();
+    if (code === "42501" || code === "28000") return refused();
+    return jobApiUnavailableResponse();
+  }
+}
+
 function ok(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: SAFE_JSON });
 }
@@ -62,9 +110,13 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-async function readJson(request: Request): Promise<Record<string, unknown> | null> {
+async function readJson(request: Request): Promise<Record<string, unknown> | null | "too_large"> {
+  const declared = Number(request.headers.get("content-length") ?? "0");
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) return "too_large";
   try {
-    const parsed: unknown = await request.json();
+    const text = await request.text();
+    if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) return "too_large";
+    const parsed: unknown = JSON.parse(text);
     return asRecord(parsed);
   } catch {
     return null;
@@ -127,20 +179,27 @@ export async function handleJobLease(request: Request, api: JobApiPort): Promise
   const credential = bearerCredential(request);
   if (credential === null) return unauthorized();
   const body = await readJson(request);
+  if (body === "too_large") return payloadTooLarge();
   if (body === null) return badRequest();
   const stage = stringOf(body, "stage");
   const leaseSeconds = numberOf(body, "leaseSeconds");
-  if (!isStage(stage) || leaseSeconds === null || !Number.isInteger(leaseSeconds)) return badRequest();
+  if (!isStage(stage) || !leaseSecondsOk(leaseSeconds)) return badRequest();
 
-  const row = await api.lease({ credential, stage, leaseSeconds });
-  if (row === null) return ok({ found: false });
-  return ok({ found: true, ...row });
+  return guarded(
+    async () => {
+      const row = await api.lease({ credential, stage, leaseSeconds });
+      if (row === null) return ok({ found: false });
+      return ok({ found: true, ...row });
+    },
+    () => ok({ found: false }),
+  );
 }
 
 export async function handleJobRenew(request: Request, api: JobApiPort): Promise<Response> {
   const credential = bearerCredential(request);
   if (credential === null) return unauthorized();
   const body = await readJson(request);
+  if (body === "too_large") return payloadTooLarge();
   if (body === null) return badRequest();
   const jobId = stringOf(body, "jobId");
   const leaseToken = stringOf(body, "leaseToken");
@@ -151,19 +210,21 @@ export async function handleJobRenew(request: Request, api: JobApiPort): Promise
     leaseToken === null ||
     fence === null ||
     !Number.isInteger(fence) ||
-    leaseSeconds === null ||
-    !Number.isInteger(leaseSeconds)
+    !leaseSecondsOk(leaseSeconds)
   ) {
     return badRequest();
   }
-  const outcome = await api.renew({ credential, jobId, leaseToken, fence, leaseSeconds });
-  return ok(outcome);
+  return guarded(
+    async () => ok(await api.renew({ credential, jobId, leaseToken, fence, leaseSeconds })),
+    () => ok({ outcome: "refused" }),
+  );
 }
 
 export async function handleJobComplete(request: Request, api: JobApiPort): Promise<Response> {
   const credential = bearerCredential(request);
   if (credential === null) return unauthorized();
   const body = await readJson(request);
+  if (body === "too_large") return payloadTooLarge();
   if (body === null) return badRequest();
   const jobId = stringOf(body, "jobId");
   const leaseToken = stringOf(body, "leaseToken");
@@ -199,25 +260,31 @@ export async function handleJobComplete(request: Request, api: JobApiPort): Prom
       : numberOf(body, "confidence");
   if (body.confidence !== null && body.confidence !== undefined && confidence === null) return badRequest();
 
-  const outcome = await api.complete({
-    credential,
-    jobId,
-    leaseToken,
-    fence,
-    sourceVersionId,
-    stage,
-    indexGeneration,
-    artifacts,
-    notes,
-    confidence,
-  });
-  return ok(outcome);
+  return guarded(
+    async () =>
+      ok(
+        await api.complete({
+          credential,
+          jobId,
+          leaseToken,
+          fence,
+          sourceVersionId,
+          stage,
+          indexGeneration,
+          artifacts,
+          notes,
+          confidence,
+        }),
+      ),
+    () => ok({ outcome: "refused" }),
+  );
 }
 
 export async function handleJobAbort(request: Request, api: JobApiPort): Promise<Response> {
   const credential = bearerCredential(request);
   if (credential === null) return unauthorized();
   const body = await readJson(request);
+  if (body === "too_large") return payloadTooLarge();
   if (body === null) return badRequest();
   const jobId = stringOf(body, "jobId");
   const leaseToken = stringOf(body, "leaseToken");
@@ -226,6 +293,8 @@ export async function handleJobAbort(request: Request, api: JobApiPort): Promise
   if (!isUuid(jobId) || leaseToken === null || fence === null || !Number.isInteger(fence) || !isAbortReason(reason)) {
     return badRequest();
   }
-  const outcome = await api.abort({ credential, jobId, leaseToken, fence, reason });
-  return ok(outcome);
+  return guarded(
+    async () => ok(await api.abort({ credential, jobId, leaseToken, fence, reason })),
+    () => ok({ outcome: "refused" }),
+  );
 }
