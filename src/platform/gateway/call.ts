@@ -102,6 +102,12 @@ interface GatewayCallInputBase<T> {
 export interface ModelCallInput<T> extends GatewayCallInputBase<T> {
   task: "route" | "condense" | "compose";
   composedWith?: never;
+  /**
+   * Optional for these tasks: names a second call of the same task in one run (the compose retry,
+   * §12.1). Chain positions restart at 1 for whatever chain a call is given, so without a tag a
+   * retry's first attempt would share the first call's attempt id and its reservation (§12.3).
+   */
+  passTag?: string;
 }
 
 /**
@@ -229,7 +235,12 @@ function attemptIdOf(
   // the call. A replay of the same call still deduplicates, which is the property the pair alone
   // appeared to provide. There is no fallback tag: a verify that cannot say which pass it is gets
   // refused before anything is reserved (see `callModelGateway`).
-  const role = task === "verify" ? `verify:${passTag}` : task;
+  const role =
+    task === "verify"
+      ? `verify:${passTag}`
+      : passTag.length > 0
+        ? `${task}:${passTag}`
+        : task;
   return `${runId}:${chainPosition}:${role}`;
 }
 
@@ -385,7 +396,7 @@ export async function callModelGateway<T>(
       input.runId,
       entry.chainPosition,
       input.task,
-      input.task === "verify" ? input.passTag : "",
+      input.passTag ?? "",
     );
     let reservationId: string;
     try {
