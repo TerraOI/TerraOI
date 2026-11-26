@@ -6,6 +6,7 @@ import type { EvalCase } from "@/contracts/eval-case";
 import type { GatewayDeps } from "@/platform/gateway/call";
 
 import { createEvalGatewayAsker, type EvalGatewayAskerConfig } from "./ask-case-gateway";
+import { caseIdToUuidFromList, listEvalCases } from "./list-eval-cases";
 import { recordEvalRun, type RecordEvalRunDeps, type RecordEvalRunOutcome } from "./record-eval-run";
 import { runExpertEval, type EvalRunRow, type RunExpertEvalInput } from "./run";
 
@@ -28,8 +29,12 @@ export interface RunExpertEvalAndPersistInput {
   chainConfig: Record<string, unknown>;
   corpusGeneration: string;
   cases: readonly EvalCase[];
-  /** Fixture caseId (case_key) → `eval_cases.id` uuid for this tenant. */
-  caseIdToUuid: Readonly<Record<string, string>>;
+  /**
+   * Fixture caseId (case_key) → `eval_cases.id` uuid for this tenant.
+   * Optional: when omitted, loaded at runtime via `list_eval_cases_v1` (`p_status: "approved"`).
+   * Tests may still supply the map to avoid dialing the list RPC.
+   */
+  caseIdToUuid?: Readonly<Record<string, string>>;
   gatewayDeps: GatewayDeps;
   recordDeps: RecordEvalRunDeps;
   /** Stable eval run id prefix for gateway metering. */
@@ -46,6 +51,10 @@ export interface RunExpertEvalAndPersistResult {
 
 /**
  * F35 end-to-end: approved cases → gateway asker → scored run row → `record_eval_run_v1`.
+ *
+ * When `caseIdToUuid` is omitted, the map is built from `list_eval_cases_v1` before persist.
+ * If that list call fails, the scored `run` is still returned and `persist` fails with the list
+ * reason — uuids are never invented locally.
  */
 export async function runExpertEvalAndPersist(
   input: RunExpertEvalAndPersistInput,
@@ -71,11 +80,32 @@ export async function runExpertEvalAndPersist(
   };
 
   const run = await runExpertEval(runInput);
+
+  let caseIdToUuid = input.caseIdToUuid;
+  if (caseIdToUuid === undefined) {
+    const listed = await listEvalCases(input.context, input.accessToken, "approved", input.recordDeps);
+    if (!listed.ok) {
+      return {
+        run,
+        persist: {
+          ok: false,
+          reason: listed.reason,
+          employeeMessage: listed.employeeMessage,
+        },
+      };
+    }
+    // Supervisor round 1 on #277: eval_cases is unique on (organisation, case_key, expert_key), so two
+    // experts may share a case key. Map only this run's expert, or first-wins picks another expert's row.
+    caseIdToUuid = caseIdToUuidFromList(
+      listed.cases.filter((row) => row.expertKey === input.expertKey),
+    );
+  }
+
   const persist = await recordEvalRun(
     input.context,
     input.accessToken,
     run,
-    input.caseIdToUuid,
+    caseIdToUuid,
     input.recordDeps,
   );
 
