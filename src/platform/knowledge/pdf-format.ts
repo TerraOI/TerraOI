@@ -359,10 +359,15 @@ export type InflateResult = { ok: true; data: Uint8Array } | { ok: false; reason
  * the ZIP-bomb case, and the payload is never buffered whole. `corrupt` means the bytes are not a
  * zlib stream at all, which is a damaged document rather than an attack.
  */
-export async function inflateBounded(data: Uint8Array, budgetBytes: number): Promise<InflateResult> {
+export async function inflateBounded(
+  data: Uint8Array,
+  budgetBytes: number,
+  /** `deflate` is the zlib-wrapped stream PDFs use; ZIP entries (method 8) are `deflate-raw`. */
+  format: "deflate" | "deflate-raw" = "deflate",
+): Promise<InflateResult> {
   if (budgetBytes <= 0) return { ok: false, reason: "budget" };
   try {
-    const stream = new DecompressionStream("deflate");
+    const stream = new DecompressionStream(format);
     const writer = stream.writable.getWriter();
     // The write is not awaited on purpose: a producer that never gets consumed must not make the
     // reader wait forever, and a rejected write is handled by the error path below.

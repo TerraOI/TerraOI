@@ -1,7 +1,9 @@
 # T-212 DOCX/XLSX extraction and routing of scans and images
 
-Lane: 2 · Week: 2 · Protected: no · Depends on: T-111, T-112, T-211 · Status: ready
+Lane: 2 · Week: 2 · Protected: no · Depends on: T-111, T-112, T-211 · Status: in progress — claim `t-212-docx-xlsx-extract`: open capture for images/OOXML, DOCX/XLSX extractors, routing + text-layer quality, artifact mapper (#135); staging deferred
 Plan refs: §7.1 (M1 file types), §7.2 steps 2–3 and "extraction executors", §7.5, §16 (ingestion row); F09, F10, F12
+
+**Images at capture (#135):** capture checks an image's signature, size and digest only, and then routes it to the box. The box-side image parser is therefore the component that must treat image bytes as hostile.
 
 ## Supervisor rulings to apply (2026-11-09)
 These supersede anything below that disagrees.
