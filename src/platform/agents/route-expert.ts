@@ -54,7 +54,10 @@ export interface RouteExpertInput {
    * Optional cleared `route`-task classifier (no Claude in that chain). When unavailable or
    * absent, keyword rules decide and the fallback is recorded as `via: "keywords"`.
    */
-  readonly classify?: (question: string, candidates: readonly RouteCandidate[]) => Promise<RouteClassifyOutcome>;
+  readonly classify?: (
+    question: string,
+    candidates: readonly RouteCandidate[],
+  ) => Promise<RouteClassifyOutcome>;
 }
 
 const UAV_TERMS = [
@@ -99,19 +102,31 @@ function normalizeQuestion(raw: string): string {
   return raw.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+function escapeRegExp(term: string): string {
+  return term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Whole-word (or whole-phrase) match, so "soil" does not hit "soiled" and "uav" needs its own word. */
+function hasTerm(question: string, term: string): boolean {
+  return new RegExp(`(^|[^a-z0-9])${escapeRegExp(term)}($|[^a-z0-9])`).test(
+    question,
+  );
+}
+
 function keywordScore(question: string, candidate: RouteCandidate): number {
-  const terms = [
+  // A Set: the service key and expert key share one term list, and a term must not count twice.
+  const terms = new Set([
     ...(SERVICE_TERMS[candidate.serviceKey] ?? []),
     ...(SERVICE_TERMS[candidate.expertKey] ?? []),
-  ];
-  if (terms.length === 0) return 0;
+  ]);
   let hits = 0;
   for (const term of terms) {
-    if (question.includes(term)) hits += 1;
+    if (hasTerm(question, term)) hits += 1;
   }
   if (hits === 0) return 0;
-  // Saturate quickly: two solid hits clear the default threshold.
-  return Math.min(1, 0.45 + hits * 0.25);
+  // One generic word ("launch", "soil", "pilot") is not enough to route on: it scores 0.5, below the
+  // default threshold, so the employee is asked. Two hits score 0.7 and clear it.
+  return Math.min(1, 0.3 + hits * 0.2);
 }
 
 function findCandidate(
@@ -131,7 +146,10 @@ function keywordRoute(
   }
 
   const scored = candidates
-    .map((candidate) => ({ candidate, confidence: keywordScore(question, candidate) }))
+    .map((candidate) => ({
+      candidate,
+      confidence: keywordScore(question, candidate),
+    }))
     .sort((a, b) => b.confidence - a.confidence);
 
   const best = scored[0];
@@ -139,7 +157,11 @@ function keywordRoute(
   if (best === undefined || best.confidence < threshold) {
     return { kind: "ask_employee", reason: "below_threshold", via: "keywords" };
   }
-  if (second !== undefined && second.confidence >= threshold && second.confidence >= best.confidence - 0.05) {
+  if (
+    second !== undefined &&
+    second.confidence >= threshold &&
+    second.confidence >= best.confidence - 0.05
+  ) {
     return { kind: "ask_employee", reason: "ambiguous", via: "keywords" };
   }
 
@@ -155,7 +177,9 @@ function keywordRoute(
 /**
  * Suggest one authorized expert for Auto mode, or ask the employee to choose.
  */
-export async function routeExpert(input: RouteExpertInput): Promise<RouteExpertResult> {
+export async function routeExpert(
+  input: RouteExpertInput,
+): Promise<RouteExpertResult> {
   const threshold = input.threshold ?? DEFAULT_ROUTE_CONFIDENCE_THRESHOLD;
   const candidates = input.candidates;
   const question = normalizeQuestion(input.question);
@@ -187,15 +211,28 @@ export async function routeExpert(input: RouteExpertInput): Promise<RouteExpertR
   }
 
   if (input.classify !== undefined) {
-    const classified = await input.classify(question, candidates);
-    if (classified !== undefined && classified.status === "ok") {
+    let classified: RouteClassifyOutcome;
+    try {
+      classified = await input.classify(question, candidates);
+    } catch {
+      // A failing route provider is the same as an unavailable one: keyword rules decide and the
+      // result records `via: "keywords"` (acceptance: fallback recorded, never a thrown request).
+      classified = { status: "unavailable" };
+    }
+    if (classified.status === "ok") {
       const matched = findCandidate(candidates, classified.expertKey);
-      if (matched !== undefined && classified.confidence >= threshold) {
+      const confidence = classified.confidence;
+      if (
+        matched !== undefined &&
+        Number.isFinite(confidence) &&
+        confidence <= 1 &&
+        confidence >= threshold
+      ) {
         return {
           kind: "suggestion",
           expertKey: matched.expertKey,
           serviceKey: matched.serviceKey,
-          confidence: classified.confidence,
+          confidence,
           via: "route_model",
           providerKey: classified.providerKey,
         };

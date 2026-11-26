@@ -1,4 +1,5 @@
 -- T-311 PR-4 (#221 N1): scoped registry read for Auto / routeExpert.
+-- Renamed from 20261120219000 by the supervisor so it sorts after main's newest (COORDINATION §3).
 --
 -- `expert_definitions` grants zero privileges to request roles (§9.3 / #143 B8), and under
 -- FAQ-0011 a direct SELECT cannot see `current_organisation_id()`, so the entitlement tables
