@@ -23,7 +23,77 @@ export type Database = {
           }
         },"public": {
           Tables: {
-            "chunk_embeddings": {
+            "agent_run_evidence": {
+                  Row: {
+                    "chunk_id": string | null,"claim_id": string,"created_at": string,"data_class": string,"evidence_kind": string,"field_path": string | null,"id": string,"observed_at": string | null,"organisation_id": string,"quoted_text": string | null,"record_id": string | null,"record_type": string | null,"record_version": number | null,"run_id": string,"source_version_id": string | null,"span_end_char": number | null,"span_start_char": number | null,"submission_id": string | null,"template_version": string | null,"tool_call_id": string | null
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "chunk_id"?: string | null,"claim_id": string,"created_at"?: string,"data_class": string,"evidence_kind": string,"field_path"?: string | null,"id"?: string,"observed_at"?: string | null,"organisation_id": string,"quoted_text"?: string | null,"record_id"?: string | null,"record_type"?: string | null,"record_version"?: number | null,"run_id": string,"source_version_id"?: string | null,"span_end_char"?: number | null,"span_start_char"?: number | null,"submission_id"?: string | null,"template_version"?: string | null,"tool_call_id"?: string | null
+                  }
+                  Update: {
+                    "chunk_id"?: string | null,"claim_id"?: string,"created_at"?: string,"data_class"?: string,"evidence_kind"?: string,"field_path"?: string | null,"id"?: string,"observed_at"?: string | null,"organisation_id"?: string,"quoted_text"?: string | null,"record_id"?: string | null,"record_type"?: string | null,"record_version"?: number | null,"run_id"?: string,"source_version_id"?: string | null,"span_end_char"?: number | null,"span_start_char"?: number | null,"submission_id"?: string | null,"template_version"?: string | null,"tool_call_id"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "agent_run_evidence_organisation_fk"
+      columns: ["organisation_id"]
+isOneToOne: false
+      referencedRelation: "organisations"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "agent_run_evidence_run_fk"
+      columns: ["run_id","organisation_id"]
+isOneToOne: false
+      referencedRelation: "agent_runs"
+      referencedColumns: ["id","organisation_id"]
+    },{
+      foreignKeyName: "agent_run_evidence_source_version_fk"
+      columns: ["source_version_id","organisation_id"]
+isOneToOne: false
+      referencedRelation: "source_versions"
+      referencedColumns: ["id","organisation_id"]
+    }
+                  ]
+                },"agent_runs": {
+                  Row: {
+                    "answer_json": Json | null,"answer_status": string | null,"as_of": string | null,"completed_at": string | null,"conversation_id": string,"corpus_generations": (number)[] | null,"data_class": string,"expert_key": string,"expert_versions": (string)[] | null,"id": string,"idempotency_key": string,"organisation_id": string,"policy_revision": number,"refusal_reason": string | null,"requested_by": string,"started_at": string,"status": string,"user_message_id": string | null
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "answer_json"?: Json | null,"answer_status"?: string | null,"as_of"?: string | null,"completed_at"?: string | null,"conversation_id": string,"corpus_generations"?: (number)[] | null,"data_class": string,"expert_key": string,"expert_versions"?: (string)[] | null,"id": string,"idempotency_key": string,"organisation_id": string,"policy_revision": number,"refusal_reason"?: string | null,"requested_by": string,"started_at"?: string,"status"?: string,"user_message_id"?: string | null
+                  }
+                  Update: {
+                    "answer_json"?: Json | null,"answer_status"?: string | null,"as_of"?: string | null,"completed_at"?: string | null,"conversation_id"?: string,"corpus_generations"?: (number)[] | null,"data_class"?: string,"expert_key"?: string,"expert_versions"?: (string)[] | null,"id"?: string,"idempotency_key"?: string,"organisation_id"?: string,"policy_revision"?: number,"refusal_reason"?: string | null,"requested_by"?: string,"started_at"?: string,"status"?: string,"user_message_id"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "agent_runs_conversation_fk"
+      columns: ["conversation_id","organisation_id"]
+isOneToOne: false
+      referencedRelation: "conversations"
+      referencedColumns: ["id","organisation_id"]
+    },{
+      foreignKeyName: "agent_runs_organisation_fk"
+      columns: ["organisation_id"]
+isOneToOne: false
+      referencedRelation: "organisations"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "agent_runs_requested_by_fkey"
+      columns: ["requested_by"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "agent_runs_user_message_fk"
+      columns: ["user_message_id","organisation_id"]
+isOneToOne: false
+      referencedRelation: "messages"
+      referencedColumns: ["id","organisation_id"]
+    }
+                  ]
+                },"chunk_embeddings": {
                   Row: {
                     "chunk_id": string,"created_at": string,"embedding": string,"id": string,"index_generation": number,"index_id": string,"organisation_id": string
                   }
@@ -55,6 +125,38 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"conversations": {
+                  Row: {
+                    "created_at": string,"expert_key": string,"id": string,"last_activity_at": string,"organisation_id": string,"project_id": string | null,"status": string,"updated_at": string,"user_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"expert_key": string,"id": string,"last_activity_at"?: string,"organisation_id": string,"project_id"?: string | null,"status"?: string,"updated_at"?: string,"user_id": string
+                  }
+                  Update: {
+                    "created_at"?: string,"expert_key"?: string,"id"?: string,"last_activity_at"?: string,"organisation_id"?: string,"project_id"?: string | null,"status"?: string,"updated_at"?: string,"user_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "conversations_organisation_fk"
+      columns: ["organisation_id"]
+isOneToOne: false
+      referencedRelation: "organisations"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "conversations_project_fk"
+      columns: ["project_id","organisation_id"]
+isOneToOne: false
+      referencedRelation: "projects"
+      referencedColumns: ["id","organisation_id"]
+    },{
+      foreignKeyName: "conversations_user_id_fkey"
+      columns: ["user_id"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"embedding_indexes": {
                   Row: {
                     "cleared_for": (string)[],"created_at": string,"dimensions": number,"generation": number,"id": string,"index_key": string,"metric": string,"model": string,"organisation_id": string,"provider_key": string,"status": string,"updated_at": string
@@ -73,6 +175,32 @@ isOneToOne: false
 isOneToOne: false
       referencedRelation: "organisations"
       referencedColumns: ["id"]
+    }
+                  ]
+                },"expert_definitions": {
+                  Row: {
+                    "answer_schema_version": string,"clarification_policy": string,"created_at": string,"embedding_index_key": string,"evaluation_set_version": string,"expert_key": string,"instruction_template_version": string,"limits": NonNullable<Json>,"min_verifier_tier": string,"model_chains": NonNullable<Json>,"prompt_template_id": string,"prompt_template_version": string,"published_at": string | null,"refusal_templates": NonNullable<Json>,"retrieval_profile_version": string,"risk_class": string,"service_key": string,"status": string,"tool_keys": (string)[],"updated_at": string,"version": string,"withdrawn_at": string | null,"workflow_keys": (string)[]
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "answer_schema_version": string,"clarification_policy": string,"created_at"?: string,"embedding_index_key": string,"evaluation_set_version": string,"expert_key": string,"instruction_template_version": string,"limits": NonNullable<Json>,"min_verifier_tier": string,"model_chains": NonNullable<Json>,"prompt_template_id": string,"prompt_template_version": string,"published_at"?: string | null,"refusal_templates": NonNullable<Json>,"retrieval_profile_version": string,"risk_class": string,"service_key": string,"status"?: string,"tool_keys"?: (string)[],"updated_at"?: string,"version": string,"withdrawn_at"?: string | null,"workflow_keys"?: (string)[]
+                  }
+                  Update: {
+                    "answer_schema_version"?: string,"clarification_policy"?: string,"created_at"?: string,"embedding_index_key"?: string,"evaluation_set_version"?: string,"expert_key"?: string,"instruction_template_version"?: string,"limits"?: NonNullable<Json>,"min_verifier_tier"?: string,"model_chains"?: NonNullable<Json>,"prompt_template_id"?: string,"prompt_template_version"?: string,"published_at"?: string | null,"refusal_templates"?: NonNullable<Json>,"retrieval_profile_version"?: string,"risk_class"?: string,"service_key"?: string,"status"?: string,"tool_keys"?: (string)[],"updated_at"?: string,"version"?: string,"withdrawn_at"?: string | null,"workflow_keys"?: (string)[]
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "expert_definitions_prompt_fk"
+      columns: ["prompt_template_id","prompt_template_version"]
+isOneToOne: false
+      referencedRelation: "prompt_templates"
+      referencedColumns: ["id","version"]
+    },{
+      foreignKeyName: "expert_definitions_service_key_fkey"
+      columns: ["service_key"]
+isOneToOne: false
+      referencedRelation: "service_definitions"
+      referencedColumns: ["service_key"]
     }
                   ]
                 },"extraction_artifacts": {
@@ -387,6 +515,38 @@ isOneToOne: false
       referencedColumns: ["id","organisation_id"]
     }
                   ]
+                },"messages": {
+                  Row: {
+                    "body_text": string,"client_message_id": string | null,"conversation_id": string,"created_at": string,"data_class": string,"id": string,"organisation_id": string,"role": string,"run_id": string | null,"seq": number
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "body_text": string,"client_message_id"?: string | null,"conversation_id": string,"created_at"?: string,"data_class": string,"id"?: string,"organisation_id": string,"role": string,"run_id"?: string | null,"seq"?: never
+                  }
+                  Update: {
+                    "body_text"?: string,"client_message_id"?: string | null,"conversation_id"?: string,"created_at"?: string,"data_class"?: string,"id"?: string,"organisation_id"?: string,"role"?: string,"run_id"?: string | null,"seq"?: never
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "messages_conversation_fk"
+      columns: ["conversation_id","organisation_id"]
+isOneToOne: false
+      referencedRelation: "conversations"
+      referencedColumns: ["id","organisation_id"]
+    },{
+      foreignKeyName: "messages_organisation_fk"
+      columns: ["organisation_id"]
+isOneToOne: false
+      referencedRelation: "organisations"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "messages_run_fk"
+      columns: ["run_id","organisation_id"]
+isOneToOne: false
+      referencedRelation: "agent_runs"
+      referencedColumns: ["id","organisation_id"]
+    }
+                  ]
                 },"model_providers": {
                   Row: {
                     "capability_tier": string,"clearance_revision": number,"context_window_units": number | null,"cost_rank": number,"created_at": string,"enabled": boolean,"max_cleared_class": string,"model": string | null,"provider_key": string,"supports_structured_output": boolean,"updated_at": string,"verifier_eval_set_version": string | null,"verifier_model": string | null
@@ -541,6 +701,20 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"prompt_templates": {
+                  Row: {
+                    "body": string,"body_hash": string,"created_at": string,"id": string,"owner": string,"published_at": string | null,"status": string,"updated_at": string,"version": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "body": string,"body_hash": string,"created_at"?: string,"id": string,"owner": string,"published_at"?: string | null,"status"?: string,"updated_at"?: string,"version": string
+                  }
+                  Update: {
+                    "body"?: string,"body_hash"?: string,"created_at"?: string,"id"?: string,"owner"?: string,"published_at"?: string | null,"status"?: string,"updated_at"?: string,"version"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
                 },"provider_health": {
                   Row: {
                     "checked_at": string,"circuit_open": boolean,"id": number,"latency_ms": number | null,"observed_by": string | null,"provider_key": string,"quota_window_reset_at": string | null,"status": string
@@ -600,6 +774,20 @@ isOneToOne: false
       referencedRelation: "organisation_roles"
       referencedColumns: ["id","organisation_id"]
     }
+                  ]
+                },"service_definitions": {
+                  Row: {
+                    "created_at": string,"description": string,"display_name": string,"manifest_version": string,"service_key": string,"status": string,"updated_at": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"description": string,"display_name": string,"manifest_version": string,"service_key": string,"status"?: string,"updated_at"?: string
+                  }
+                  Update: {
+                    "created_at"?: string,"description"?: string,"display_name"?: string,"manifest_version"?: string,"service_key"?: string,"status"?: string,"updated_at"?: string
+                  }
+                  Relationships: [
+                    
                   ]
                 },"source_versions": {
                   Row: {
@@ -711,36 +899,36 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
-                },"tenant_invitations": {
+                },"tenant_experts": {
                   Row: {
-                    "created_at": string,"email": string,"expires_at": string,"id": string,"invited_by": string,"organisation_id": string,"role_id": string,"status": string
+                    "collection_bindings": (string)[],"created_at": string,"enabled": boolean,"expert_key": string,"expert_version": string,"id": string,"organisation_id": string,"service_key": string,"updated_at": string,"vocabulary_override": NonNullable<Json>
                   }
                   ComputedFields: never
                   Insert: {
-                    "created_at"?: string,"email": string,"expires_at": string,"id"?: string,"invited_by": string,"organisation_id": string,"role_id": string,"status"?: string
+                    "collection_bindings"?: (string)[],"created_at"?: string,"enabled"?: boolean,"expert_key": string,"expert_version": string,"id"?: string,"organisation_id": string,"service_key": string,"updated_at"?: string,"vocabulary_override"?: NonNullable<Json>
                   }
                   Update: {
-                    "created_at"?: string,"email"?: string,"expires_at"?: string,"id"?: string,"invited_by"?: string,"organisation_id"?: string,"role_id"?: string,"status"?: string
+                    "collection_bindings"?: (string)[],"created_at"?: string,"enabled"?: boolean,"expert_key"?: string,"expert_version"?: string,"id"?: string,"organisation_id"?: string,"service_key"?: string,"updated_at"?: string,"vocabulary_override"?: NonNullable<Json>
                   }
                   Relationships: [
                     {
-      foreignKeyName: "tenant_invitations_invited_by_fkey"
-      columns: ["invited_by"]
+      foreignKeyName: "tenant_experts_definition_fk"
+      columns: ["expert_key","expert_version","service_key"]
 isOneToOne: false
-      referencedRelation: "profiles"
-      referencedColumns: ["id"]
+      referencedRelation: "expert_definitions"
+      referencedColumns: ["expert_key","version","service_key"]
     },{
-      foreignKeyName: "tenant_invitations_organisation_id_fkey"
+      foreignKeyName: "tenant_experts_organisation_id_fkey"
       columns: ["organisation_id"]
 isOneToOne: false
       referencedRelation: "organisations"
       referencedColumns: ["id"]
     },{
-      foreignKeyName: "tenant_invitations_role_id_organisation_id_fkey"
-      columns: ["role_id","organisation_id"]
+      foreignKeyName: "tenant_experts_service_fk"
+      columns: ["organisation_id","service_key"]
 isOneToOne: false
-      referencedRelation: "organisation_roles"
-      referencedColumns: ["id","organisation_id"]
+      referencedRelation: "tenant_services"
+      referencedColumns: ["organisation_id","service_key"]
     }
                   ]
                 },"tenant_provider_policy": {
@@ -769,6 +957,32 @@ isOneToOne: false
       referencedColumns: ["provider_key"]
     }
                   ]
+                },"tenant_services": {
+                  Row: {
+                    "created_at": string,"enabled": boolean,"entitled_at": string,"id": string,"organisation_id": string,"service_key": string,"updated_at": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"enabled"?: boolean,"entitled_at"?: string,"id"?: string,"organisation_id": string,"service_key": string,"updated_at"?: string
+                  }
+                  Update: {
+                    "created_at"?: string,"enabled"?: boolean,"entitled_at"?: string,"id"?: string,"organisation_id"?: string,"service_key"?: string,"updated_at"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "tenant_services_organisation_id_fkey"
+      columns: ["organisation_id"]
+isOneToOne: false
+      referencedRelation: "organisations"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "tenant_services_service_key_fkey"
+      columns: ["service_key"]
+isOneToOne: false
+      referencedRelation: "service_definitions"
+      referencedColumns: ["service_key"]
+    }
+                  ]
                 }
           }
           Views: {
@@ -782,6 +996,42 @@ isOneToOne: false
 { Args: { "p_collection_id": string,"p_declared_size_bytes": number,"p_filename": string,"p_idempotency_key": string,"p_organisation_id": string }; Returns: {
               "o_expires_at": string,"o_max_size_bytes": number,"o_object_ref": string,"o_reused": boolean,"o_session_id": string,"o_state": string
             }[]
+                           },
+"chat_actor_may_ask":
+{ Args: { "p_organisation_id": string }; Returns: boolean
+                           },
+"chat_append_user_message_v1":
+{ Args: { "p_body_text": string,"p_client_message_id": string,"p_conversation_id": string,"p_data_class": string,"p_organisation_id": string }; Returns: string
+                           },
+"chat_complete_run_v1":
+{ Args: { "p_answer": Json,"p_organisation_id": string,"p_run_id": string }; Returns: Json
+                           },
+"chat_conversation_owned":
+{ Args: { "p_conversation_id": string }; Returns: boolean
+                           },
+"chat_ensure_conversation_v1":
+{ Args: { "p_conversation_id": string,"p_expert_key": string,"p_organisation_id": string,"p_project_id": string }; Returns: string
+                           },
+"chat_get_run_v1":
+{ Args: { "p_organisation_id": string,"p_run_id": string }; Returns: Json
+                           },
+"chat_int_array_is_positive":
+{ Args: { "p_values": (number)[] }; Returns: boolean
+                           },
+"chat_json_has_forbidden_key":
+{ Args: { "p_depth"?: number,"p_value": Json }; Returns: boolean
+                           },
+"chat_list_conversations_v1":
+{ Args: { "p_limit": number,"p_organisation_id": string }; Returns: Json
+                           },
+"chat_load_conversation_v1":
+{ Args: { "p_conversation_id": string,"p_organisation_id": string }; Returns: Json
+                           },
+"chat_run_answer_withheld":
+{ Args: { "p_run_id": string }; Returns: boolean
+                           },
+"chat_start_run_v1":
+{ Args: { "p_conversation_id": string,"p_data_class": string,"p_expert_key": string,"p_idempotency_key": string,"p_organisation_id": string,"p_run_id": string,"p_user_message_id": string }; Returns: string
                            },
 "chunk_is_readable":
 { Args: { "p_chunk_id": string }; Returns: boolean
@@ -818,6 +1068,18 @@ isOneToOne: false
 "data_class_rank":
 { Args: { "p_data_class": string }; Returns: number
                            },
+"expert_chain_follows_order":
+{ Args: { "p_chain": Json,"p_order": (string)[] }; Returns: boolean
+                           },
+"expert_limits_are_valid":
+{ Args: { "p_limits": Json }; Returns: boolean
+                           },
+"expert_model_chains_are_valid":
+{ Args: { "p_chains": Json }; Returns: boolean
+                           },
+"expert_refusal_templates_are_valid":
+{ Args: { "p_templates": Json }; Returns: boolean
+                           },
 "form_submission_body_text":
 { Args: { "p_ui_hints": Json,"p_values": Json }; Returns: string
                            },
@@ -830,6 +1092,11 @@ isOneToOne: false
 "form_values_reject_reason":
 { Args: { "p_json_schema": Json,"p_values": Json }; Returns: string
                            },
+"get_form_template_v1":
+{ Args: { "p_organisation_id": string,"p_template_id": string }; Returns: {
+              "data_class": string,"default_collection_id": string,"description": string,"id": string,"json_schema": Json,"name": string,"organisation_id": string,"project_id": string,"published_at": string,"scope": string,"service_key": string,"status": string,"ui_hints": Json,"version": string
+            }[]
+                           },
 "get_tenant_brand_v1":
 { Args: { "p_organisation_id": string }; Returns: {
               "accent_color": string,"config_version": number,"descriptor": string,"display_name": string,"document_prefix": string,"email_reply_to": string,"email_sender_name": string,"favicon_asset_id": string,"legal_name": string,"logo_asset_id": string,"mode": string,"on_primary_color": string,"organisation_id": string,"primary_color": string,"report_owner": string,"support_label": string,"support_url": string,"tagline": string
@@ -838,14 +1105,16 @@ isOneToOne: false
 "grant_membership_role_v1":
 { Args: { "p_organisation_id": string,"p_role_id": string,"p_user_id": string }; Returns: undefined
                            },
-"invite_member_v1":
-{ Args: { "p_email": string,"p_organisation_id": string,"p_role_id": string }; Returns: string
-                           },
 "is_active_member":
 { Args: { "p_organisation_id": string }; Returns: boolean
                            },
 "is_project_member":
 { Args: { "p_project_id": string }; Returns: boolean
+                           },
+"list_form_templates_v1":
+{ Args: { "p_organisation_id": string }; Returns: {
+              "data_class": string,"default_collection_id": string,"description": string,"id": string,"json_schema": Json,"name": string,"organisation_id": string,"project_id": string,"published_at": string,"scope": string,"service_key": string,"status": string,"ui_hints": Json,"version": string
+            }[]
                            },
 "load_public_brand":
 { Args: { "p_host": string }; Returns: {
@@ -898,6 +1167,9 @@ isOneToOne: false
                            },
 "submit_form_v1":
 { Args: { "p_organisation_id": string,"p_submission_id": string }; Returns: string
+                           },
+"tenant_vocabulary_override_is_valid":
+{ Args: { "p_override": Json }; Returns: boolean
                            },
 "update_collection_v1":
 { Args: { "p_collection_id": string,"p_name": string,"p_organisation_id": string }; Returns: undefined

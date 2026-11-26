@@ -327,9 +327,9 @@ insert into public.organisation_memberships (organisation_id, user_id, status)
   values ('11111111-1111-4111-8111-111111111111', '00000000-0000-4000-8000-0000000000b1', 'invited')
 on conflict (organisation_id, user_id) do nothing;
 
--- 164 numbered assertions below; pgTAP fails if plan and finish() disagree.
+-- 167 numbered assertions below; pgTAP fails if plan and finish() disagree.
 -- PR-1b grows this slot (COORDINATION §6b): invite_member_v1 + tenant_invitations bump watch.
-select plan(164);
+select plan(167);
 
 -- ================================================================ privileges, shape, no activate
 -- PostgreSQL hands EXECUTE on a new function in `public` to PUBLIC, and a migration cannot close that
@@ -1144,7 +1144,8 @@ select is((select after_rev - before_rev from t_rev where case_name = 'noop_org'
 select is_empty($$
   select want.tbl
     from (values ('organisation_memberships'), ('membership_roles'), ('role_permissions'),
-                 ('project_memberships'), ('organisations'), ('tenant_invitations')) as want(tbl)
+                 ('project_memberships'), ('organisations'), ('tenant_services'),
+                 ('tenant_experts'), ('tenant_invitations')) as want(tbl)
    where not exists (
      select 1
        from pg_trigger t
@@ -1154,9 +1155,10 @@ select is_empty($$
       where n.nspname = 'public' and c.relname = want.tbl
         and p.proname = 'bump_policy_revision' and not t.tgisinternal
    )
-$$, '145 every table #98 names (plus tenant_invitations from PR-1b) carries a trigger backed by '
-  || 'public.bump_policy_revision(): organisation_memberships, membership_roles, role_permissions, '
-  || 'project_memberships, organisations and tenant_invitations');
+$$, '145 every watched table carries a trigger backed by public.bump_policy_revision(): the five #98 '
+  || 'names (organisation_memberships, membership_roles, role_permissions, project_memberships, '
+  || 'organisations), #221''s tenant_services and tenant_experts, and PR-1b''s tenant_invitations. This '
+  || 'list is the authoritative set; test 148 counts over the same set');
 
 select is_empty($$
   select tr.tgname || ' on ' || c.relname
@@ -1198,9 +1200,13 @@ select is((select count(*)::int from pg_trigger tr
              join pg_proc p on p.oid = tr.tgfoid
              join pg_namespace n on n.oid = c.relnamespace
             where n.nspname = 'public' and p.proname = 'bump_policy_revision'
-              and not tr.tgisinternal), 18::int,
-  '148 six tables x (insert, update, delete) = 18: PR-1b added tenant_invitations; the count is '
-  || 'pinned so a dropped event fails by number rather than by a reviewer noticing an absent row');
+              and c.relname in ('organisation_memberships', 'membership_roles', 'role_permissions',
+                                'project_memberships', 'organisations', 'tenant_services',
+                                'tenant_experts', 'tenant_invitations')
+              and not tr.tgisinternal),
+          3 * 8,
+  '148 the eight tables test 145 names x (insert, update, delete) = 24: the count is derived from '
+  || 'that set, so a dropped event fails by number rather than by a reviewer noticing an absent row');
 
 select is((select coalesce(obj_description('public.organisations'::regclass), '')),
   'Tenant root. Status is authoritative for every access decision. policy_revision is a monotonic stamp bumped on every access change; it is recorded for audit and used as a cache key. Access is always re-derived.',
@@ -1417,6 +1423,37 @@ insert into t_read select 'a1_invites', count(*)::int from public.tenant_invitat
 reset role;
 select ok((select n from t_read where case_name = 'a1_invites') >= 1,
   '182 an admin under scope can SELECT this tenant''s invitations');
+
+-- Cross-tenant READ negatives (AGENTS.md §4.4; supervisor round 1 on #226, B3). Company1 holds pending
+-- invitations at this point (164-171); one company2 invitation goes in as the test owner so both
+-- tenants have rows that a wrong reader could see. Neither query has a `where`: visibility is the
+-- policy's job alone.
+insert into public.tenant_invitations (organisation_id, email, role_id, invited_by, expires_at)
+values ('22222222-2222-4222-8222-222222222222', 'pending@company2.test',
+        '32000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-0000000000b1',
+        now() + interval '7 days');
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000b1';
+select public.set_tenant_scope('22222222-2222-4222-8222-222222222222');
+insert into t_read
+select 'b1_company1_invites', count(*) filter (where organisation_id = '11111111-1111-4111-8111-111111111111')::int
+  from public.tenant_invitations;
+reset role;
+select is((select n from t_read where case_name = 'b1_company1_invites'), 0::int,
+  '183 company2''s admin, scoped to company2, sees zero company1 invitations with no where clause');
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a4';
+select public.set_tenant_scope('11111111-1111-4111-8111-111111111111');
+insert into t_read select 'a4_scope1_invites', count(*)::int from public.tenant_invitations;
+select public.set_tenant_scope('22222222-2222-4222-8222-222222222222');
+insert into t_read select 'a4_scope2_invites', count(*)::int from public.tenant_invitations;
+reset role;
+select is((select n from t_read where case_name = 'a4_scope1_invites'), 0::int,
+  '184 …a4 (member of both tenants, admin of neither) scoped to company1 sees zero invitations');
+select is((select n from t_read where case_name = 'a4_scope2_invites'), 0::int,
+  '185 …and scoped to company2 likewise');
 
 select * from finish();
 rollback;

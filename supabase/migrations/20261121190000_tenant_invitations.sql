@@ -162,7 +162,7 @@ create trigger tenant_invitations_bump_policy_rev_delete
   for each statement execute function public.bump_policy_revision();
 
 comment on function public.bump_policy_revision() is
-  '#98: the only writer of organisations.policy_revision. AFTER INSERT / AFTER UPDATE / AFTER DELETE, FOR EACH STATEMENT, on organisation_memberships, membership_roles, role_permissions, project_memberships, organisations and tenant_invitations. security definer with EXECUTE revoked from public, anon, authenticated and service_role and granted to nobody, because a table''s trigger fires without the invoking role holding EXECUTE. No-op resistant and recursion-safe by the same mechanism: the tenants this statement actually changed are collected into an array, and when that array is empty **no statement runs at all**.';
+  '#98: the only writer of organisations.policy_revision. AFTER INSERT / AFTER UPDATE / AFTER DELETE, FOR EACH STATEMENT, on every table whose rows change who may access what (the authoritative list is supabase/tests/database/013_tenant_admin.test.sql test 145; test 148 counts over it). security definer with EXECUTE revoked from public, anon, authenticated and service_role and granted to nobody, because a table''s trigger fires without the invoking role holding EXECUTE. No-op resistant and recursion-safe by the same mechanism: the tenants this statement actually changed are collected into an array, and when that array is empty **no statement runs at all**.';
 
 -- ---------------------------------------------------------------- privileges (FAQ-0010)
 revoke execute on function

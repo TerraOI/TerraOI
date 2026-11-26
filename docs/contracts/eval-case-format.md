@@ -1,12 +1,15 @@
 # Eval case files: layout, shape, provenance, lifecycle
 
-**Status: proposed, not ratified.** Nothing in CI reads these files; there is no `eval:` script, no
-scheduled run and no validator, because no packet owns the `.github/` schedule ([#74](https://github.com/TerraOI/TerraOI/issues/74)). The layout below is what the drafted batch in `evals/` follows so the leads have something concrete to review; the owner of the eval harness (T-312, still a packet in review) and the supervisor ratify or replace it.
+**Status: accepted** — ratified by [#84](https://github.com/TerraOI/TerraOI/issues/84) and
+[#137](https://github.com/TerraOI/TerraOI/issues/137); recorded in
+[ADR-0010](../decisions/0010-eval-case-format.md). The executable schema is
+[`src/contracts/eval-case.ts`](../../src/contracts/eval-case.ts); Vitest parses every JSON file under
+`evals/<expert>/` and `evals/<expert>/drafts/`. The nightly runner and `.github/` schedule remain
+T-312 later slices ([#74](https://github.com/TerraOI/TerraOI/issues/74)).
 
-Schemas: [`answer.ts`](../../src/contracts/answer.ts), [`data-class.ts`](../../src/contracts/data-class.ts),
-[`keys.ts`](../../src/contracts/keys.ts) · Plan §14.1, §6.1 (Evaluation group, line 336), §11 F34–F36 ·
-Lane 2 owns [`evals/`](../REPO-STRUCTURE.md) · **No `EvalCase` schema exists in `src/contracts/` yet**:
-the shape below is prose until the request in [Needs a contract](#needs-a-contract) lands.
+Schemas: [`eval-case.ts`](../../src/contracts/eval-case.ts), [`answer.ts`](../../src/contracts/answer.ts),
+[`data-class.ts`](../../src/contracts/data-class.ts), [`keys.ts`](../../src/contracts/keys.ts) · Plan
+§14.1, §6.1 (Evaluation group, line 336), §11 F34–F36 · Lane 2 owns [`evals/`](../REPO-STRUCTURE.md).
 
 This file records the rules a case-file layout cannot express by itself: which directory a case may sit
 in, what binds it to a document a reviewer is allowed to read, what text may ever be committed, and what
@@ -59,7 +62,8 @@ listed here is required; **unknown keys are an error** (the same convention as `
 | `adversarialClass` | one of six \| null | required | plan §14.1 step 2 |
 | `expectedSource` | string | required in a draft | human review aid only: synthetic fixture ids plus page/section/sheet text |
 | `expectedFixtures` | string[] | required in a draft | every `SYNTH-…` id named by `expectedSource`, derived mechanically, no inventing |
-| `expectedEvidence` | [locator](#3-the-locator-rule) entries | `[]` in a draft | required, ≥ 1, when `citationRequired` is `true` |
+| `expectedEvidence` | [locator](#3-the-locator-rule) entries | `[]` while `status` is `drafted` | ≥ 1 in the **approved** export when `citationRequired` is `true` (ADR-0010) |
+| `expectedRefusalKey` | `no_evidence` \| `insufficient_support` \| `out_of_scope` \| `unavailable` | required when `expectedAnswerStatus` is `refused` or `unavailable`; **absent** otherwise | same enum as `Answer.refusalKey` (ADR-0009); `unavailable` pairs only with status `unavailable`; the other three pair with `refused` (ADR-0010) |
 | `approvedBy` | string (opaque id) \| null | **null** | reviewer identity from `TenantContext`, never an email or display name (AGENTS.md §4.1) |
 | `approvedAt` | ISO-8601 datetime \| null | **null** | recorded server-side at approval, plan §14.1 step 3 |
 | `draftedBy` | string | required | who drafted it (`agent (T-315 draft)` for this batch) |
@@ -75,8 +79,9 @@ come from. Do not rename, shorten or extend them here; a new value needs an ADR.
 | `expectedClaimTypes[]` | `source_fact`, `requirement`, `record_fact`, `inference` | [`answer.ts:14`](../../src/contracts/answer.ts) |
 | `expectedAnswerStatus` | `answered`, `partial`, `refused`, `unavailable` | [`answer.ts:101`](../../src/contracts/answer.ts) |
 | `dataClass` | `public`, `internal`, `client_confidential`, `restricted` | [`data-class.ts:8`](../../src/contracts/data-class.ts) |
-| `caseType` | `answerable`, `needs_clarification`, `must_refuse`, `out_of_scope` | plan §14.1 step 1 — **no schema in `src/contracts/` yet** |
-| `adversarialClass` | `cross_tenant_bait`, `project_restricted`, `poisoned_instruction_in_document`, `missing_source`, `provider_outage_mid_run`, `ambiguous_follow_up` | plan §14.1 step 2 lists the six in prose; these identifiers come from the drafting workbook and are **not yet contracted** |
+| `caseType` | `answerable`, `needs_clarification`, `must_refuse`, `out_of_scope` | [`eval-case.ts`](../../src/contracts/eval-case.ts) `CaseType` (plan §14.1 step 1) |
+| `adversarialClass` | `cross_tenant_bait`, `project_restricted`, `poisoned_instruction_in_document`, `missing_source`, `provider_outage_mid_run`, `ambiguous_follow_up` | [`eval-case.ts`](../../src/contracts/eval-case.ts) `AdversarialClass` (plan §14.1 step 2) |
+| `expectedRefusalKey` | `no_evidence`, `insufficient_support`, `out_of_scope`, `unavailable` | [`answer.ts`](../../src/contracts/answer.ts) `RefusalKey` (ADR-0009 / ADR-0010) |
 
 `VerificationStatus` (`unverified`, `binding_passed`, `binding_failed`, `supported`, `partial`,
 `unsupported`, `contradicted` — [`answer.ts:17-25`](../../src/contracts/answer.ts)) is deliberately **not**
@@ -101,7 +106,8 @@ expressible as the `chunk` member of `EvidenceRef`
 | `span.startChar` / `span.endChar` | non-negative integers | `endChar >= startChar`; **UTF-16 code units** from the start of that chunk version's `body_text`, the same span F21 checks verbatim quotes against ([ADR-0008](../decisions/0008-citation-span-unit-and-origin.md)) |
 
 - Drafts carry `[]` here, because a draft names a synthetic fixture that does not exist in any tenant.
-  Binding happens when the lead approves, in the review view, against the live corpus.
+  Binding happens when the lead approves, in the review view, against the live corpus. An approved export
+  with `citationRequired: true` must carry at least one entry (ADR-0010).
 - `quotedText` is **required** on `ChunkEvidence` ([ADR-0008](../decisions/0008-citation-span-unit-and-origin.md)):
   pass 1 verifies a citation by locating that exact text, so an approved case that expects a citation
   must record the quote it expects — a bare locator cannot be replayed. It stays **absent** from
@@ -192,26 +198,19 @@ decision owed: "whether an approved client case's expected answer points may be 
 (§4.7 + §6.2)". Until it is answered, an approved case's wording stays under the same no-client-text rule
 as a draft, and this file does not widen it.
 
-**Blank 5 — `restricted` in a draft.** Two drafts declare `dataClass: "restricted"` while
-[`supabase/seed.sql:116`](../../supabase/seed.sql) says `restricted` is not insertable in M1 at all
-(plan §12.4). Such a case cannot bind to an M1 collection, so it cannot be approved as written; the
-reviewer's edit is the fix, not a layout exception.
+**Blank 5 — `restricted` in a draft.** Resolved by [#137](https://github.com/TerraOI/TerraOI/issues/137):
+`UAV-E046` and `GPR-E046` are **rejected at review**, not converted. Capture refusal for `restricted` is
+already proved by `isIngestibleInM1` and knowledge pgTAP; an eval case that can never bind adds nothing.
 
 ## Needs a contract
 
-Requested through a `needs-contract` issue, not written here (AGENTS.md §6, COORDINATION.md §2). Lane 2
-owns `src/platform/evals/`; `src/contracts/` needs an ADR.
+The `EvalCase` schema and ADR-0010 landed in T-312's first PR. Still open for a later slice:
 
-- An `EvalCase` Zod schema in `src/contracts/`: the field table in §2, `CaseType` as a real enum, and the
-  six adversarial-class identifiers as a real enum — both today live only in plan prose and in the
-  drafting workbook, so a typo in a committed file fails no schema today.
-- The draft → approved discriminator in that schema: `expectedEvidence` empty iff `status` is `drafted`.
 - Whether the case file and the `eval_cases` row (plan §6.1 line 336, T-312's migration) are one record
   with two homes; today the prose assumes the file is an export of the row, and the row is the authority.
 
 ## What this file does not decide
 
-Scoring, thresholds, failure classes and the `pnpm eval:ci` / `eval:nightly` commands (T-312); the review
-UI and its permission (T-303); which documents load into staging (`evals/LOADING.md`); any change to
-`src/contracts/` (none is made here) or to the rules in
+Scoring, thresholds, failure classes and the `pnpm eval:ci` / `eval:nightly` commands (later T-312 PRs);
+the review UI and its permission (T-303); which documents load into staging (`evals/LOADING.md`); the rules in
 [`docs/contracts/README.md`](README.md).
