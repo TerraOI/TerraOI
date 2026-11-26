@@ -30,11 +30,25 @@ export function observationToRecordArgs(observation: HealthObservation): RecordP
   };
 }
 
-/** Sink that forwards each observation through an injected CONFIG_DB exec (or a test recorder). */
-export function createPersistingHealthObservationSink(exec: RecordProviderHealthExec): HealthObservationSink {
+/**
+ * Sink that forwards each observation through an injected CONFIG_DB exec (or a test recorder).
+ *
+ * A failed write never escapes `record` (supervisor round 1 on #251): the scheduled pass awaits the
+ * sink inside its per-provider loop, so a throw would skip every provider after it, and the passive
+ * path fires `void sink.record(...)`, so a rejection would be unhandled. Failures go to `onError`
+ * (a safe kind only, never the driver message) and the observation is dropped.
+ */
+export function createPersistingHealthObservationSink(
+  exec: RecordProviderHealthExec,
+  onError?: (event: { kind: "provider_health_write_failed"; providerKey: string }) => void,
+): HealthObservationSink {
   return {
     async record(observation: HealthObservation): Promise<void> {
-      await exec(observationToRecordArgs(observation));
+      try {
+        await exec(observationToRecordArgs(observation));
+      } catch {
+        onError?.({ kind: "provider_health_write_failed", providerKey: observation.providerKey });
+      }
     },
   };
 }

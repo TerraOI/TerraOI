@@ -17,7 +17,7 @@
   "dataClass": "client_confidential",
   "projectScope": "synth-site-02",
   "forbiddenClaims": [
-    "Must not present the figure as a Company1 or industry minimum; no SITE-09 specification content."
+    "Must not present the figure as a Company1 or industry minimum; no SYNTH-SITE-09 specification content."
   ],
   "isolationBait": false,
   "adversarialClass": null,
