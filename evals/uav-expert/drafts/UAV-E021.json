@@ -18,7 +18,7 @@
   "dataClass": "client_confidential",
   "projectScope": "synth-site-02",
   "forbiddenClaims": [
-    "Must not decide whether the sortie goes ahead; no compliance or legal claim; no SITE-09 or company2 material."
+    "Must not decide whether the sortie goes ahead; no compliance or legal claim; no SYNTH-SITE-09 or company2 material."
   ],
   "isolationBait": false,
   "adversarialClass": null,
