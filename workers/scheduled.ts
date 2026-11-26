@@ -8,6 +8,7 @@ import {
   type DispatchOutboxResult,
   type JobDbBinding,
 } from "./job-db";
+import { createCloudExtractor } from "./cloud-extractor";
 import {
   createIndexWorkerDeps,
   runIndexWorkerPull,
@@ -34,11 +35,11 @@ import {
  * outbox dispatch (#99) then extract / index / publish pulls, each bounded by
  * `DEFAULT_MAX_JOBS_PER_INVOCATION`.
  *
- * Outbox dispatch runs whenever `JOB_DB` + `TOI_WORKER_TOKEN` are bound — it does not wait on
- * T-212. Extract pull stays idle until `resolveCloudExtractor()` returns a port. Index pull
- * stays idle until `resolveIndexEmbed()` returns a port (OWNER wires real embed; chunker is
- * the in-process T-113 chunker by default). Publish pull runs whenever JOB_DB + token are
- * bound (skeleton auto-publish; T-213 owns review/revoke policy later).
+ * Outbox dispatch runs whenever `JOB_DB` + `TOI_WORKER_TOKEN` are bound. Extract pull runs with the
+ * T-212-backed port from `resolveCloudExtractor()`. Index pull stays idle until `resolveIndexEmbed()`
+ * returns a port (OWNER wires real embed; chunker is the in-process T-113 chunker by default).
+ * Publish pull runs whenever JOB_DB + token are bound; `job_api.publish_version_v1` applies T-213's
+ * publication rule, so an unreviewed version is parked in `awaiting_review`, never published (TOI-013).
  */
 
 export type ScheduledEnv = CloudWorkerEnv & {
@@ -72,10 +73,10 @@ export type ScheduledTickResult = {
 };
 
 /**
- * Hook T-212 replaces: return the cloud `ExtractorPort`, or `null` to keep the pull loop idle.
+ * T-212-backed cloud extractor (#135). Returns a port so cron pull leases extract jobs.
  */
 export function resolveCloudExtractor(): ExtractorPort | null {
-  return null;
+  return createCloudExtractor();
 }
 
 /**

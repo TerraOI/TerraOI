@@ -4,7 +4,7 @@
 --
 -- Timestamp claim (daily sync, COORDINATION §3): after `20261121210000_outbox_dispatch`
 -- (T-211 PR-3d) and after `20261120217000_chunk_publish` (T-113 SQL half). Exactly one
--- migration in this PR. Privilege discipline (FAQ-0010): revoke by full signature; EXECUTE
+-- migration in this PR. Renamed from 20261124120000 by the supervisor to sort after main's newest. Privilege discipline (FAQ-0010): revoke by full signature; EXECUTE
 -- only to toi_job_api. Publish-stage lease remains T-213 / a later outbox slice.
 
 begin;

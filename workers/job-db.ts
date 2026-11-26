@@ -263,8 +263,8 @@ export function createJobApi(deps: JobDbDeps): JobApiPort | null {
                 ${args.sourceVersionId}::uuid,
                 ${args.stage},
                 ${args.indexGeneration},
-                ${artifacts},
-                ${notes},
+                ${JSON.stringify(artifacts)}::jsonb,
+                ${JSON.stringify(notes)}::jsonb,
                 ${args.confidence}
               )
           `,
@@ -647,6 +647,14 @@ export function createPublishJobApi(deps: JobDbDeps): PublishJobApiPort | null {
             previousVersionId:
               typeof row.o_previous_version_id === "string" ? row.o_previous_version_id : null,
           };
+        }
+        // TOI-013: parked for a T-213 review decision; the job is finished, no pointer moved.
+        if (
+          row.o_outcome === "awaiting_review" &&
+          typeof row.o_source_id === "string" &&
+          typeof row.o_source_version_id === "string"
+        ) {
+          return { outcome: "awaiting_review", sourceId: row.o_source_id, sourceVersionId: row.o_source_version_id };
         }
         return { outcome: "refused" };
       } catch (err) {

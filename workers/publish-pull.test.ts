@@ -79,6 +79,7 @@ class FakePublishJobApi implements PublishJobApiPort {
   credentialRevoked = false;
   clock: () => number = () => Date.now();
   refusePublish = false;
+  parkForReview = false;
 
   constructor(readonly jobs: FakePublishJob[] = [queuedPublish()]) {}
 
@@ -164,6 +165,12 @@ class FakePublishJobApi implements PublishJobApiPort {
     const row = await this.present(args.credential);
     if (!row) return { outcome: "refused" };
     if (this.refusePublish) return { outcome: "refused" };
+    if (this.parkForReview && this.holds(row, args)) {
+      row.status = "succeeded";
+      row.leaseToken = null;
+      row.expiresAt = 0;
+      return { outcome: "awaiting_review", sourceId: SOURCE_ID, sourceVersionId: row.sourceVersionId };
+    }
     if (
       !this.holds(row, args) ||
       row.sourceVersionId !== args.sourceVersionId ||
@@ -314,6 +321,23 @@ describe("workers/publish-pull.ts — publish-stage consumer (T-113)", () => {
       sourceVersionId: VERSION_ID,
     });
     expect(jobApi.calls).toContain("publishVersion");
+    expect(jobApi.calls).not.toContain("abort");
+  });
+
+  it("reports held_for_review, not published, when SQL parks the version for T-213 review (TOI-013)", async () => {
+    const jobApi = new FakePublishJobApi();
+    jobApi.parkForReview = true;
+    const events: unknown[] = [];
+    const outcome = await runPublishWorkerIteration(
+      createPublishWorkerDeps({
+        jobApi,
+        credential: () => WORKER_TOKEN,
+        log: (event) => events.push(event),
+      }),
+    );
+    expect(outcome).toEqual({ action: "held_for_review", sourceVersionId: VERSION_ID });
+    expect(events).toContainEqual(expect.objectContaining({ kind: "held_for_review" }));
+    expect(events).not.toContainEqual(expect.objectContaining({ kind: "published" }));
     expect(jobApi.calls).not.toContain("abort");
   });
 

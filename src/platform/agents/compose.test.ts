@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { Answer, type ClaimType } from "@/contracts/answer";
 import type { DataClass } from "@/contracts/data-class";
-import { DEFAULT_TASK_CHAIN_ORDER, PLATFORM_DEFAULT_CLEARANCE } from "@/contracts/provider-route";
+import {
+  DEFAULT_TASK_CHAIN_ORDER,
+  PLATFORM_DEFAULT_CLEARANCE,
+} from "@/contracts/provider-route";
 
 import {
   answered,
@@ -47,31 +50,63 @@ const EXPERT: ExpertComposePolicy = {
   // M1: the `verify` chain drops `local_box` (issue #9). Configuration, not a code branch.
   modelChains: {
     compose: [...FULL_COMPOSE_CHAIN],
-    verify: DEFAULT_TASK_CHAIN_ORDER.verify.filter((key) => key !== "local_box"),
+    verify: DEFAULT_TASK_CHAIN_ORDER.verify.filter(
+      (key) => key !== "local_box",
+    ),
   },
   minVerifierTier: "large",
   limits: { evidenceChunks: 4, maxOutputTokens: 800, stageDeadlineMs: 20_000 },
   refusalTemplates: {
     no_evidence: "I could not find that in the documents you can access.",
-    insufficient_support: "The documents I could access did not support a reliable answer.",
+    insufficient_support:
+      "The documents I could access did not support a reliable answer.",
     out_of_scope: "That question is outside what this expert answers.",
-    unavailable: "The assistant is unavailable right now. Please try again later.",
+    unavailable:
+      "The assistant is unavailable right now. Please try again later.",
   },
   evaluationSetVersion: "ev-0001",
 };
 
-function chunk(chunkId: string, sourceVersionId: string, text: string, dataClass: DataClass) {
-  return { chunkId, sourceVersionId, text, dataClass, authority: "vendor-manual" };
+function chunk(
+  chunkId: string,
+  sourceVersionId: string,
+  text: string,
+  dataClass: DataClass,
+) {
+  return {
+    chunkId,
+    sourceVersionId,
+    text,
+    dataClass,
+    authority: "vendor-manual",
+  };
 }
 
-const CALIBRATION_CHUNK = chunk("chk-0001", VERSION_A, "Calibrate the antenna before the first pass.", "internal");
-const SURVEY_CHUNK = chunk("chk-0002", VERSION_B, "The survey log must record the operator and the line number.", "internal");
-const GROUNDING_CHUNK = chunk("chk-0003", VERSION_C, "Ground the aircraft before removing the payload bay.", "internal");
+const CALIBRATION_CHUNK = chunk(
+  "chk-0001",
+  VERSION_A,
+  "Calibrate the antenna before the first pass.",
+  "internal",
+);
+const SURVEY_CHUNK = chunk(
+  "chk-0002",
+  VERSION_B,
+  "The survey log must record the operator and the line number.",
+  "internal",
+);
+const GROUNDING_CHUNK = chunk(
+  "chk-0003",
+  VERSION_C,
+  "Ground the aircraft before removing the payload bay.",
+  "internal",
+);
 
 const EVIDENCE = [CALIBRATION_CHUNK, SURVEY_CHUNK, GROUNDING_CHUNK];
 
 /** The same chunk as `chk-0002`, filed under a `client_confidential` collection (§6.2 test). */
-const CONFIDENTIAL_PACK = [{ ...SURVEY_CHUNK, dataClass: "client_confidential" as const }];
+const CONFIDENTIAL_PACK = [
+  { ...SURVEY_CHUNK, dataClass: "client_confidential" as const },
+];
 
 /**
  * What a compose model may cite: the chunk and the exact text it relies on, **no offset**
@@ -100,7 +135,10 @@ function claimOf(
   };
 }
 
-function candidate(claims: UnboundClaim[], extra: Record<string, unknown> = {}): string {
+function candidate(
+  claims: UnboundClaim[],
+  extra: Record<string, unknown> = {},
+): string {
   return JSON.stringify({
     summary: "Antenna calibration comes before the first pass.",
     claims: claims.map((claim) => ({
@@ -140,15 +178,25 @@ function depsOf(
     clearance?: typeof PLATFORM_DEFAULT_CLEARANCE;
     semanticVerifier?: SemanticVerifierPort;
   } = {},
-): { adapters: FakeAdapter[]; meter: ReturnType<typeof recordingMeter>; deps: ComposeDeps } {
-  const adapters = Object.entries(scripts).map(([providerKey, script]) => fakeAdapter(providerKey, script));
+): {
+  adapters: FakeAdapter[];
+  meter: ReturnType<typeof recordingMeter>;
+  deps: ComposeDeps;
+} {
+  const adapters = Object.entries(scripts).map(([providerKey, script]) =>
+    fakeAdapter(providerKey, script),
+  );
   const meter = recordingMeter();
-  const book = options.book ?? new CircuitBook({ openAfterFailures: 2, cooldownMs: 30_000 });
+  const book =
+    options.book ??
+    new CircuitBook({ openAfterFailures: 2, cooldownMs: 30_000 });
   return {
     adapters,
     meter,
     deps: {
-      config: testConfiguration({ clearance: options.clearance ?? PLATFORM_DEFAULT_CLEARANCE }),
+      config: testConfiguration({
+        clearance: options.clearance ?? PLATFORM_DEFAULT_CLEARANCE,
+      }),
       adapters: registryOf(...adapters),
       health: book,
       meter,
@@ -160,8 +208,13 @@ function depsOf(
   };
 }
 
-function adapterFor(h: { adapters: FakeAdapter[] }, providerKey: string): FakeAdapter {
-  const found = h.adapters.find((adapter) => adapter.providerKey === providerKey);
+function adapterFor(
+  h: { adapters: FakeAdapter[] },
+  providerKey: string,
+): FakeAdapter {
+  const found = h.adapters.find(
+    (adapter) => adapter.providerKey === providerKey,
+  );
   if (!found) throw new Error(`missing adapter under test for ${providerKey}`);
   return found;
 }
@@ -177,20 +230,36 @@ const INTERNAL_LEAKS =
 
 function assertNothingInternalLeaks(answer: Answer, where: string): void {
   expect(JSON.stringify(answer), where).not.toMatch(INTERNAL_LEAKS);
-  for (const key of ["attempts", "skipped", "providerKey", "model", "matrixRevision"]) {
-    expect(Object.keys(answer), `${where}: ${key} reached the employee surface}`).not.toContain(key);
+  for (const key of [
+    "attempts",
+    "skipped",
+    "providerKey",
+    "model",
+    "matrixRevision",
+  ]) {
+    expect(
+      Object.keys(answer),
+      `${where}: ${key} reached the employee surface}`,
+    ).not.toContain(key);
   }
 }
 
-function routeOf(audit: ComposeOutcome["audit"]): NonNullable<ComposeOutcome["audit"]["verifierRoute"]> {
-  if (audit.verifierRoute === null) throw new Error("expected a verifier route for a composed answer");
+function routeOf(
+  audit: ComposeOutcome["audit"],
+): NonNullable<ComposeOutcome["audit"]["verifierRoute"]> {
+  if (audit.verifierRoute === null)
+    throw new Error("expected a verifier route for a composed answer");
   return audit.verifierRoute;
 }
 
 describe("compose on the gateway (plan §12.4, §12.1)", () => {
   it("answers from the local box and returns a contract Answer with bound claims", async () => {
     const good = answered(
-      candidate([claimOf("c1", "source_fact", "Calibrate the antenna first.", [ref("chk-0001", VERSION_A, "Calibrate the antenna")])]),
+      candidate([
+        claimOf("c1", "source_fact", "Calibrate the antenna first.", [
+          ref("chk-0001", VERSION_A, "Calibrate the antenna"),
+        ]),
+      ]),
       "open-weights-alpha",
     );
     const h = depsOf({ local_box: [good], workers_ai: [good], claude: [good] });
@@ -207,15 +276,20 @@ describe("compose on the gateway (plan §12.4, §12.1)", () => {
       chainPosition: 1,
       model: "open-weights-alpha",
     });
-    expect(routeOf(audit).eligible.map((entry) => entry.providerKey)).toEqual(["claude"]);
+    expect(routeOf(audit).eligible.map((entry) => entry.providerKey)).toEqual([
+      "claude",
+    ]);
     expect(adapterFor(h, "local_box").calls).toHaveLength(1);
     expect(adapterFor(h, "workers_ai").calls).toHaveLength(0);
   });
 
   it("the answer carries the highest data class of its inputs and only cleared providers are called", async () => {
-    const confidentialClaim = claimOf("c1", "source_fact", "The log must record the operator.", [
-      ref("chk-0002", VERSION_B, "must record the operator"),
-    ]);
+    const confidentialClaim = claimOf(
+      "c1",
+      "source_fact",
+      "The log must record the operator.",
+      [ref("chk-0002", VERSION_B, "must record the operator")],
+    );
     const payload = candidate([confidentialClaim]);
     const h = depsOf({
       local_box: [failed("connection")],
@@ -224,26 +298,43 @@ describe("compose on the gateway (plan §12.4, §12.1)", () => {
       deepseek: [answered(payload, "hosted-delta")],
       openrouter: [answered(payload, "hosted-epsilon")],
     });
-    const { answer } = await composeAnswer(input({ evidence: CONFIDENTIAL_PACK }), h.deps);
+    const { answer } = await composeAnswer(
+      input({ evidence: CONFIDENTIAL_PACK }),
+      h.deps,
+    );
     expect(answer.dataClass).toBe("client_confidential");
     for (const providerKey of ["workers_ai", "deepseek", "openrouter"]) {
-      expect(adapterFor(h, providerKey).calls, `${providerKey} saw client_confidential text`).toHaveLength(0);
+      expect(
+        adapterFor(h, providerKey).calls,
+        `${providerKey} saw client_confidential text`,
+      ).toHaveLength(0);
     }
     expect(adapterFor(h, "claude").calls).toHaveLength(1);
-    expect(adapterFor(h, "local_box").calls[0]?.dataClass).toBe("client_confidential");
+    expect(adapterFor(h, "local_box").calls[0]?.dataClass).toBe(
+      "client_confidential",
+    );
   });
 
   it("the evidence pack is capped by the expert's limits and the cap is stated, not hidden", async () => {
     const good = answered(
-      candidate([claimOf("c1", "source_fact", "Ground the aircraft.", [ref("chk-0003", VERSION_C, "Ground the aircraft")])]),
+      candidate([
+        claimOf("c1", "source_fact", "Ground the aircraft.", [
+          ref("chk-0003", VERSION_C, "Ground the aircraft"),
+        ]),
+      ]),
       "open-weights-alpha",
     );
     const h = depsOf({ local_box: [good] });
     const { answer } = await composeAnswer(
-      input({ expert: { ...EXPERT, limits: { ...EXPERT.limits, evidenceChunks: 2 } } }),
+      input({
+        expert: { ...EXPERT, limits: { ...EXPERT.limits, evidenceChunks: 2 } },
+      }),
       h.deps,
     );
-    const prompt = adapterFor(h, "local_box").calls[0]?.messages.map((message) => message.text).join("\n") ?? "";
+    const prompt =
+      adapterFor(h, "local_box")
+        .calls[0]?.messages.map((message) => message.text)
+        .join("\n") ?? "";
     expect(prompt).toContain("chk-0001");
     expect(prompt).toContain("chk-0002");
     expect(prompt).not.toContain("chk-0003");
@@ -264,7 +355,10 @@ describe("compose on the gateway (plan §12.4, §12.1)", () => {
       local_box: [answered("never", "open-weights-alpha")],
       claude: [answered("never", "hosted-gamma")],
     });
-    const { answer, audit } = await composeAnswer(input({ evidence: [] }), h.deps);
+    const { answer, audit } = await composeAnswer(
+      input({ evidence: [] }),
+      h.deps,
+    );
     expect(answer.status).toBe("refused");
     expect(answer.summary).toBe(EXPERT.refusalTemplates.no_evidence);
     // The one path that *may* say "I could not find that": the pack was empty and nothing was composed.
@@ -282,10 +376,22 @@ describe("pass 1 rejects citations that do not exist in this run (plan §12.1)",
     const real = claimOf("c1", "source_fact", "Calibrate the antenna first.", [
       ref("chk-0001", VERSION_A, "Calibrate the antenna"),
     ]);
-    const invented = claimOf("c2", "source_fact", "The antenna must be replaced yearly.", [
-      { kind: "chunk", sourceVersionId: VERSION_A, chunkId: "chk-9999", quotedText: "Calibrate the " },
-    ]);
-    const h = depsOf({ local_box: [answered(candidate([real, invented]), "open-weights-alpha")] });
+    const invented = claimOf(
+      "c2",
+      "source_fact",
+      "The antenna must be replaced yearly.",
+      [
+        {
+          kind: "chunk",
+          sourceVersionId: VERSION_A,
+          chunkId: "chk-9999",
+          quotedText: "Calibrate the ",
+        },
+      ],
+    );
+    const h = depsOf({
+      local_box: [answered(candidate([real, invented]), "open-weights-alpha")],
+    });
     const { answer, audit } = await composeAnswer(input(), h.deps);
     expect(Answer.parse(answer)).toBeTruthy();
     expect(answer.claims.map((claim) => claim.id)).toEqual(["c1"]);
@@ -299,17 +405,24 @@ describe("pass 1 rejects citations that do not exist in this run (plan §12.1)",
     // The pack renders every chunk into one prompt. If a locator were measured in that rendered text,
     // a quote from the second chunk would point into the first, and the answer would look healthy
     // while the highlight was wrong. A span counts from the start of **that chunk version's body**.
-    const second = claimOf("c1", "source_fact", "The log records the operator.", [
-      ref("chk-0002", VERSION_B, "must record the operator"),
-    ]);
-    const h = depsOf({ local_box: [answered(candidate([second]), "open-weights-alpha")] });
+    const second = claimOf(
+      "c1",
+      "source_fact",
+      "The log records the operator.",
+      [ref("chk-0002", VERSION_B, "must record the operator")],
+    );
+    const h = depsOf({
+      local_box: [answered(candidate([second]), "open-weights-alpha")],
+    });
     const { answer, audit } = await composeAnswer(input(), h.deps);
     expect(audit.bindingRejected).toEqual([]);
     const cited = answer.claims[0]?.evidence[0];
     expect(cited?.kind).toBe("chunk");
     if (cited?.kind === "chunk") {
       expect(cited.quotedText).toBe("must record the operator");
-      expect(SURVEY_CHUNK.text.slice(cited.span.startChar, cited.span.endChar)).toBe("must record the operator");
+      expect(
+        SURVEY_CHUNK.text.slice(cited.span.startChar, cited.span.endChar),
+      ).toBe("must record the operator");
       // 15, measured from `chk-0002`'s own text. In the rendered pack this same passage sits past the
       // first chunk (offset 50+), which is exactly the number the old prompt invited the model to give.
       expect(cited.span.startChar).toBe(15);
@@ -319,10 +432,17 @@ describe("pass 1 rejects citations that do not exist in this run (plan §12.1)",
 
   it("an answer made only of inferences is not an `answered` result (§12.1, issue #16 N2)", async () => {
     const inferred: UnboundClaim = {
-      ...claimOf("c1", "inference", "The order of operations implies calibration first.", []),
+      ...claimOf(
+        "c1",
+        "inference",
+        "The order of operations implies calibration first.",
+        [],
+      ),
       limitations: ["Inferred from the procedure order; no source states it."],
     };
-    const h = depsOf({ local_box: [answered(candidate([inferred]), "open-weights-alpha")] });
+    const h = depsOf({
+      local_box: [answered(candidate([inferred]), "open-weights-alpha")],
+    });
     const { answer } = await composeAnswer(input(), h.deps);
     expect(answer.status).toBe("partial");
     expect(answer.claims[0]?.verificationStatus).toBe("binding_passed");
@@ -330,7 +450,12 @@ describe("pass 1 rejects citations that do not exist in this run (plan §12.1)",
 
   it("a model that reports its own truncation is rejected: the platform states what was left out (§12.1)", async () => {
     const h = depsOf({
-      local_box: [answered(candidate([], { truncation: ["I left out the second procedure."] }), "open-weights-alpha")],
+      local_box: [
+        answered(
+          candidate([], { truncation: ["I left out the second procedure."] }),
+          "open-weights-alpha",
+        ),
+      ],
     });
     const { answer, audit } = await composeAnswer(input(), h.deps);
     expect(answer.status).toBe("unavailable");
@@ -351,7 +476,9 @@ describe("pass 1 rejects citations that do not exist in this run (plan §12.1)",
       `reserve:local_box:${attempt.attemptId}`,
       `reconcile:settled:${attempt.attemptId}`,
     ]);
-    expect(h.meter.events.filter((event) => event.includes("reconcile:released:"))).toEqual([]);
+    expect(
+      h.meter.events.filter((event) => event.includes("reconcile:released:")),
+    ).toEqual([]);
   });
 
   it("unusable output with no reported usage keeps its reservation as potentially billed (§12.3)", async () => {
@@ -399,13 +526,20 @@ describe("pass 1 rejects citations that do not exist in this run (plan §12.1)",
       `reserve:local_box:${attempt.attemptId}`,
       `reconcile:settled:${attempt.attemptId}`,
     ]);
-    expect(h.meter.events.filter((event) => event.includes("reconcile:released:"))).toEqual([]);
+    expect(
+      h.meter.events.filter((event) => event.includes("reconcile:released:")),
+    ).toEqual([]);
   });
 
   it("a truncated completion from a provider that reports no usage keeps the full reservation as ambiguous", async () => {
     const h = depsOf({
       local_box: [
-        { ok: true, text: '{"summary":"cut off mid-', model: "open-weights-alpha", finishReason: "length" },
+        {
+          ok: true,
+          text: '{"summary":"cut off mid-',
+          model: "open-weights-alpha",
+          finishReason: "length",
+        },
       ],
     });
     const { answer, audit } = await composeAnswer(input(), h.deps);
@@ -415,7 +549,9 @@ describe("pass 1 rejects citations that do not exist in this run (plan §12.1)",
     expect(attempt.outcome).toBe("context_overflow");
     // The reservation was the expert's own `maxOutputTokens`, and this is exactly the shape §12.3
     // calls ambiguous: the box generated to its limit, so the units are unknown, not zero.
-    expect(attempt.reservedUnits.maxOutputUnits).toBe(EXPERT.limits.maxOutputTokens);
+    expect(attempt.reservedUnits.maxOutputUnits).toBe(
+      EXPERT.limits.maxOutputTokens,
+    );
     expect(attempt.reconciled).toBe("ambiguous");
     expect(h.meter.events).toEqual([
       `reserve:local_box:${attempt.attemptId}`,
@@ -440,10 +576,24 @@ describe("pass 1 rejects citations that do not exist in this run (plan §12.1)",
   it("a restricted payload with the box offline is unavailable with zero cloud calls", async () => {
     const book = new CircuitBook({ openAfterFailures: 1, cooldownMs: 60_000 });
     book.recordFailure("local_box", T0);
-    const restricted = chunk("chk-0004", VERSION_A, "Site A coordinates are listed here.", "restricted");
+    const restricted = chunk(
+      "chk-0004",
+      VERSION_A,
+      "Site A coordinates are listed here.",
+      "restricted",
+    );
     const h = depsOf(
       {
-        local_box: [answered(candidate([claimOf("c1", "source_fact", "Coordinates are listed.", [ref("chk-0001", VERSION_A, "Calibrate the antenna")])]), "open-weights-alpha")],
+        local_box: [
+          answered(
+            candidate([
+              claimOf("c1", "source_fact", "Coordinates are listed.", [
+                ref("chk-0001", VERSION_A, "Calibrate the antenna"),
+              ]),
+            ]),
+            "open-weights-alpha",
+          ),
+        ],
         workers_ai: [answered("never", "hosted-beta")],
         claude: [answered("never", "hosted-gamma")],
         deepseek: [answered("never", "hosted-delta")],
@@ -451,13 +601,19 @@ describe("pass 1 rejects citations that do not exist in this run (plan §12.1)",
       },
       { book },
     );
-    const { answer } = await composeAnswer(input({ evidence: [restricted], questionDataClass: "restricted" }), h.deps);
+    const { answer } = await composeAnswer(
+      input({ evidence: [restricted], questionDataClass: "restricted" }),
+      h.deps,
+    );
     expect(answer.status).toBe("unavailable");
     expect(answer.summary).toBe(EXPERT.refusalTemplates.unavailable);
     expect(answer.refusalKey).toBe("unavailable");
     for (const adapter of h.adapters) {
       if (adapter.providerKey === "local_box") continue;
-      expect(adapter.calls, `${adapter.providerKey} saw restricted text`).toHaveLength(0);
+      expect(
+        adapter.calls,
+        `${adapter.providerKey} saw restricted text`,
+      ).toHaveLength(0);
     }
     expect(answer.dataClass).toBe("restricted");
     assertNothingInternalLeaks(answer, "restricted with the box offline");
@@ -467,8 +623,15 @@ describe("pass 1 rejects citations that do not exist in this run (plan §12.1)",
 describe("verification selection (plan §12.1 rules (d)/(e), issue #9)", () => {
   it("never verifies with the model that composed the answer, and withholds requirement claims when nothing is left", async () => {
     const payload = candidate([
-      claimOf("c1", "source_fact", "Calibrate the antenna first.", [ref("chk-0001", VERSION_A, "Calibrate the antenna")]),
-      claimOf("c2", "requirement", "Calibration is required before every survey.", [ref("chk-0001", VERSION_A, "Calibrate the antenna")]),
+      claimOf("c1", "source_fact", "Calibrate the antenna first.", [
+        ref("chk-0001", VERSION_A, "Calibrate the antenna"),
+      ]),
+      claimOf(
+        "c2",
+        "requirement",
+        "Calibration is required before every survey.",
+        [ref("chk-0001", VERSION_A, "Calibrate the antenna")],
+      ),
     ]);
     const h = depsOf({
       local_box: [failed("connection")],
@@ -477,11 +640,18 @@ describe("verification selection (plan §12.1 rules (d)/(e), issue #9)", () => {
     });
     const { answer, audit } = await composeAnswer(input(), h.deps);
     const verifierRoute = audit.verifierRoute;
-    if (verifierRoute === null) throw new Error("expected a verifier route for a composed answer");
+    if (verifierRoute === null)
+      throw new Error("expected a verifier route for a composed answer");
     expect(audit.answeredBy?.providerKey).toBe("claude");
     expect(verifierRoute.eligible).toEqual([]);
-    expect(verifierRoute.skipped).toContainEqual({ providerKey: "claude", reason: "composed_the_answer" });
-    expect(verifierRoute.skipped).toContainEqual({ providerKey: "workers_ai", reason: "below_tier" });
+    expect(verifierRoute.skipped).toContainEqual({
+      providerKey: "claude",
+      reason: "composed_the_answer",
+    });
+    expect(verifierRoute.skipped).toContainEqual({
+      providerKey: "workers_ai",
+      reason: "below_tier",
+    });
     expect(audit.withheldRequirementClaims).toBe(1);
     expect(answer.claims.map((claim) => claim.id)).toEqual(["c1"]);
     expect(answer.status).toBe("partial");
@@ -495,43 +665,79 @@ describe("verification selection (plan §12.1 rules (d)/(e), issue #9)", () => {
 
   it("a cleared, evaluated verifier above minVerifierTier lets requirement claims through when semantic verification runs (T-215 plugs in here)", async () => {
     const payload = candidate([
-      claimOf("c1", "requirement", "Calibration is required before every survey.", [ref("chk-0001", VERSION_A, "Calibrate the antenna")]),
+      claimOf(
+        "c1",
+        "requirement",
+        "Calibration is required before every survey.",
+        [ref("chk-0001", VERSION_A, "Calibrate the antenna")],
+      ),
     ]);
     const semanticVerifier: SemanticVerifierPort = {
       async verify() {
-        return [{ claimId: "c1", status: "supported", reason: "The cited span states it." }];
+        return [
+          {
+            claimId: "c1",
+            status: "supported",
+            reason: "The cited span states it.",
+          },
+        ];
       },
     };
     const h = depsOf(
-      { local_box: [answered(payload, "open-weights-alpha")], claude: [answered(payload, "hosted-gamma")] },
+      {
+        local_box: [answered(payload, "open-weights-alpha")],
+        claude: [answered(payload, "hosted-gamma")],
+      },
       { semanticVerifier },
     );
     const { answer, audit } = await composeAnswer(input(), h.deps);
     expect(audit.answeredBy?.providerKey).toBe("local_box");
-    expect(routeOf(audit).eligible.map((entry) => entry.providerKey)).toEqual(["claude"]);
+    expect(routeOf(audit).eligible.map((entry) => entry.providerKey)).toEqual([
+      "claude",
+    ]);
     expect(audit.semanticVerification).toBe("ran");
-    expect(audit.verdicts.map((verdict) => [verdict.claimId, verdict.status])).toEqual([["c1", "supported"]]);
+    expect(
+      audit.verdicts.map((verdict) => [verdict.claimId, verdict.status]),
+    ).toEqual([["c1", "supported"]]);
     expect(answer.claims[0]?.verificationStatus).toBe("supported");
     expect(answer.status).toBe("answered");
-    assertNothingInternalLeaks(answer, "requirement claim verified by a second model");
+    assertNothingInternalLeaks(
+      answer,
+      "requirement claim verified by a second model",
+    );
   });
 
   it("a verdict of unsupported drops that claim and re-checks coherence (§12.1)", async () => {
     const payload = candidate([
-      claimOf("c1", "requirement", "Grounding is mandatory.", [ref("chk-0003", VERSION_C, "Ground the aircraft")]),
-      claimOf("c2", "source_fact", "The bay is held by four screws.", [ref("chk-0003", VERSION_C, "Ground the aircraft")]),
+      claimOf("c1", "requirement", "Grounding is mandatory.", [
+        ref("chk-0003", VERSION_C, "Ground the aircraft"),
+      ]),
+      claimOf("c2", "source_fact", "The bay is held by four screws.", [
+        ref("chk-0003", VERSION_C, "Ground the aircraft"),
+      ]),
     ]);
     const semanticVerifier: SemanticVerifierPort = {
       async verify() {
-        return [{ claimId: "c1", status: "unsupported", reason: "The cited span does not state it." }];
+        return [
+          {
+            claimId: "c1",
+            status: "unsupported",
+            reason: "The cited span does not state it.",
+          },
+        ];
       },
     };
     const h = depsOf(
-      { local_box: [answered(payload, "open-weights-alpha")], claude: [answered(payload, "hosted-gamma")] },
+      {
+        local_box: [answered(payload, "open-weights-alpha")],
+        claude: [answered(payload, "hosted-gamma")],
+      },
       { semanticVerifier },
     );
     const { answer, audit } = await composeAnswer(input(), h.deps);
-    expect(routeOf(audit).eligible.map((entry) => entry.providerKey)).toEqual(["claude"]);
+    expect(routeOf(audit).eligible.map((entry) => entry.providerKey)).toEqual([
+      "claude",
+    ]);
     expect(audit.droppedByVerifier).toEqual(["c1"]);
     expect(answer.claims.map((claim) => claim.id)).toEqual(["c2"]);
     expect(answer.status).toBe("partial");
@@ -542,8 +748,12 @@ describe("verification selection (plan §12.1 rules (d)/(e), issue #9)", () => {
 
   it("no eligible verifier means requirement claims never reach the employee; quotes that passed pass 1 still do", async () => {
     const payload = candidate([
-      claimOf("c1", "requirement", "Grounding is mandatory.", [ref("chk-0003", VERSION_C, "Ground the aircraft")]),
-      claimOf("c2", "source_fact", "The bay is held by four screws.", [ref("chk-0003", VERSION_C, "Ground the aircraft")]),
+      claimOf("c1", "requirement", "Grounding is mandatory.", [
+        ref("chk-0003", VERSION_C, "Ground the aircraft"),
+      ]),
+      claimOf("c2", "source_fact", "The bay is held by four screws.", [
+        ref("chk-0003", VERSION_C, "Ground the aircraft"),
+      ]),
     ]);
     const h = depsOf({
       local_box: [failed("connection")],
@@ -552,7 +762,12 @@ describe("verification selection (plan §12.1 rules (d)/(e), issue #9)", () => {
     });
     // A verify chain whose only entry just composed the answer leaves nothing eligible.
     const { answer, audit } = await composeAnswer(
-      input({ expert: { ...EXPERT, modelChains: { ...EXPERT.modelChains, verify: ["claude"] } } }),
+      input({
+        expert: {
+          ...EXPERT,
+          modelChains: { ...EXPERT.modelChains, verify: ["claude"] },
+        },
+      }),
       h.deps,
     );
     expect(routeOf(audit).eligible).toEqual([]);
@@ -561,6 +776,105 @@ describe("verification selection (plan §12.1 rules (d)/(e), issue #9)", () => {
     expect(answer.status).toBe("partial");
     expect(answer.refusalKey).toBeUndefined();
     assertNothingInternalLeaks(answer, "no eligible verifier");
+  });
+
+  it("composition fails pass 2 materially → one retry on the next compose tier (exactly two compose attempts)", async () => {
+    const bad = candidate([
+      claimOf("c1", "requirement", "Grounding is mandatory.", [
+        ref("chk-0003", VERSION_C, "Ground the aircraft"),
+      ]),
+    ]);
+    const good = candidate([
+      claimOf(
+        "c2",
+        "requirement",
+        "Calibration is required before every survey.",
+        [ref("chk-0001", VERSION_A, "Calibrate the antenna")],
+      ),
+    ]);
+    const semanticVerifier: SemanticVerifierPort = {
+      async verify({ claims }) {
+        return claims.map((claim) =>
+          claim.id === "c2"
+            ? {
+                claimId: claim.id,
+                status: "supported" as const,
+                reason: "Span states it.",
+              }
+            : {
+                claimId: claim.id,
+                status: "unsupported" as const,
+                reason: "Span does not state it.",
+              },
+        );
+      },
+    };
+    const h = depsOf(
+      {
+        local_box: [answered(bad, "open-weights-alpha")],
+        workers_ai: [answered(good, "hosted-beta")],
+        claude: [answered(good, "hosted-gamma")],
+      },
+      { semanticVerifier },
+    );
+    const { answer, audit } = await composeAnswer(input(), h.deps);
+    expect(
+      audit.composeAttempts.filter((a) => a.outcome === "answered"),
+    ).toHaveLength(2);
+    expect(audit.answeredBy?.providerKey).toBe("workers_ai");
+    expect(answer.claims.map((c) => c.id)).toEqual(["c2"]);
+    expect(answer.claims[0]?.verificationStatus).toBe("supported");
+    expect(answer.status).toBe("answered");
+    expect(adapterFor(h, "local_box").calls).toHaveLength(1);
+    expect(adapterFor(h, "workers_ai").calls).toHaveLength(1);
+    // Each compose call books its own reservation: the retry's attempt id is not the first pass's.
+    const composeIds = h.meter.reserveCalls
+      .map((c) => c.attemptId)
+      .filter((id) => /:compose/.test(id));
+    expect(composeIds).toHaveLength(2);
+    expect(new Set(composeIds).size).toBe(2);
+    assertNothingInternalLeaks(
+      answer,
+      "compose retry after material pass-2 failure",
+    );
+  });
+
+  it("a second material pass-2 failure after the one retry returns refused or partial (still two compose attempts)", async () => {
+    const bad = candidate([
+      claimOf("c1", "requirement", "Grounding is mandatory.", [
+        ref("chk-0003", VERSION_C, "Ground the aircraft"),
+      ]),
+    ]);
+    const alsoBad = candidate([
+      claimOf("c3", "requirement", "Grounding is still mandatory.", [
+        ref("chk-0003", VERSION_C, "Ground the aircraft"),
+      ]),
+    ]);
+    const semanticVerifier: SemanticVerifierPort = {
+      async verify({ claims }) {
+        return claims.map((claim) => ({
+          claimId: claim.id,
+          status: "unsupported" as const,
+          reason: "Span does not state it.",
+        }));
+      },
+    };
+    const h = depsOf(
+      {
+        local_box: [answered(bad, "open-weights-alpha")],
+        workers_ai: [answered(alsoBad, "hosted-beta")],
+        claude: [answered(alsoBad, "hosted-gamma")],
+      },
+      { semanticVerifier },
+    );
+    const { answer, audit } = await composeAnswer(input(), h.deps);
+    expect(
+      audit.composeAttempts.filter((a) => a.outcome === "answered"),
+    ).toHaveLength(2);
+    expect(answer.claims).toEqual([]);
+    expect(answer.status).toBe("refused");
+    expect(answer.refusalKey).toBe("insufficient_support");
+    assertNothingInternalLeaks(answer, "compose retry exhausted");
   });
 });
 
@@ -572,12 +886,29 @@ describe("the refusal vocabulary (ADR-0009, #97)", () => {
    * composer and none of them survived, which was review finding B4 on #56/#58.
    */
   it("a claim dropped in pass 1 leaves a refusal that does not claim the documents were empty", async () => {
-    const invented = claimOf("c1", "source_fact", "The antenna must be replaced yearly.", [
-      { kind: "chunk", sourceVersionId: VERSION_A, chunkId: "chk-9999", quotedText: "Calibrate the " },
-    ]);
+    const invented = claimOf(
+      "c1",
+      "source_fact",
+      "The antenna must be replaced yearly.",
+      [
+        {
+          kind: "chunk",
+          sourceVersionId: VERSION_A,
+          chunkId: "chk-9999",
+          quotedText: "Calibrate the ",
+        },
+      ],
+    );
     const h = depsOf({
       local_box: [
-        answered(candidate([invented], { unknowns: ["The yearly replacement interval is not stated in the pack."] }), "open-weights-alpha"),
+        answered(
+          candidate([invented], {
+            unknowns: [
+              "The yearly replacement interval is not stated in the pack.",
+            ],
+          }),
+          "open-weights-alpha",
+        ),
       ],
     });
     const { answer, audit } = await composeAnswer(input(), h.deps);
@@ -594,9 +925,19 @@ describe("the refusal vocabulary (ADR-0009, #97)", () => {
   it("an insufficient_support refusal discards composer unknowns and conflicts (#210, #151 B5)", async () => {
     const distinctiveUnknown = "COMPOSER_UNKNOWN_MARKER_7f3a9c";
     const distinctiveConflict = "COMPOSER_CONFLICT_MARKER_9b2c1e";
-    const invented = claimOf("c1", "source_fact", "The antenna must be replaced yearly.", [
-      { kind: "chunk", sourceVersionId: VERSION_A, chunkId: "chk-9999", quotedText: "Calibrate the " },
-    ]);
+    const invented = claimOf(
+      "c1",
+      "source_fact",
+      "The antenna must be replaced yearly.",
+      [
+        {
+          kind: "chunk",
+          sourceVersionId: VERSION_A,
+          chunkId: "chk-9999",
+          quotedText: "Calibrate the ",
+        },
+      ],
+    );
     const h = depsOf({
       local_box: [
         answered(
@@ -617,23 +958,46 @@ describe("the refusal vocabulary (ADR-0009, #97)", () => {
     const surface = JSON.stringify(answer);
     expect(surface).not.toContain(distinctiveUnknown);
     expect(surface).not.toContain(distinctiveConflict);
-    assertNothingInternalLeaks(answer, "composer unknowns discarded on refusal");
+    assertNothingInternalLeaks(
+      answer,
+      "composer unknowns discarded on refusal",
+    );
   });
 
   it("the verifier dropping every claim is an insufficient-support refusal", async () => {
     const payload = candidate([
-      claimOf("c1", "source_fact", "Grounding is mandatory.", [ref("chk-0003", VERSION_C, "Ground the aircraft")]),
+      claimOf("c1", "source_fact", "Grounding is mandatory.", [
+        ref("chk-0003", VERSION_C, "Ground the aircraft"),
+      ]),
     ]);
     const semanticVerifier: SemanticVerifierPort = {
       async verify() {
-        return [{ claimId: "c1", status: "unsupported", reason: "The cited span does not state it." }];
+        return [
+          {
+            claimId: "c1",
+            status: "unsupported",
+            reason: "The cited span does not state it.",
+          },
+        ];
       },
     };
+    // Single compose tier: a material pass-2 failure with no next tier refuses without a retry.
     const h = depsOf(
-      { local_box: [answered(payload, "open-weights-alpha")], claude: [answered(payload, "hosted-gamma")] },
+      {
+        local_box: [answered(payload, "open-weights-alpha")],
+        claude: [answered(payload, "hosted-gamma")],
+      },
       { semanticVerifier },
     );
-    const { answer, audit } = await composeAnswer(input(), h.deps);
+    const { answer, audit } = await composeAnswer(
+      input({
+        expert: {
+          ...EXPERT,
+          modelChains: { ...EXPERT.modelChains, compose: ["local_box"] },
+        },
+      }),
+      h.deps,
+    );
     expect(audit.droppedByVerifier).toEqual(["c1"]);
     expect(answer.status).toBe("refused");
     expect(answer.summary).toBe(EXPERT.refusalTemplates.insufficient_support);
@@ -646,9 +1010,12 @@ describe("the refusal vocabulary (ADR-0009, #97)", () => {
     // there is no text left for the employee, which is a refusal, and the honest sentence is the one
     // about support — the documents were found, the platform could not stand behind the claim.
     const payload = candidate([
-      claimOf("c1", "requirement", "Calibration is required before every survey.", [
-        ref("chk-0001", VERSION_A, "Calibrate the antenna"),
-      ]),
+      claimOf(
+        "c1",
+        "requirement",
+        "Calibration is required before every survey.",
+        [ref("chk-0001", VERSION_A, "Calibrate the antenna")],
+      ),
     ]);
     const h = depsOf({
       local_box: [failed("connection")],
@@ -666,12 +1033,16 @@ describe("the refusal vocabulary (ADR-0009, #97)", () => {
 
   it("nothing in compose selects out_of_scope: that sentence belongs to the router, not to this stage", async () => {
     const shapes: { label: string; run: () => Promise<ComposeOutcome> }[] = [];
-    const emptyPack = depsOf({ local_box: [answered("never", "open-weights-alpha")] });
+    const emptyPack = depsOf({
+      local_box: [answered("never", "open-weights-alpha")],
+    });
     shapes.push({
       label: "empty pack",
       run: () => composeAnswer(input({ evidence: [] }), emptyPack.deps),
     });
-    const dropped = depsOf({ local_box: [answered(candidate([]), "open-weights-alpha")] });
+    const dropped = depsOf({
+      local_box: [answered(candidate([]), "open-weights-alpha")],
+    });
     shapes.push({
       label: "the composer returned no claims",
       run: () => composeAnswer(input(), dropped.deps),
@@ -690,13 +1061,20 @@ describe("the refusal vocabulary (ADR-0009, #97)", () => {
     for (const shape of shapes) {
       const { answer } = await shape.run();
       expect(["refused", "unavailable"], shape.label).toContain(answer.status);
-      if (answer.refusalKey === undefined) throw new Error(`${shape.label}: a refusal must name its sentence`);
-      expect(answer.summary, shape.label).toBe(EXPERT.refusalTemplates[answer.refusalKey]);
+      if (answer.refusalKey === undefined)
+        throw new Error(`${shape.label}: a refusal must name its sentence`);
+      expect(answer.summary, shape.label).toBe(
+        EXPERT.refusalTemplates[answer.refusalKey],
+      );
       keys.add(answer.refusalKey);
     }
     // `out_of_scope` is a sentence an expert must state (#97) and the router will select in T-104/T-311;
     // compose has no business choosing it, because compose never decides what a service answers.
-    expect([...keys].sort()).toEqual(["insufficient_support", "no_evidence", "unavailable"]);
+    expect([...keys].sort()).toEqual([
+      "insufficient_support",
+      "no_evidence",
+      "unavailable",
+    ]);
     expect(keys.has("out_of_scope")).toBe(false);
   });
 });

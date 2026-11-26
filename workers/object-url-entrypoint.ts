@@ -23,8 +23,8 @@ type ExtractionEnv = MintObjectUrlEnv & ScheduledEnv;
 
 /**
  * Default export: no public HTTP; cron drives outbox dispatch then pull (#170 / #99).
- * T-212 extractor wiring lands in `resolveCloudExtractor()` — until then pull stays idle;
- * outbox dispatch still runs whenever JOB_DB + TOI_WORKER_TOKEN are bound.
+ * Pull uses `resolveCloudExtractor()` → T-212 cloud extractor; outbox dispatch runs whenever
+ * JOB_DB + TOI_WORKER_TOKEN are bound.
  */
 export default class ExtractionWorker extends WorkerEntrypoint<ExtractionEnv> {
   fetch(): Response {

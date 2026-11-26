@@ -3,8 +3,8 @@
 -- a dispatcher publishes at-least-once and marks processed_at. Idempotency is the stage key on
 -- ingestion_jobs (knowledge_core.sql:398), not a second unique on the outbox row.
 --
--- Timestamp claim (daily sync, COORDINATION §3): after in-flight #229 `20261121200000_last_admin_guard`
--- and after main's latest `20261120215000_tenant_admin_rpc`. Exactly one migration in this PR.
+-- Timestamp (COORDINATION §3): after main's newest, `20261126150000_provider_health_writer`.
+-- Exactly one migration in this PR.
 -- Privilege discipline (FAQ-0010): revoke by full signature; EXECUTE only to toi_job_api.
 
 begin;

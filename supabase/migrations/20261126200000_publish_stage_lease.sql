@@ -6,17 +6,20 @@
 -- `knowledge.ingestion_job.index_succeeded`; `publish_version_v1` switches the pointer).
 -- This migration does **not** vendor chunk_publish.sql.
 --
--- Policy assumption (T-113 vs T-213): the skeleton auto-publish loop stays here; T-213 owns
--- review/revoke policy later. Provisional on: none.
+-- Policy (supervisor round 1 on #285): the worker publish path is NOT a skeleton auto-publish.
+-- `20261126210000_publish_respects_review.sql` (same PR) puts T-213's publication rule in front of
+-- `publish_version_v1`: an unreviewed version is parked in `awaiting_review`, never published.
 --
--- Timestamp claim (daily sync, COORDINATION §3): after `20261124120000_index_stage_lease`.
+-- Timestamp (COORDINATION §3): renamed from 20261124130000 (it collided with T-213's
+-- review_publish and sorted before main's outbox_dispatch 160000 and index_stage_lease 190000,
+-- which replace the same two functions) to after `20261126190000_index_stage_lease`.
 -- Exactly one migration in this PR. Privilege discipline (FAQ-0010): revoke by full signature;
 -- EXECUTE only to toi_job_api. Nothing added to `public` (no 001 allow-list row).
 
 begin;
 
 -- ── 1. lease_parse_job_v1: extract + index + publish (index/publish = cloud_worker only) ───────
--- Replaces the extract+index gate from `20261124120000_index_stage_lease.sql`. Publish reclaim
+-- Replaces the extract+index gate from `20261126190000_index_stage_lease.sql`. Publish reclaim
 -- is stage-scoped so an extract or index lease never reclaims a publish holder and vice versa.
 create or replace function job_api.lease_parse_job_v1(
   p_token_hash text,
@@ -117,7 +120,7 @@ grant execute on function job_api.lease_parse_job_v1(text, text, integer)
   to toi_job_api;
 
 -- ── 2. dispatch_outbox_v1: extract_succeeded→index and index_succeeded→publish ─────────────────
--- Keeps the extract→index arm from `20261121210000_outbox_dispatch.sql` and adds the
+-- Keeps the extract→index arm from `20261126160000_outbox_dispatch.sql` and adds the
 -- index→publish arm. Unknown event types stay unprocessed for a later owner.
 create or replace function job_api.dispatch_outbox_v1(
   p_token_hash text,
