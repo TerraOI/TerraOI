@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { runScheduledCloudPull, runScheduledIndexPull, runScheduledTick } from "./scheduled";
+import {
+  resolveCloudExtractor,
+  runScheduledCloudPull,
+  runScheduledIndexPull,
+  runScheduledTick,
+} from "./scheduled";
 import type { ExtractorPort } from "./ocr-pull";
 import type { IndexEmbedPort } from "./index-pull";
 
@@ -8,12 +13,20 @@ const idleExtractor: ExtractorPort = {
   extract: async () => ({ outcome: "unsupported", reason: "unsupported_document" }),
 };
 
+describe("resolveCloudExtractor (T-211 Cut E)", () => {
+  it("returns the T-212-backed cloud extractor port", () => {
+    const port = resolveCloudExtractor();
+    expect(port).not.toBeNull();
+    expect(typeof port?.extract).toBe("function");
+  });
+});
+
 const idleEmbed: IndexEmbedPort = {
   embed: async () => ({ outcome: "lexical_only" }),
 };
 
 describe("runScheduledCloudPull (#170 cron)", () => {
-  it("skips without leasing when the T-212 extractor is unwired", async () => {
+  it("skips without leasing when the extractor is explicitly null", async () => {
     const log = vi.fn();
     const result = await runScheduledCloudPull(
       { JOB_DB: { connectionString: "postgres://x" }, TOI_WORKER_TOKEN: "tok" },
