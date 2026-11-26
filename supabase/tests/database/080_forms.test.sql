@@ -8,8 +8,9 @@
 -- lands, and after that it is the definition of the behaviour.
 --
 -- Fixtures are supabase/seed.sql: company1 11111111-1111-4111-8111-111111111111 (...a1 owner and
--- admin, ...a2 member with no knowledge.write, ...a3 suspended membership, ...a4 member of both
--- tenants and of project site-a) and company2 22222222-2222-4222-8222-222222222222 (...b1 owner).
+-- admin, ...a2 member + seeded contributor / knowledge.write, ...a3 suspended, ...a4 member of both
+-- tenants and of project site-a — read-only for the submit-refusal pin after #39) and company2
+-- 22222222-2222-4222-8222-222222222222 (...b1 owner).
 -- Collections: 51000000-0000-4000-8000-000000000001 tenant-wide public, 51000000-0000-4000-8000-
 -- 000000000002 project site-a client_confidential, 52000000-0000-4000-8000-000000000001 company2
 -- public. The three seeded templates are added by this PR; no test here inserts seed rows
@@ -361,6 +362,8 @@ select is(pg_temp.try_submit('11111111-1111-4111-8111-111111111111',
   '46 a replayed submit is refused: one submission, one source version, even on retry');
 
 -- ---------------------------------------------------------- 47..54 who may draft and who may submit
+-- …a2 holds seeded `contributor` (#39) so it may submit; the submit-refusal case uses …a4.
+-- …a2 still owns the Site A audience refusal (not a Site A member) and the private-draft pins.
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a2';
 insert into pg_temp.drafts (tag, result) values
@@ -376,9 +379,18 @@ select ok((select result from pg_temp.drafts where tag = 'a2_uav') is not null,
   '47 a plain member may open a draft: filling a form is not publishing (7.6 step 2)');
 select is((select result from pg_temp.drafts where tag = 'a2_site_a'), '42501',
   '48 a Site A template refuses a submitter outside Site A: audience is the collection''s (T-214)');
+
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a4';
+insert into pg_temp.drafts (tag, result) values
+  ('a4_uav', pg_temp.try_draft('11111111-1111-4111-8111-111111111111'::uuid,
+                                '80000000-0000-4000-8000-000000000001'::uuid, 'v1',
+                                ('{"airframe_check": "synthetic", "battery_pct": 70,'
+                                || ' "weather_notes": "synthetic"}')::jsonb));
 select is(pg_temp.try_submit('11111111-1111-4111-8111-111111111111',
-          (select result::uuid from pg_temp.drafts where tag = 'a2_uav')), '42501',
-  '49 submitting needs the merged publish predicate: a member without knowledge.write is refused (#39)');
+          (select result::uuid from pg_temp.drafts where tag = 'a4_uav')), '42501',
+  '49 submitting needs the merged publish predicate: a member without knowledge.write is refused (#39; …a4 after contributor seed on …a2)');
+
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a2';
 select is((select count(*) from public.form_submissions
             where created_by = '00000000-0000-4000-8000-0000000000a2'), 1::bigint,
   '50 the author still sees their own draft');
