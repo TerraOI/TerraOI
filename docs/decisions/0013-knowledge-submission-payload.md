@@ -1,6 +1,6 @@
 # ADR-0013 Knowledge submission request payload (F15)
 
-Status: **proposed** (lands with T-302b PR-2) · Date: 2026-11-23 · Deciders: Lane 2 (implementation); supervisor on merge of protected `src/contracts/`
+Status: **accepted** (supervisor, on merge of #270, 2026-11-26) · Date: 2026-11-23 · Deciders: Lane 2 (implementation); supervisor on merge of protected `src/contracts/`
 Plan refs: §6.1 (line 329), §6.2, §7.4, §9 route table (lines 581–582), §11 F15; [#73](https://github.com/TerraOI/TerraOI/issues/73)
 
 ## Context
