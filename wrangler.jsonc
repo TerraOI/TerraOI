@@ -54,6 +54,44 @@
         { "pattern": "company1-staging.terraoi.app/*", "zone_name": "terraoi.app" },
         { "pattern": "company2-staging.terraoi.app/*", "zone_name": "terraoi.app" }
       ]
+    },
+    // T-404 (plan §17.2) prepared this block; it is a *shape*, not a deploy path. There is no
+    // production job in `.github/workflows/` — the packet proposes one for the supervisor to land —
+    // and every value in angle brackets is created by the owner on T-004 (plan §20.8: production
+    // project, Hyperdrive configs, DNS, routes, TLS, secrets). Nothing here is a secret or a real
+    // resource id: these are binding NAMES and placeholders, per AGENTS §4.6.
+    "production": {
+      "name": "terraoi-web",
+      "workers_dev": false,
+      "preview_urls": false,
+      // The same binding names the staging block uses, and repeated here for the reason the staging
+      // comment above gives: wrangler replaces arrays rather than merging them, so an inherited
+      // staging value would be the bug. scripts/check-release-preflight.mjs refuses this block if it
+      // ever points at a staging Worker, a staging host, or a secret-shaped value.
+      "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "terraoi-web" }],
+      "ratelimits": [
+        { "name": "INQUIRY_RATE_LIMITER", "namespace_id": "<PROD_INQUIRY_RATE_LIMIT_NS>", "simple": { "limit": 3, "period": 60 } }
+      ],
+      // Bindings the owner creates before traffic (T-004). Wrangler 4 Hyperdrive entries are
+      // binding + id only (no connection-string fields in this file — AGENTS §4.6). SESSION_DB and
+      // INQUIRY_DB are what code on main reads today; CONFIG_DB (T-116) and JOB_DB (T-211) are the
+      // server-path bindings the packet checklist names for the owner. Secrets use
+      // `wrangler secret put` (SESSION_TOKEN_KEY, IDENTITY_SESSION_KEY, TURNSTILE_SECRET,
+      // INQUIRY_IP_HMAC_KEY, the email API key, the model key) — never as a value here.
+      "hyperdrive": [
+        { "binding": "SESSION_DB", "id": "<PROD_SESSION_DB_HYPERDRIVE_ID>" },
+        { "binding": "CONFIG_DB", "id": "<PROD_CONFIG_DB_HYPERDRIVE_ID>" },
+        { "binding": "JOB_DB", "id": "<PROD_JOB_DB_HYPERDRIVE_ID>" },
+        { "binding": "INQUIRY_DB", "id": "<PROD_INQUIRY_DB_HYPERDRIVE_ID>" }
+      ],
+      "vars": { "TURNSTILE_SITE_KEY": "" },
+      // Deliberately empty, and the emptiness is the guard: plan §4.1 wants exact production hosts, and
+      // T-004 adds them only after DNS and TLS are verified. A production deploy with no routes would
+      // serve nothing on the tenant hosts yet still report success, so check-release-preflight refuses
+      // production until these lines exist. Whether to also add a `*.terraoi.app/*` wildcard is the
+      // owner's decision — the note above explains why the exact staging patterns have to be listed
+      // alongside it, and a wildcard does not make an unverified host resolvable.
+      "routes": []
     }
   }
 }
