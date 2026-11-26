@@ -1,6 +1,6 @@
 # T-314 DeepSeek and OpenRouter adapters, provider health checks (F37) and circuit breakers
 
-Lane: 2 · Week: 3 · Protected: yes (`src/platform/gateway/`) · Depends on: T-115 (a–d merged as #31/#53/#56/#58; b is the fetch adapters plus chain walking), T-115f (merged as #145; the Claude adapter, per the #46 ruling), T-215 (not started), T-311 (same week: `route` chains that reach these tiers; not started), T-313 (same week: quota-window signal; not started) · Status: ready
+Lane: 2 · Week: 3 · Protected: yes (`src/platform/gateway/`) · Depends on: T-115 (a–d merged as #31/#53/#56/#58; b is the fetch adapters plus chain walking), T-115f (merged as #145; the Claude adapter, per the #46 ruling), T-215 (not started), T-311 (same week: `route` chains that reach these tiers; not started), T-313 (same week: quota-window signal; not started) · Status: in progress (wyuinline) — **PR-1** [#248](https://github.com/TerraOI/TerraOI/pull/248) DeepSeek/OpenRouter adapters; **PR-2** F37 scheduled+passive health (this branch); circuit DB writer + box-offline drill remain later slices
 Decided (rulings below): [#45](https://github.com/TerraOI/TerraOI/issues/45), [#46](https://github.com/TerraOI/TerraOI/issues/46), [#74](https://github.com/TerraOI/TerraOI/issues/74) (nobody owns the week-3 box-offline drill this packet's Done evidence is), plus the model-selection finding posted on PR #53 (not an issue)
 Plan refs: §12.4 (chain rows 4–5 and the clearance matrix), §16 (Model chain row), §17.1 (chain observability; box offline within one check interval), §13 (local-box contract), §15.0, §18.2 ("Client data reaches an uncleared provider"); F37, F31, F38, F20
 
@@ -56,16 +56,17 @@ selected model is not the one contacted. The rule-(e) fix is **assigned to PR #5
 chain), where it must be proven at the adapter call boundary — this packet does not touch chain selection.
 
 ## Acceptance tests (write first)
-- [ ] positive: `src/platform/gateway/adapters-external.test.ts` — `deepseek` and `openrouter` answer a
+- [x] positive: `src/platform/gateway/adapters-external.test.ts` — `deepseek` and `openrouter` answer a
       `public` payload at their chain positions, each attempt reserved (F19 seam) and audited with the tier
-      that answered
+      that answered (**PR-1**)
 - [ ] positive: `src/platform/gateway/health.test.ts` — a box that stops answering is offline within one check
       interval and its chain entries are skipped without waiting for a user-visible timeout; a circuit opens
       after repeated failures and closes only after the cooldown **and** a successful health check (§16)
-- [ ] negative: a `client_confidential` or `restricted` payload produces **zero** DeepSeek and OpenRouter
-      calls in the mock, whatever ids or tenant policy the caller passes (§16, §18.2)
-- [ ] negative: an OpenRouter request never reaches an upstream model outside the pinned allow-list, and a
+- [x] negative: a `client_confidential` or `restricted` payload produces **zero** DeepSeek and OpenRouter
+      calls in the mock, whatever ids or tenant policy the caller passes (§16, §18.2) (**PR-1**)
+- [x] negative: an OpenRouter request never reaches an upstream model outside the pinned allow-list, and a
       provider config row wider than the clearance matrix is refused at load
+      (**PR-1** pin check; wider-than-matrix refusal already in gateway config parse)
 - [ ] negative: an open circuit skips that provider for every tenant until it recovers, and no tenant setting,
       header or expert chain re-opens a provider the platform took out
 - [ ] failure: 200-with-garbage advances as `output_rejected` rather than crashing; an exhausted allowance

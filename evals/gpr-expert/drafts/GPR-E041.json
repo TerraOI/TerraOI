@@ -26,6 +26,7 @@
     "SYNTH-C2-GPR-LOG-0009"
   ],
   "expectedEvidence": [],
+  "expectedRefusalKey": "no_evidence",
   "approvedBy": null,
   "approvedAt": null,
   "draftedBy": "agent (T-315 draft)",

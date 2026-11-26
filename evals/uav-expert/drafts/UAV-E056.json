@@ -26,6 +26,7 @@
     "SYNTH-UAV-BATT-12"
   ],
   "expectedEvidence": [],
+  "expectedRefusalKey": "out_of_scope",
   "approvedBy": null,
   "approvedAt": null,
   "draftedBy": "agent (T-315 draft)",
