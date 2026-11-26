@@ -3,8 +3,7 @@
 -- Schema `gateway_config` is not Data-API exposed (supabase/config.toml exposes public + graphql_public).
 -- Role `toi_gateway_config` is NOLOGIN, reached over CONFIG_DB (T-004 §20.8 human steps).
 --
--- Timestamp: later than every migration on this stack tip (`20261120215000`) and later than the
--- in-flight chat/evals stamps (`20261120216000`, `20261121220000`) so a rebase onto main keeps order.
+-- Timestamp: later than main's newest migration (`20261125100000_evals.sql`) per COORDINATION §3.
 
 begin;
 

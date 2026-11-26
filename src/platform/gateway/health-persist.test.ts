@@ -49,3 +49,22 @@ describe("createPersistingHealthObservationSink", () => {
     expect(seen[0]?.circuitOpen).toBe(true);
   });
 });
+
+describe("createPersistingHealthObservationSink: a failed write (supervisor round 1 on #251)", () => {
+  it("never rejects, reports a safe kind, and leaves later records flowing", async () => {
+    const written: string[] = [];
+    const errors: unknown[] = [];
+    const sink = createPersistingHealthObservationSink(
+      async (args) => {
+        if (args.providerKey === "local_box") throw new Error("connection refused at 10.0.0.5");
+        written.push(args.providerKey);
+      },
+      (event) => errors.push(event),
+    );
+    await expect(sink.record(SAMPLE)).resolves.toBeUndefined();
+    await sink.record({ ...SAMPLE, providerKey: "workers_ai" });
+    expect(written).toEqual(["workers_ai"]);
+    expect(errors).toEqual([{ kind: "provider_health_write_failed", providerKey: "local_box" }]);
+    expect(JSON.stringify(errors)).not.toContain("10.0.0.5");
+  });
+});
