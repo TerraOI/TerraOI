@@ -11,12 +11,23 @@ import {
 } from "@/contracts/answer";
 import { maxDataClass, type DataClass } from "@/contracts/data-class";
 import { OpaqueId, type ProviderKey } from "@/contracts/keys";
-import type { CapabilityTier, ClearanceMatrix } from "@/contracts/provider-route";
+import type {
+  CapabilityTier,
+  ClearanceMatrix,
+} from "@/contracts/provider-route";
 import type { TenantContext } from "@/contracts/tenant-context";
 
-import { callModelGateway, type AttemptRecord, type GatewayDeps } from "@/platform/gateway/call";
+import {
+  callModelGateway,
+  type AttemptRecord,
+  type GatewayDeps,
+} from "@/platform/gateway/call";
 import { selectModelRoute, type RouteDecision } from "@/platform/gateway/route";
-import { bindClaimsToEvidence, type RunEvidence, type UnboundClaim } from "@/platform/gateway/verify-binding";
+import {
+  bindClaimsToEvidence,
+  type RunEvidence,
+  type UnboundClaim,
+} from "@/platform/gateway/verify-binding";
 
 /**
  * Compose (plan §10.1 pipeline: condense → retrieve → **compose** → verify) and the two verifier
@@ -56,7 +67,10 @@ export interface ExpertComposePolicy {
   key: string;
   version: string;
   riskClass: "knowledge" | "operational" | "commercial";
-  modelChains: { compose: readonly ProviderKey[]; verify: readonly ProviderKey[] };
+  modelChains: {
+    compose: readonly ProviderKey[];
+    verify: readonly ProviderKey[];
+  };
   minVerifierTier: CapabilityTier;
   limits: ComposeLimits;
   refusalTemplates: {
@@ -85,7 +99,8 @@ export interface ComposeRunInput {
   asOf?: string;
 }
 
-export type SemanticStatus = "supported" | "partial" | "unsupported" | "contradicted";
+export type SemanticStatus =
+  "supported" | "partial" | "unsupported" | "contradicted";
 
 export interface SemanticVerdict {
   claimId: string;
@@ -109,6 +124,12 @@ export interface SemanticVerifierPort {
      * composer (§12.4 (e)), not a composer fixed at deps construction.
      */
     composedWith: { providerKey: ProviderKey; model: string };
+    /**
+     * Which compose pass this verification follows (1 = first answer, 2 = the material-failure
+     * retry). The verifier puts it in the gateway pass tag so the second pass-2 run does not reuse
+     * the first one's attempt ids and budget reservations (§12.3; supervisor round 1 on #284).
+     */
+    composePass?: number;
   }): Promise<readonly SemanticVerdict[]>;
 }
 
@@ -119,7 +140,11 @@ export interface ComposeDeps extends GatewayDeps {
 export interface ComposeAudit {
   dataClass: DataClass;
   matrixRevision: number | null;
-  answeredBy: { providerKey: ProviderKey; model: string; chainPosition: number } | null;
+  answeredBy: {
+    providerKey: ProviderKey;
+    model: string;
+    chainPosition: number;
+  } | null;
   /**
    * Every compose attempt as the gateway recorded it (outcome, reservation, reconciliation):
    * F40 replay needs the per-attempt truth, and §12.3's "an ambiguous attempt is still billed" is
@@ -128,7 +153,8 @@ export interface ComposeAudit {
   composeAttempts: AttemptRecord[];
   composeSkipped: RouteDecision["skipped"];
   verifierRoute: RouteDecision | null;
-  semanticVerification: "not_configured" | "no_eligible_verifier" | "ran" | "not_needed";
+  semanticVerification:
+    "not_configured" | "no_eligible_verifier" | "ran" | "not_needed";
   bindingRejected: string[];
   withheldRequirementClaims: number;
   droppedByVerifier: string[];
@@ -176,7 +202,11 @@ const ComposeCandidate = z
   .superRefine((candidate, ctx) => {
     const ids = new Set(candidate.claims.map((claim) => claim.id));
     if (ids.size !== candidate.claims.length) {
-      ctx.addIssue({ code: "custom", path: ["claims"], message: "claim ids must be unique" });
+      ctx.addIssue({
+        code: "custom",
+        path: ["claims"],
+        message: "claim ids must be unique",
+      });
     }
   });
 type ComposeCandidate = z.infer<typeof ComposeCandidate>;
@@ -199,7 +229,10 @@ function evidenceText(pack: readonly EvidencePackEntry[]): string {
  * The compose prompt. Retrieved text is delimited as **data** and the instruction says so: a
  * document that asks the model to do something is not an instruction (AGENTS.md §4.8).
  */
-function composeMessages(input: ComposeRunInput, pack: readonly EvidencePackEntry[]) {
+function composeMessages(
+  input: ComposeRunInput,
+  pack: readonly EvidencePackEntry[],
+) {
   return [
     {
       role: "system" as const,
@@ -232,12 +265,20 @@ function safeAnswerBase(input: ComposeRunInput, dataClass: DataClass) {
 }
 
 /** Providers after the one that just composed — the only place a pass-2 material retry may walk (§12.1). */
-function composeChainAfter(chain: readonly ProviderKey[], used: ProviderKey): ProviderKey[] {
+function composeChainAfter(
+  chain: readonly ProviderKey[],
+  used: ProviderKey,
+): ProviderKey[] {
   const index = chain.indexOf(used);
-  return index < 0 ? chain.filter((key) => key !== used) : [...chain.slice(index + 1)];
+  return index < 0
+    ? chain.filter((key) => key !== used)
+    : [...chain.slice(index + 1)];
 }
 
-function packTruncationNote(packLength: number, evidenceLength: number): string | undefined {
+function packTruncationNote(
+  packLength: number,
+  evidenceLength: number,
+): string | undefined {
   if (packLength >= evidenceLength) return undefined;
   return `This answer used ${packLength} of ${evidenceLength} retrieved chunks: the expert's evidence limit is fewer chunks than retrieval returned.`;
 }
@@ -248,7 +289,10 @@ export async function composeAnswer(
 ): Promise<ComposeOutcome> {
   // §6.2 / AGENTS.md §4.4: the answer carries the highest class among everything it was derived
   // from, question included. `maxDataClass` throws on an empty list rather than assuming `public`.
-  const dataClass = maxDataClass([input.questionDataClass, ...input.evidence.map((chunk) => chunk.dataClass)]);
+  const dataClass = maxDataClass([
+    input.questionDataClass,
+    ...input.evidence.map((chunk) => chunk.dataClass),
+  ]);
 
   const audit: ComposeAudit = {
     dataClass,
@@ -319,6 +363,9 @@ export async function composeAnswer(
         tenantPolicy: input.tenantPolicy,
         chain: composeChain,
         outputSchema: ComposeCandidate,
+        // The retry walks a shorter chain whose positions restart at 1: tag it so its attempt ids
+        // (and budget reservations) never collide with the first pass's (§12.3).
+        ...(composePass > 1 ? { passTag: "retry" } : {}),
       },
       deps,
     );
@@ -337,10 +384,12 @@ export async function composeAnswer(
             status: "unavailable",
             refusalKey: "unavailable" satisfies RefusalKey,
             summary: input.expert.refusalTemplates.unavailable,
-            unknowns: ["The assistant could not produce an answer for this question right now."],
-            truncation: [packTruncationNote(pack.length, input.evidence.length)].filter(
-              (note): note is string => note !== undefined,
-            ),
+            unknowns: [
+              "The assistant could not produce an answer for this question right now.",
+            ],
+            truncation: [
+              packTruncationNote(pack.length, input.evidence.length),
+            ].filter((note): note is string => note !== undefined),
           }),
           audit,
         };
@@ -383,7 +432,10 @@ export async function composeAnswer(
         tenantPolicy: input.tenantPolicy,
         chain: input.expert.modelChains.verify,
         minTier: input.expert.minVerifierTier,
-        composedWith: { providerKey: composed.providerKey, model: composed.model },
+        composedWith: {
+          providerKey: composed.providerKey,
+          model: composed.model,
+        },
         nowMs: (deps.clock ?? Date.now)(),
       },
       { config: deps.config, health: deps.health, adapters: deps.adapters },
@@ -408,13 +460,18 @@ export async function composeAnswer(
         evidence: runEvidence,
         route: verifierRoute,
         composedWith: { providerKey: composed.providerKey, model: composed.model },
+        composePass,
       });
       for (const verdict of returned) verdicts.set(verdict.claimId, verdict);
       audit.verdicts = [...returned];
       audit.semanticVerification = "ran";
       const dropped = claims.filter((claim) => {
         const verdict = verdicts.get(claim.id);
-        return verdict !== undefined && (verdict.status === "unsupported" || verdict.status === "contradicted");
+        return (
+          verdict !== undefined &&
+          (verdict.status === "unsupported" ||
+            verdict.status === "contradicted")
+        );
       });
       if (dropped.length > 0) {
         audit.droppedByVerifier = dropped.map((claim) => claim.id);
@@ -426,12 +483,15 @@ export async function composeAnswer(
         .filter((claim) => !audit.droppedByVerifier.includes(claim.id))
         .map((claim) => {
           const verdict = verdicts.get(claim.id);
-          return verdict === undefined ? claim : { ...claim, verificationStatus: verdict.status };
+          return verdict === undefined
+            ? claim
+            : { ...claim, verificationStatus: verdict.status };
         });
     }
 
     // Pass 2 not run → `requirement` claims are withheld (§12.1).
-    const needVerifier = (claim: Claim) => claim.type === "requirement" && !verdicts.has(claim.id);
+    const needVerifier = (claim: Claim) =>
+      claim.type === "requirement" && !verdicts.has(claim.id);
     const withheld = claims.filter(needVerifier);
     withheldCount = withheld.length;
     if (withheld.length > 0) {
@@ -473,14 +533,18 @@ export async function composeAnswer(
         status: "unavailable",
         refusalKey: "unavailable" satisfies RefusalKey,
         summary: input.expert.refusalTemplates.unavailable,
-        unknowns: ["The assistant could not produce an answer for this question right now."],
+        unknowns: [
+          "The assistant could not produce an answer for this question right now.",
+        ],
         truncation,
       }),
       audit,
     };
   }
 
-  const grounded = claims.some((claim) => claim.type !== "inference" && claim.evidence.length > 0);
+  const grounded = claims.some(
+    (claim) => claim.type !== "inference" && claim.evidence.length > 0,
+  );
   const somethingWasLost =
     bindingRejectedCount > 0 ||
     withheldCount > 0 ||
@@ -489,8 +553,10 @@ export async function composeAnswer(
 
   let status: Answer["status"];
   if (claims.length === 0) {
+    // Nothing survived: refusing is honest, "answered" with no ground under it is not (§12.1).
     status = "refused";
   } else if (!grounded) {
+    // Only inferences survived: an `answered` result needs an evidenced non-inference claim.
     status = "partial";
   } else if (somethingWasLost || pack.length < input.evidence.length) {
     status = "partial";
@@ -499,11 +565,20 @@ export async function composeAnswer(
   }
 
   // ADR-0009 decision 2 (#97): which sentence this path is allowed to tell, and the key that records it.
+  // Getting here means retrieval **did** hand this run a pack, so every refusal from here on is about
+  // support, not about finding: pass 1 rejected the citations, the verifier found the claims unsupported,
+  // or no eligible verifier could stand behind the only claim. `out_of_scope` is chosen by the router
+  // (T-104, T-311), never here: compose does not decide what a service answers.
   const refusal: { key: RefusalKey; summary: string } | null =
     status === "refused"
-      ? { key: "insufficient_support", summary: input.expert.refusalTemplates.insufficient_support }
+      ? {
+          key: "insufficient_support",
+          summary: input.expert.refusalTemplates.insufficient_support,
+        }
       : null;
 
+  // On a refusal, unknowns and conflicts are platform-authored only (#210 / ADR-0009): composer
+  // prose on an all-dropped run is unverified and can describe the withheld claim (§9.3, #97).
   return {
     answer: Answer.parse({
       ...safeAnswerBase(input, dataClass),
@@ -514,7 +589,9 @@ export async function composeAnswer(
       unknowns:
         refusal === null
           ? composedParsed.unknowns
-          : ["Related material was found but could not be verified into an answer."],
+          : [
+              "Related material was found but could not be verified into an answer.",
+            ],
       conflicts: refusal === null ? composedParsed.conflicts : [],
       truncation,
     }),
