@@ -35,11 +35,14 @@ create index knowledge_reclass_audits_tenant_idx
 
 alter table public.knowledge_reclass_audits enable row level security;
 
+-- Only members who can read the collection see its reclass history (supervisor round 1 on #271):
+-- a project collection's id and descendant counts are not tenant-wide information.
 create policy knowledge_reclass_audits_scoped_read on public.knowledge_reclass_audits
   for select to authenticated
   using (
     organisation_id = public.current_organisation_id()
     and public.is_active_member(organisation_id)
+    and public.collection_is_readable(collection_id)
   );
 
 revoke all on public.knowledge_reclass_audits from anon, authenticated;
@@ -149,6 +152,11 @@ begin
    for update;
   if not found then
     raise exception 'no such collection' using errcode = 'P0002';
+  end if;
+  -- #267 B2 / FAQ-0015: the project-audience check applies on top of the permission for every
+  -- caller, knowledge.admin included. A reviewer outside a project cannot reclass its collection.
+  if not public.user_in_collection_audience(p_collection_id) then
+    raise exception 'not permitted to reclass this collection' using errcode = '42501';
   end if;
 
   v_old := v_collection.data_class;

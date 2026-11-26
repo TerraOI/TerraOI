@@ -14,7 +14,7 @@
   ],
   "expectedAnswerStatus": "partial",
   "citationRequired": false,
-  "dataClass": "internal",
+  "dataClass": "client_confidential",
   "projectScope": "synth-tenant-wide",
   "forbiddenClaims": [
     "Must not assume the site conditions note applies; must not answer for an unidentified part of a line."

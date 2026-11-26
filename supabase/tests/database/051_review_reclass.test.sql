@@ -2,7 +2,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(16);
+select plan(21);
 
 create function pg_temp.try_reclass(
   p_organisation_id uuid, p_collection_id uuid, p_new_class text
@@ -17,12 +17,12 @@ begin
 end;
 $fn$;
 
--- Publisher role for a2 (write) — same pattern as 050.
+-- Reviewer role for a2 (knowledge.review write, FAQ-0015) — same pattern as 050.
 insert into public.organisation_roles (id, organisation_id, key, name) values
-  ('31000000-0000-4000-8000-0000000000f1', '11111111-1111-4111-8111-111111111111', 'publisher-reclass', 'Knowledge publisher reclass')
+  ('31000000-0000-4000-8000-0000000000f1', '11111111-1111-4111-8111-111111111111', 'reviewer-reclass', 'Knowledge reviewer reclass')
 on conflict (organisation_id, key) do nothing;
 insert into public.role_permissions (organisation_id, role_id, area, level) values
-  ('11111111-1111-4111-8111-111111111111', '31000000-0000-4000-8000-0000000000f1', 'knowledge.write', 'write')
+  ('11111111-1111-4111-8111-111111111111', '31000000-0000-4000-8000-0000000000f1', 'knowledge.review', 'write')
 on conflict (role_id, area) do nothing;
 insert into public.membership_roles (organisation_id, membership_id, role_id)
 select m.organisation_id, m.id, '31000000-0000-4000-8000-0000000000f1'::uuid
@@ -154,7 +154,7 @@ select public.review_reclass_v1(
   'internal'
 );
 select ok((select id is not null from reclass_ids limit 1),
-  '7 reviewer with knowledge.write can raise public → internal');
+  '7 reviewer with knowledge.review can raise public → internal');
 reset role;
 
 select is((select data_class from public.knowledge_collections
@@ -193,6 +193,61 @@ select is(has_function_privilege('anon',
   '15 anon cannot execute review_reclass_v1');
 select is(has_table_privilege('authenticated', 'public.knowledge_reclass_audits', 'insert'), false,
   '16 authenticated has no direct insert on reclass audits');
+
+-- ---------------------------------------------------------------- 17-21 supervisor round 1 on #271
+-- Project-bound internal collection on seeded project site-a (members a1, a4; not a2).
+insert into public.knowledge_collections (
+  id, organisation_id, key, service_key, project_id, name, data_class
+) values (
+  '51000000-0000-4000-8000-0000000000b2',
+  '11111111-1111-4111-8111-111111111111',
+  'reclass-site-a', 'uav', '41000000-0000-4000-8000-000000000001', 'Reclass site A', 'internal'
+);
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a2';
+select is(pg_temp.try_reclass(
+  '11111111-1111-4111-8111-111111111111',
+  '51000000-0000-4000-8000-0000000000b2',
+  'client_confidential'), '42501',
+  '17 a knowledge.review holder outside the project cannot reclass its collection (#267 B2)');
+reset role;
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+create temporary table reclass_project_ids (id uuid);
+insert into reclass_project_ids (id)
+select public.review_reclass_v1(
+  '11111111-1111-4111-8111-111111111111',
+  '51000000-0000-4000-8000-0000000000b2',
+  'client_confidential'
+);
+select ok((select id is not null from reclass_project_ids limit 1),
+  '18 a project member with knowledge.admin passes the permission and audience checks');
+reset role;
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a2';
+select is((select count(*)::int from public.knowledge_reclass_audits
+            where collection_id = '51000000-0000-4000-8000-0000000000b2'), 0,
+  '19 a member outside the project does not see that collection''s reclass audit');
+select is((select count(*)::int from public.knowledge_reclass_audits
+            where collection_id = '51000000-0000-4000-8000-0000000000b1'), 1,
+  '20 the tenant-wide collection''s audit stays visible to members who can read it');
+reset role;
+
+-- knowledge.write alone is capture, never review (FAQ-0006): drop a2's reviewer role, leaving the
+-- seeded contributor role, and the reclass is refused.
+delete from public.membership_roles
+ where role_id = '31000000-0000-4000-8000-0000000000f1';
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a2';
+select is(pg_temp.try_reclass(
+  '11111111-1111-4111-8111-111111111111',
+  '51000000-0000-4000-8000-0000000000b1',
+  'client_confidential'), '42501',
+  '21 a contributor with knowledge.write alone cannot reclass');
+reset role;
 
 select * from finish();
 rollback;
