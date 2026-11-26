@@ -1,6 +1,10 @@
 import type { ProgressEvent, TierChangeReason } from "@/contracts/chat";
 import type { DataClass } from "@/contracts/data-class";
-import type { CapabilityTier, ClearanceMatrix, TaskClass } from "@/contracts/provider-route";
+import type {
+  CapabilityTier,
+  ClearanceMatrix,
+  TaskClass,
+} from "@/contracts/provider-route";
 import type { ProviderKey } from "@/contracts/keys";
 import type { TenantContext } from "@/contracts/tenant-context";
 
@@ -10,7 +14,12 @@ import {
   type FreeAllowanceBook,
 } from "@/platform/budgets/free-allowance";
 
-import type { AdapterCallOutcome, ModelMessage, ProviderAdapter, ProviderFailureKind } from "./adapters";
+import type {
+  AdapterCallOutcome,
+  ModelMessage,
+  ProviderAdapter,
+  ProviderFailureKind,
+} from "./adapters";
 import type { GatewayConfiguration } from "./config";
 import type { HealthWriter } from "./circuit";
 import {
@@ -38,7 +47,10 @@ export const UNAVAILABLE_MESSAGE =
 
 /** A conservative pre-call estimate in units, so free-tier exhaustion is predicted, not discovered (§12.3). */
 function estimateInputUnits(messages: readonly ModelMessage[]): number {
-  const chars = messages.reduce((total, message) => total + message.text.length, 0);
+  const chars = messages.reduce(
+    (total, message) => total + message.text.length,
+    0,
+  );
   return Math.ceil((chars / 4) * 1.1);
 }
 
@@ -182,7 +194,10 @@ export type GatewayCallResult<T> =
 // `invalid_request` is deliberately absent: a request this gateway built wrong never becomes a tier
 // change, because the chain does not walk past it. Excluding it from the map's keys makes the
 // compiler prove that every lookup site has handled it first.
-const FAILURE_TO_PROGRESS_REASON: Record<Exclude<ProviderFailureKind, "invalid_request">, TierChangeReason> = {
+const FAILURE_TO_PROGRESS_REASON: Record<
+  Exclude<ProviderFailureKind, "invalid_request">,
+  TierChangeReason
+> = {
   connection: "provider_unavailable",
   timeout: "provider_unavailable",
   server_error: "provider_unavailable",
@@ -203,7 +218,12 @@ function extractStructured(text: string): unknown {
   }
 }
 
-function attemptIdOf(runId: string, chainPosition: number, task: string, passTag: string): string {
+function attemptIdOf(
+  runId: string,
+  chainPosition: number,
+  task: string,
+  passTag: string,
+): string {
   // A (run, chain position) pair is not a call. One position can hold a compose **and** a per-claim
   // verify, and their reservations must not satisfy or double-book each other (§12.3), so the id names
   // the call. A replay of the same call still deduplicates, which is the property the pair alone
@@ -213,7 +233,10 @@ function attemptIdOf(runId: string, chainPosition: number, task: string, passTag
   return `${runId}:${chainPosition}:${role}`;
 }
 
-function parseWith<T>(schema: OutputSchema<T> | undefined, text: string): T | undefined {
+function parseWith<T>(
+  schema: OutputSchema<T> | undefined,
+  text: string,
+): T | undefined {
   if (schema === undefined) return undefined;
   try {
     return schema.parse(extractStructured(text));
@@ -234,7 +257,10 @@ export async function callModelGateway<T>(
   // metering key, so one claim's reservation satisfies another's (§12.3). The type requires the tag;
   // this is the runtime half, because an input can be replayed from a queue payload an older caller
   // built. Nothing is routed, reserved or called.
-  if (input.task === "verify" && (typeof input.passTag !== "string" || input.passTag.trim().length === 0)) {
+  if (
+    input.task === "verify" &&
+    (typeof input.passTag !== "string" || input.passTag.trim().length === 0)
+  ) {
     return {
       ok: false,
       status: "unavailable",
@@ -254,7 +280,12 @@ export async function callModelGateway<T>(
   };
   const routeRequest: RouteRequest =
     input.task === "verify"
-      ? { ...common, task: "verify", composedWith: input.composedWith, minTier: input.minTier }
+      ? {
+          ...common,
+          task: "verify",
+          composedWith: input.composedWith,
+          minTier: input.minTier,
+        }
       : { ...common, task: input.task };
 
   const decision = selectModelRoute(routeRequest, {
@@ -281,8 +312,10 @@ export async function callModelGateway<T>(
 
   const emitAdvance = (toPosition: number, reason: TierChangeReason): void => {
     // Chain positions only: a progress stream is employee-visible (§9.3).
-    if (deps.onProgress === undefined || input.conversationId === undefined) return;
-    if (previousPosition === undefined || previousPosition === toPosition) return;
+    if (deps.onProgress === undefined || input.conversationId === undefined)
+      return;
+    if (previousPosition === undefined || previousPosition === toPosition)
+      return;
     deps.onProgress({
       type: "tier_changed",
       runId: input.runId,
@@ -297,10 +330,12 @@ export async function callModelGateway<T>(
   for (const entry of decision.eligible) {
     // Plan §8.3: a stage deadline bounds the whole walk, not just one call.
     if (clock() >= deadlineAtMs) {
-      if (advanceReason !== undefined) emitAdvance(entry.chainPosition, "deadline");
+      if (advanceReason !== undefined)
+        emitAdvance(entry.chainPosition, "deadline");
       return fail("deadline");
     }
-    if (advanceReason !== undefined) emitAdvance(entry.chainPosition, advanceReason);
+    if (advanceReason !== undefined)
+      emitAdvance(entry.chainPosition, advanceReason);
 
     const adapter = deps.adapters.get(entry.providerKey);
     if (adapter === undefined) {
@@ -311,7 +346,12 @@ export async function callModelGateway<T>(
     }
 
     const maxUnits = maxInputUnits + input.maxOutputUnits;
-    if (deps.freeAllowances !== undefined && isFreeTierProvider(entry.providerKey)) {
+    // Units held in the free-tier book for this attempt; every exit below closes the hold once.
+    let finishFree: (usedUnits: number | null) => void = () => undefined;
+    if (
+      deps.freeAllowances !== undefined &&
+      isFreeTierProvider(entry.providerKey)
+    ) {
       const afterCurrent = decision.eligible
         .filter((e) => e.chainPosition > entry.chainPosition)
         .map((e) => e.providerKey);
@@ -331,6 +371,13 @@ export async function callModelGateway<T>(
         advanceReason = "quota_exhausted";
         continue;
       }
+      const book = deps.freeAllowances;
+      const freeKey = entry.providerKey;
+      const held = freePlan.heldUnits;
+      finishFree = (usedUnits) => {
+        book.finish(freeKey, held, usedUnits);
+        finishFree = () => undefined;
+      };
     }
 
     // The tag is only meaningful for a verify; a non-verify call is already named by its task.
@@ -355,6 +402,7 @@ export async function callModelGateway<T>(
       reservationId = reservation.reservationId;
     } catch {
       // §12.3: "Fail closed if reservation authority is unavailable." Nothing is called.
+      finishFree(0);
       return fail("budget_authority_unavailable");
     }
 
@@ -387,28 +435,35 @@ export async function callModelGateway<T>(
 
     if (outcome.ok) {
       const truncated = outcome.finishReason === "length";
-      const parsed = truncated ? undefined : parseWith(input.outputSchema, outcome.text);
-      if (truncated || (parsed === undefined && input.outputSchema !== undefined)) {
+      const parsed = truncated
+        ? undefined
+        : parseWith(input.outputSchema, outcome.text);
+      if (
+        truncated ||
+        (parsed === undefined && input.outputSchema !== undefined)
+      ) {
         // The model ran and the answer is unusable: that work is billed, and it is the schema's
         // job to fail rather than deliver prose (plan §12.1, F38 "invalid structured output").
         attempt.outcome = truncated ? "context_overflow" : "invalid_output";
         await reconcile(deps, attempt, reservationId, outcome, "ambiguous");
+        // The model ran: the free units it burned count, and without usage the whole hold does.
+        finishFree(
+          outcome.usage === undefined
+            ? null
+            : outcome.usage.inputUnits + outcome.usage.outputUnits,
+        );
         deps.health.recordFailure(entry.providerKey, clock());
         previousPosition = entry.chainPosition;
         advanceReason = FAILURE_TO_PROGRESS_REASON[attempt.outcome];
         continue;
       }
       await reconcile(deps, attempt, reservationId, outcome, "settled");
-      if (
-        deps.freeAllowances !== undefined &&
-        isFreeTierProvider(entry.providerKey) &&
-        outcome.usage !== undefined
-      ) {
-        deps.freeAllowances.settle(
-          entry.providerKey,
-          outcome.usage.inputUnits + outcome.usage.outputUnits,
-        );
-      }
+      // Missing usage keeps the whole hold as used rather than metering the call as free of units.
+      finishFree(
+        outcome.usage === undefined
+          ? null
+          : outcome.usage.inputUnits + outcome.usage.outputUnits,
+      );
       deps.health.recordSuccess(entry.providerKey, clock());
       return {
         ok: true,
@@ -433,12 +488,21 @@ export async function callModelGateway<T>(
       // instead of failing over: the next provider would be handed the same broken request, and three
       // such calls would open a circuit that is not unhealthy (§12.4).
       await reconcile(deps, attempt, reservationId, outcome, "released");
+      finishFree(0);
       return fail("misconfigured_call");
     }
     // §12.3: an ambiguous attempt keeps its liability; a clean failure releases the reservation.
-    await reconcile(deps, attempt, reservationId, outcome, outcome.possiblyBilled ? "ambiguous" : "released");
+    await reconcile(
+      deps,
+      attempt,
+      reservationId,
+      outcome,
+      outcome.possiblyBilled ? "ambiguous" : "released",
+    );
+    finishFree(outcome.possiblyBilled ? null : 0);
     deps.health.recordFailure(entry.providerKey, clock());
-    if (kind === "rate_limited") deps.health.noteQuotaExhausted(entry.providerKey, true);
+    if (kind === "rate_limited")
+      deps.health.noteQuotaExhausted(entry.providerKey, true);
     previousPosition = entry.chainPosition;
     advanceReason = FAILURE_TO_PROGRESS_REASON[kind];
   }
@@ -461,7 +525,10 @@ async function reconcile(
     outcome: outcomeKind,
     ...(usage === undefined
       ? {}
-      : { usedInputUnits: usage.inputUnits, usedOutputUnits: usage.outputUnits }),
+      : {
+          usedInputUnits: usage.inputUnits,
+          usedOutputUnits: usage.outputUnits,
+        }),
   });
   attempt.reconciled = outcomeKind;
 }
