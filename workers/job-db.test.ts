@@ -1,7 +1,13 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
-import { createIndexJobApi, createJobApi, dispatchOutboxEvents, type JobSql } from "./job-db";
+import {
+  createIndexJobApi,
+  createJobApi,
+  createPublishJobApi,
+  dispatchOutboxEvents,
+  type JobSql,
+} from "./job-db";
 
 const TOKEN = "Qh7X3m1pL0aZ8sW2kD5vN9tY4bC6rE0uI1oP3qS7wX2";
 const DIGEST = createHash("sha256").update(TOKEN, "utf8").digest("hex");
@@ -253,5 +259,85 @@ describe("createJobApi — JOB_DB Hyperdrive adapter (T-211 PR-3a)", () => {
       found: true,
       artifacts: [{ artifactIndex: 0, bodyText: "extract text", locator: { page: 1 } }],
     });
+  });
+
+  it("createPublishJobApi publishVersion hashes the credential and maps published (T-113)", async () => {
+    const publishedAt = new Date("2026-11-24T12:00:00.000Z");
+    const { sql, calls } = recordingSql(async () => [
+      {
+        o_outcome: "published",
+        o_source_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        o_source_version_id: VERSION,
+        o_previous_version_id: null,
+        o_published_at: publishedAt,
+        o_event_id: EVENT,
+      },
+    ]);
+    const api = createPublishJobApi({ openSql: () => sql })!;
+    await expect(
+      api.publishVersion({
+        credential: TOKEN,
+        jobId: JOB,
+        leaseToken: "lease",
+        fence: 2,
+        sourceVersionId: VERSION,
+        indexGeneration: 1,
+      }),
+    ).resolves.toEqual({
+      outcome: "published",
+      sourceId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      sourceVersionId: VERSION,
+      previousVersionId: null,
+      publishedAt: publishedAt.toISOString(),
+      eventId: EVENT,
+    });
+    expect(calls[0]?.sql).toContain("job_api.publish_version_v1");
+    expect(calls[0]?.values[0]).toBe(DIGEST);
+    expect(calls[0]?.values).not.toContain(TOKEN);
+  });
+
+  it("createPublishJobApi maps already_published and 42501 to refused/already", async () => {
+    const already = recordingSql(async () => [
+      {
+        o_outcome: "already_published",
+        o_source_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+        o_source_version_id: VERSION,
+        o_previous_version_id: null,
+        o_published_at: null,
+        o_event_id: null,
+      },
+    ]);
+    const apiAlready = createPublishJobApi({ openSql: () => already.sql })!;
+    await expect(
+      apiAlready.publishVersion({
+        credential: TOKEN,
+        jobId: JOB,
+        leaseToken: "t",
+        fence: 1,
+        sourceVersionId: VERSION,
+        indexGeneration: 1,
+      }),
+    ).resolves.toEqual({
+      outcome: "already_published",
+      sourceId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      sourceVersionId: VERSION,
+      previousVersionId: null,
+    });
+
+    const refused = recordingSql(async () => {
+      const err = Object.assign(new Error("denied"), { code: "42501" });
+      throw err;
+    });
+    const apiRefused = createPublishJobApi({ openSql: () => refused.sql })!;
+    await expect(
+      apiRefused.publishVersion({
+        credential: TOKEN,
+        jobId: JOB,
+        leaseToken: "t",
+        fence: 1,
+        sourceVersionId: VERSION,
+        indexGeneration: 1,
+      }),
+    ).resolves.toEqual({ outcome: "refused" });
   });
 });
