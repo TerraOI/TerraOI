@@ -1,6 +1,6 @@
 # T-313 Budgets and rate limits (F19) and the run audit (F22)
 
-Lane: 2 · Week: 3 · Protected: yes (`supabase/migrations/`, `src/platform/gateway/` reservation seam) · Depends on: T-115 (a–d merged as #31/#53/#56/#58; b carries the F19 metering), T-104 (open as #178; its migration creates `agent_runs`), T-215 (not started), T-111 (merged) · Status: in progress (wyuinline) — **PR-1** #255 `budget_ledger` + MeterPort; **PR-2** #256 free-tier metering; **PR-3** (this branch) concurrent-run cap + per-user burst pgTAP/unit evidence; F22 waits for #178
+Lane: 2 · Week: 3 · Protected: yes (`supabase/migrations/`, `src/platform/gateway/` reservation seam) · Depends on: T-115 (a–d merged as #31/#53/#56/#58; b carries the F19 metering), T-104 (open as #178; its migration creates `agent_runs`), T-215 (not started), T-111 (merged) · Status: in progress (wyuinline) — **PR-1** #255; **PR-2** #256 free-tier; **PR-3** #257 concurrent/burst; **PR-4** (this branch) ambiguous timeout keeps liability + retry as new attempt; F22 waits for #178
 Decided (rulings below): [#45](https://github.com/TerraOI/TerraOI/issues/45), [#68](https://github.com/TerraOI/TerraOI/issues/68) (the stage idempotency key the contract names does not exist), [#46](https://github.com/TerraOI/TerraOI/issues/46) (no `verify` adapter, so verify spend is unreachable today)
 Plan refs: §12.3 (budget authority and M1 scope), §17.1 (audit, chain observability), §16 (Budget/provider row), §14 ("no admitted budget reservations exceeding the ceiling"), §9.4, §15.0, §18.3; F19, F22 (callers F20 = F31 + F38)
 

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createTenantContext, type TenantContext } from "@/contracts/tenant-context";
 import type { FetchImpl } from "@/platform/tenancy/tenant-rpc";
 
-import { createReviewRpcClient, SAFE_REVIEW_RPC_MESSAGE } from "./review-rpc";
+import { createReviewRpcClient, RESTRICTED_RECLASS_MESSAGE, SAFE_REVIEW_RPC_MESSAGE } from "./review-rpc";
 
 const ORG_A = "11111111-1111-4111-8111-111111111111";
 const ORG_B = "22222222-2222-4222-8222-222222222222";
@@ -11,6 +11,8 @@ const USER = "00000000-0000-4000-8000-0000000000a1";
 const VERSION = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1";
 const SOURCE = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb1";
 const DECISION_ID = "cccccccc-cccc-4ccc-8ccc-ccccccccccc1";
+const COLLECTION = "dddddddd-dddd-4ddd-8ddd-ddddddddddd1";
+const AUDIT_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1";
 const TOKEN = "eyJhbGciOiJFUzI1NiJ9.eyJzdWIiOiJ1In0.sig";
 
 function context(organisationId: string): TenantContext {
@@ -123,6 +125,91 @@ describe("createReviewRpcClient", () => {
       accessToken: TOKEN,
       sourceVersionId: VERSION,
       decision: "approve",
+    });
+    expect(refused).toEqual({ ok: false, kind: "tenancy", message: SAFE_REVIEW_RPC_MESSAGE.tenancy });
+    expect(JSON.stringify(refused)).not.toContain("not permitted");
+  });
+
+  it("reclassCollection posts through withTenantRpc with context org and never a body org", async () => {
+    const t = recordingFetch(200, AUDIT_ID);
+    const client = createReviewRpcClient({
+      postgrestBaseUrl: "https://postgrest.test",
+      fetchImpl: t.fetchImpl,
+    });
+    const outcome = await client.reclassCollection({
+      context: context(ORG_A),
+      accessToken: TOKEN,
+      collectionId: COLLECTION,
+      newDataClass: "internal",
+    });
+    expect(outcome).toEqual({ ok: true, id: AUDIT_ID });
+    expect(t.calls).toHaveLength(1);
+    expect(t.calls[0]?.url).toContain("/rpc/review_reclass_v1");
+    const body = JSON.parse(String(t.calls[0]?.init?.body));
+    expect(body.p_organisation_id).toBe(ORG_A);
+    expect(body.p_collection_id).toBe(COLLECTION);
+    expect(body.p_new_data_class).toBe("internal");
+    expect(body).not.toHaveProperty("organisation_id");
+    // A second call with a different context must not reuse the first org.
+    const t2 = recordingFetch(200, AUDIT_ID);
+    const client2 = createReviewRpcClient({
+      postgrestBaseUrl: "https://postgrest.test",
+      fetchImpl: t2.fetchImpl,
+    });
+    await client2.reclassCollection({
+      context: context(ORG_B),
+      accessToken: TOKEN,
+      collectionId: COLLECTION,
+      newDataClass: "client_confidential",
+    });
+    const body2 = JSON.parse(String(t2.calls[0]?.init?.body));
+    expect(body2.p_organisation_id).toBe(ORG_B);
+    expect(body2.p_new_data_class).toBe("client_confidential");
+  });
+
+  it("reclassCollection validates uuid and data class; refuses restricted at the client", async () => {
+    const t = recordingFetch(200, AUDIT_ID);
+    const client = createReviewRpcClient({
+      postgrestBaseUrl: "https://postgrest.test",
+      fetchImpl: t.fetchImpl,
+    });
+    const badId = await client.reclassCollection({
+      context: context(ORG_A),
+      accessToken: TOKEN,
+      collectionId: "not-a-uuid",
+      newDataClass: "internal",
+    });
+    expect(badId).toEqual({ ok: false, kind: "validation", message: SAFE_REVIEW_RPC_MESSAGE.validation });
+    expect(t.calls).toHaveLength(0);
+
+    const badClass = await client.reclassCollection({
+      context: context(ORG_A),
+      accessToken: TOKEN,
+      collectionId: COLLECTION,
+      newDataClass: "secret",
+    });
+    expect(badClass).toEqual({ ok: false, kind: "validation", message: SAFE_REVIEW_RPC_MESSAGE.validation });
+    expect(t.calls).toHaveLength(0);
+
+    const restricted = await client.reclassCollection({
+      context: context(ORG_A),
+      accessToken: TOKEN,
+      collectionId: COLLECTION,
+      newDataClass: "restricted",
+    });
+    expect(restricted).toEqual({ ok: false, kind: "validation", message: RESTRICTED_RECLASS_MESSAGE });
+    expect(t.calls).toHaveLength(0);
+
+    const tenancy = recordingFetch(401, { code: "42501", message: "not permitted to reclass knowledge" });
+    const clientTenancy = createReviewRpcClient({
+      postgrestBaseUrl: "https://postgrest.test",
+      fetchImpl: tenancy.fetchImpl,
+    });
+    const refused = await clientTenancy.reclassCollection({
+      context: context(ORG_A),
+      accessToken: TOKEN,
+      collectionId: COLLECTION,
+      newDataClass: "public",
     });
     expect(refused).toEqual({ ok: false, kind: "tenancy", message: SAFE_REVIEW_RPC_MESSAGE.tenancy });
     expect(JSON.stringify(refused)).not.toContain("not permitted");

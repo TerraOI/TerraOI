@@ -2,7 +2,7 @@ import type { ReviewDeps } from "./review-handlers";
 import { SAFE_REVIEW_MESSAGES } from "./review-handlers";
 
 /**
- * Wiring seam for the review routes (FAQ-0005).
+ * Wiring seam for the review routes (FAQ-0005) — decision, publish, revoke, and reclass.
  *
  * Nothing is wired yet, deliberately. The review RPCs need the signed-in user's access token so
  * `withTenantRpc` dials PostgREST as that user (FAQ-0011 / ADR-0003 §7). How a Worker carries that

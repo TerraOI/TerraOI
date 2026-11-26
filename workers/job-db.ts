@@ -283,6 +283,55 @@ export function createJobApi(deps: JobDbDeps): JobApiPort | null {
   };
 }
 
+export type DispatchOutboxResult = {
+  processed: number;
+  enqueued: number;
+  skipped: number;
+};
+
+/**
+ * Drain pending `extract_succeeded` outbox rows into index-stage jobs (#99 stage key).
+ * Separate from `JobApiPort` — the pull loop never calls this; the cron does.
+ */
+export async function dispatchOutboxEvents(
+  deps: JobDbDeps,
+  args: { credential: string; limit?: number },
+): Promise<DispatchOutboxResult | null> {
+  const open: (() => JobSql) | null =
+    deps.openSql ?? (deps.binding ? () => openFromBinding(deps.binding as JobDbBinding) : null);
+  if (open === null) return null;
+
+  const tokenHash = digestOf(args.credential);
+  const limit = args.limit ?? 32;
+  const sql = open();
+  try {
+    const rows = await sql<{
+      o_processed: number;
+      o_enqueued: number;
+      o_skipped: number;
+    }>`
+      select o_processed, o_enqueued, o_skipped
+        from job_api.dispatch_outbox_v1(${tokenHash}, ${limit})
+    `;
+    const row = rows[0];
+    if (
+      !row ||
+      typeof row.o_processed !== "number" ||
+      typeof row.o_enqueued !== "number" ||
+      typeof row.o_skipped !== "number"
+    ) {
+      return { processed: 0, enqueued: 0, skipped: 0 };
+    }
+    return {
+      processed: row.o_processed,
+      enqueued: row.o_enqueued,
+      skipped: row.o_skipped,
+    };
+  } finally {
+    await sql.end({ timeout: 5 });
+  }
+}
+
 /**
  * Lease compare using a credential **hash** already computed by the app Worker (#170).
  * The service-binding hop must not carry the raw token; this is the only SQL entry that
