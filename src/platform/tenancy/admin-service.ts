@@ -183,6 +183,7 @@ function statusForRpcFailure(kind: AdminRpcFailureKind): number {
     case "constraint":
     case "rejected":
     case "last_admin":
+    case "target_inactive":
       return 409;
     case "tenancy":
       return 403;
