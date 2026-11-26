@@ -569,6 +569,38 @@ isOneToOne: false
       referencedColumns: ["id","organisation_id"]
     }
                   ]
+                },"knowledge_reclass_audits": {
+                  Row: {
+                    "artifacts_raised": number,"chunks_raised": number,"collection_id": string,"decided_at": string,"embeddings_removed": number,"id": string,"new_data_class": string,"old_data_class": string,"organisation_id": string,"reviewer_user_id": string,"versions_raised": number
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "artifacts_raised": number,"chunks_raised": number,"collection_id": string,"decided_at"?: string,"embeddings_removed": number,"id"?: string,"new_data_class": string,"old_data_class": string,"organisation_id": string,"reviewer_user_id": string,"versions_raised": number
+                  }
+                  Update: {
+                    "artifacts_raised"?: number,"chunks_raised"?: number,"collection_id"?: string,"decided_at"?: string,"embeddings_removed"?: number,"id"?: string,"new_data_class"?: string,"old_data_class"?: string,"organisation_id"?: string,"reviewer_user_id"?: string,"versions_raised"?: number
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "knowledge_reclass_audits_collection_fk"
+      columns: ["collection_id","organisation_id"]
+isOneToOne: false
+      referencedRelation: "knowledge_collections"
+      referencedColumns: ["id","organisation_id"]
+    },{
+      foreignKeyName: "knowledge_reclass_audits_organisation_fk"
+      columns: ["organisation_id"]
+isOneToOne: false
+      referencedRelation: "organisations"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "knowledge_reclass_audits_reviewer_user_id_fkey"
+      columns: ["reviewer_user_id"]
+isOneToOne: false
+      referencedRelation: "profiles"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"knowledge_review_decisions": {
                   Row: {
                     "decided_at": string,"decision": string,"id": string,"organisation_id": string,"reason": string | null,"reviewer_user_id": string,"source_version_id": string
@@ -1443,6 +1475,9 @@ isOneToOne: false
                            },
 "review_eval_case_v1":
 { Args: { "p_case_id": string,"p_decision": string,"p_edits": Json,"p_organisation_id": string }; Returns: undefined
+                           },
+"review_reclass_v1":
+{ Args: { "p_collection_id": string,"p_new_data_class": string,"p_organisation_id": string }; Returns: string
                            },
 "revoke_membership_role_v1":
 { Args: { "p_organisation_id": string,"p_role_id": string,"p_user_id": string }; Returns: undefined
