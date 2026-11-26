@@ -9,10 +9,11 @@ import {
 /**
  * T-314 PR-2: F37 scheduled health pass + observation sink (plan §12.4 (b), §17.1, F37).
  *
- * Persistence of `provider_health` rows is owned by T-116's table and a server-path write function
- * (#45 / #134). Until that writer is wired over `CONFIG_DB`, observations land on an injected sink
- * (in-memory in tests, Worker-side later). Circuit / unhealthy state that chain walking reads stays
- * on `CircuitBook` for the life of the isolate — same assumption #45 confirmed for M1.
+ * Persistence of `provider_health` rows: T-116 owns the table; T-314 owns
+ * `gateway_config.record_provider_health_v1` (#134). Tests use `InMemoryHealthObservationSink` or
+ * `createPersistingHealthObservationSink`; production wires the latter over CONFIG_DB as
+ * `toi_gateway_config`. Circuit / unhealthy state that chain walking reads stays on `CircuitBook`
+ * for the life of the isolate (#45).
  */
 
 export type HealthStatus =

@@ -16,7 +16,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(40);
+select plan(41);
 
 -- ---------------------------------------------------------------- 1-15 anon executes nothing here
 -- §12.4/§4.1: knowledge is behind sign-in. The tenancy host resolver is the only `public` function
@@ -251,17 +251,18 @@ $$, '32 no function in public is executable by authenticated beyond the named al
 -- pending), `intake` (pilot inquiries, granted only to `inquiry_writer`), `job_api` (the T-211 job
 -- API, granted only to `toi_job_api` — the extension #134 asked for, added here rather than asserted
 -- only inside 045 because this suite is the one that carries function privileges; 045 pins the
--- behaviour and the worker role's own reach), and `toi_control` (T-304 / #193; includes
--- provider_switch_state_v1 per #199).
+-- behaviour and the worker role's own reach), `toi_control` (T-304 / #193; includes
+-- provider_switch_state_v1 per #199), and `gateway_config` (T-314 F37 health writer for
+-- `toi_gateway_config` over CONFIG_DB, #134).
 select is_empty($$
   select n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')' as function
     from pg_proc p
     join pg_namespace n on n.oid = p.pronamespace
-   where n.nspname in ('toi_identity', 'intake', 'job_api', 'toi_control', 'budget_ledger')
+   where n.nspname in ('toi_identity', 'intake', 'job_api', 'toi_control', 'budget_ledger', 'gateway_config')
      and p.prokind = 'f'
      and (has_function_privilege('anon', p.oid, 'EXECUTE')
           or has_function_privilege('authenticated', p.oid, 'EXECUTE'))
-$$, '33 neither anon nor authenticated can execute anything in toi_identity, intake, job_api, toi_control or budget_ledger (§4.3, #134)');
+$$, '33 neither anon nor authenticated can execute anything in toi_identity, intake, job_api, toi_control, budget_ledger or gateway_config (§4.3, #134)');
 
 -- ---------------------------------------------------------------- 34-38 Addition 1: measured, not assumed
 -- The ruling asked for a source-level closure: `alter default privileges … revoke execute on
@@ -363,6 +364,12 @@ select ok((select count(*) >= 11 from pg_proc p
   where n.nspname = 'job_api'),
   '40 job_api really holds the eleven functions #134 ruled for, so 33 matched live objects and a '
   || 'twelfth added without its revoke fails 33 rather than being invisible to it');
+
+select ok((select count(*) >= 1 from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'gateway_config'),
+  '41 gateway_config holds the F37 health writer (T-314), so 33 matched a live object there too '
+  || 'and a second function added without its revoke fails 33 rather than being invisible to it');
 
 select * from finish();
 rollback;
