@@ -6,6 +6,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 
 import { MAX_UPLOAD_BYTES } from "@/platform/knowledge/object-validator";
 
+import { createFixedBoxExtractor, asPullLoopExtractor, resolveBoxExtractor } from "./box-extractor";
 import {
   createBoxWorkerDeps,
   JobApiTransportError,
@@ -397,6 +398,36 @@ describe("localbox/ocr-pull.ts — the tenant box (plan §13, F32, ADR-0011)", (
     );
     expect(outcome).toEqual({ action: "aborted", reason: "unsupported_document" });
     expect(seenJobApiCalls.some((call) => call.path === "/api/jobs/abort")).toBe(true);
+  });
+
+  it("the default BoxExtractorPort (OCR_COMMAND unbound) aborts after download, never completes empty", async () => {
+    const deps = createBoxWorkerDeps({
+      env: {
+        TOI_JOB_API_BASE_URL: jobApiOrigin,
+        TOI_WORKER_TOKEN: WORKER_TOKEN,
+      },
+      extractor: resolveBoxExtractor({ commandFromEnv: () => undefined }),
+    });
+    const outcome = await runBoxPullIteration(deps);
+    expect(outcome).toEqual({ action: "aborted", reason: "unsupported_document" });
+    expect(seenObjectCalls).toHaveLength(1);
+    expect(seenJobApiCalls.some((call) => call.path === "/api/jobs/complete")).toBe(false);
+    const abort = seenJobApiCalls.find((call) => call.path === "/api/jobs/abort")!;
+    expect(abort.body["reason"]).toBe("unsupported_document");
+  });
+
+  it("a bound fixed BoxExtractorPort completes with artifacts through the pull loop", async () => {
+    const deps = createBoxWorkerDeps({
+      env: {
+        TOI_JOB_API_BASE_URL: jobApiOrigin,
+        TOI_WORKER_TOKEN: WORKER_TOKEN,
+      },
+      extractor: asPullLoopExtractor(createFixedBoxExtractor({ ok: true, artifacts: ONE_ARTIFACT })),
+    });
+    const outcome = await runBoxPullIteration(deps);
+    expect(outcome).toEqual({ action: "completed", artifactCount: 1 });
+    const complete = seenJobApiCalls.find((call) => call.path === "/api/jobs/complete")!;
+    expect(complete.body["artifacts"]).toEqual(ONE_ARTIFACT);
   });
 
   it("nothing the box emits can carry the credential, the URL, or the object it read", async () => {
