@@ -100,6 +100,8 @@ create policy knowledge_submissions_author_read on public.knowledge_submissions
 -- Reviewers can see open proposals in collections they can read.
 -- Permission is inlined (same predicate as user_may_review_knowledge): that helper is revoked from
 -- authenticated, and RLS expressions run as the request role, so a call would 42501 (#60).
+-- FAQ-0015 (owner ruling on #267): knowledge.review at write|admin, or knowledge.admin at admin.
+-- knowledge.write alone is capture, never review (FAQ-0006), so a contributor sees only their own.
 create policy knowledge_submissions_reviewer_read on public.knowledge_submissions
   for select to authenticated
   using (
@@ -114,8 +116,8 @@ create policy knowledge_submissions_reviewer_read on public.knowledge_submission
         join public.role_permissions rp
           on rp.role_id = mr.role_id
          and rp.organisation_id = m.organisation_id
-         and rp.area in ('knowledge.write', 'knowledge.admin')
-         and rp.level in ('write', 'admin')
+         and (   (rp.area = 'knowledge.review' and rp.level in ('write', 'admin'))
+              or (rp.area = 'knowledge.admin' and rp.level = 'admin'))
        where m.organisation_id = knowledge_submissions.organisation_id
          and m.user_id = auth.uid()
          and m.status = 'active'

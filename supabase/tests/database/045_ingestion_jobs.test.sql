@@ -26,11 +26,11 @@ create extension if not exists pgtap with schema extensions;
 
 -- Each pgTAP file is its own `begin; … rollback;`, and `supabase test db` runs the directory in file
 -- name order (000 → 045 → 050), so this file sees the seed and every earlier file's rollback.
--- `plan(154)` equals the number of assertions this file executes: 154 numbered messages, 1..154, each
+-- `plan(164)` equals the number of assertions this file executes: 164 numbered messages, 1..164, each
 -- one top-level assertion statement. Verified mechanically against the file before pushing; #143's
 -- review was the plan-count trap, and `is(have, want)` is the argument order used here. 134-139 are
 -- the #152 byte-path policy; 140-154 are Round-1 B1–B3 / N1 on #149.
-select plan(154);
+select plan(164);
 
 -- ---------------------------------------------------------------- helpers
 create function pg_temp.syn_hash(p_seed text) returns text
@@ -1279,6 +1279,69 @@ select is((select outcome || '/' || (select status || '/' || lease_fence::text f
              from t_act where case_name = 'b3_cross_tenant'),
   'refused/leased/' || (select fence::text from t_lease where n = 15),
   '154 Round-1 B3: company1 cloud credential presenting company2''s live token+fence is refused; c2 row unchanged');
+
+-- ================================================================ 155-164 outbox dispatcher
+-- (#99 stage key; extract_succeeded → index enqueue)
+create function pg_temp.try_dispatch(p_hash text, p_limit integer) returns text
+language plpgsql security invoker as $fn$
+begin
+  begin
+    perform o_processed from job_api.dispatch_outbox_v1(p_hash, p_limit);
+    return 'ok';
+  exception when others then
+    return sqlstate::text;
+  end;
+end;
+$fn$;
+
+select is(pg_temp.try_dispatch(pg_temp.syn_hash('box-c1'), 32), '42501',
+  '155 a local_box credential cannot dispatch: index is cloud-only and the compare refuses the box '
+  || '(#99, ingestion_jobs_local_box_runs_only_extract)');
+select is(pg_temp.try_dispatch(pg_temp.syn_hash('box-revoked'), 32), '42501',
+  '156 a revoked digest is refused the same way — no existence signal beyond 42501');
+select is(pg_temp.try_dispatch(pg_temp.syn_hash('unknown-worker'), 32), '42501',
+  '157 and an unknown digest matches nothing either');
+
+-- Three company1 extract completions write pending extract_succeeded rows earlier in this file
+-- (a5 / complete_cloud, complete_cc, complete_cc_cloud). The dispatcher drains all of them.
+select is((select o_processed::text || '/' || o_enqueued::text || '/' || o_skipped::text
+             from job_api.dispatch_outbox_v1(pg_temp.syn_hash('cloud-c1'), 32)),
+  '3/3/0',
+  '158 cloud-c1 drains every pending extract_succeeded for its tenants and enqueues index jobs');
+select is((select count(*)::text from public.ingestion_jobs
+            where organisation_id = '11111111-1111-4111-8111-111111111111'
+              and source_version_id = '71000000-0000-4000-8000-000000000009'
+              and stage = 'index' and parser_generation = 't211e' and index_generation = 1
+              and executor = 'cloud_worker' and status = 'queued'), '1',
+  '159 the a5 index row carries generations copied from the extract job, never from the outbox payload');
+select ok((select processed_at is not null from public.outbox_events
+            where aggregate_id = '95000000-0000-4000-8000-0000000000a5'
+              and event_type = 'knowledge.ingestion_job.extract_succeeded'),
+  '160 and a5''s outbox row is marked processed_at in the same call');
+
+select is((select o_processed::text || '/' || o_enqueued::text || '/' || o_skipped::text
+             from job_api.dispatch_outbox_v1(pg_temp.syn_hash('cloud-c1'), 32)),
+  '0/0/0',
+  '161 a second dispatch finds nothing pending');
+
+-- Re-open the same event and re-dispatch: stage key turns the second enqueue into a skip.
+update public.outbox_events
+   set processed_at = null
+ where aggregate_id = '95000000-0000-4000-8000-0000000000a5'
+   and event_type = 'knowledge.ingestion_job.extract_succeeded';
+select is((select o_processed::text || '/' || o_enqueued::text || '/' || o_skipped::text
+             from job_api.dispatch_outbox_v1(pg_temp.syn_hash('cloud-c1'), 32)),
+  '1/0/1',
+  '162 duplicate delivery re-marks the event and skips the enqueue — stage key is the idempotency (#99)');
+select is((select count(*)::text from public.ingestion_jobs
+            where organisation_id = '11111111-1111-4111-8111-111111111111'
+              and source_version_id = '71000000-0000-4000-8000-000000000009'
+              and stage = 'index' and parser_generation = 't211e' and index_generation = 1), '1',
+  '163 still exactly one index job row after the replay');
+
+select is(has_function_privilege('toi_job_api',
+           'job_api.dispatch_outbox_v1(text, integer)', 'execute'), true,
+  '164 toi_job_api alone executes dispatch_outbox_v1; request roles stay shut (FAQ-0010 / #134)');
 
 select * from finish();
 rollback;

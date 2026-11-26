@@ -1,16 +1,20 @@
 import { z } from "zod";
 
 import type { TenantContext } from "@/contracts/tenant-context";
-import type { TenantFailureReason, TenantResolution } from "@/platform/tenancy/resolve-tenant-context";
+import type {
+  TenantFailureReason,
+  TenantResolution,
+} from "@/platform/tenancy/resolve-tenant-context";
 
 import {
+  MAX_REVIEW_REASON_CHARS,
   SAFE_REVIEW_RPC_MESSAGE,
   type ReviewRpcClient,
   type ReviewRpcFailureKind,
 } from "./review-rpc";
 
 /**
- * HTTP handlers for T-213 review/publish/revoke (F13/F14, plan §7.2 steps 7–9, FAQ-0005).
+ * HTTP handlers for T-213 review/publish/revoke/reclass (F13/F14/#21, plan §7.2 steps 7–9, FAQ-0005).
  *
  * Tenant and actor come only from `resolveContext` + the signed-in access token. Request bodies
  * never carry an organisation id. Routes stay thin; adapters may leave deps unbound (503) until
@@ -18,15 +22,22 @@ import {
  */
 
 const UUID = z.uuid();
-const DecisionBody = z.object({
+// Strict: a body that names an organisation (or anything else) is refused, not silently stripped.
+const Reason = z.string().trim().min(1).max(MAX_REVIEW_REASON_CHARS);
+const DecisionBody = z.strictObject({
   sourceVersionId: UUID,
   decision: z.enum(["approve", "reject"]),
-  reason: z.string().trim().min(1).max(2000).optional(),
+  reason: Reason.optional(),
 });
-const PublishBody = z.object({ sourceVersionId: UUID });
-const RevokeBody = z.object({
+const PublishBody = z.strictObject({ sourceVersionId: UUID });
+const RevokeBody = z.strictObject({
   sourceId: UUID,
-  reason: z.string().trim().min(1).max(2000).optional(),
+  reason: Reason.optional(),
+});
+/** Handler accepts the four data-class strings; the RPC client refuses `restricted` with the SQL message. */
+const ReclassBody = z.object({
+  collectionId: UUID,
+  newDataClass: z.enum(["public", "internal", "client_confidential", "restricted"]),
 });
 
 const MAX_REQUEST_BODY_BYTES = 8_192;
@@ -41,7 +52,8 @@ export const SAFE_REVIEW_MESSAGES: Record<string, string> = {
   payload_too_large: "That request is too large.",
   invalid_request: "Check the fields and try again.",
   internal_error: "The service is temporarily unavailable. Please try again.",
-  review_unavailable: "The service is temporarily unavailable. Please try again.",
+  review_unavailable:
+    "The service is temporarily unavailable. Please try again.",
 };
 
 export interface ReviewDeps {
@@ -74,14 +86,27 @@ const FAILURE_STATUS: Record<ReviewRpcFailureKind, number> = {
   not_configured: 503,
 };
 
-function reply(status: number, code: string, extra?: Record<string, unknown>): Response {
+function reply(
+  status: number,
+  code: string,
+  extra?: Record<string, unknown>,
+): Response {
   const body =
     extra === undefined
-      ? { error: { code, message: SAFE_REVIEW_MESSAGES[code] ?? SAFE_REVIEW_MESSAGES.internal_error } }
+      ? {
+          error: {
+            code,
+            message:
+              SAFE_REVIEW_MESSAGES[code] ?? SAFE_REVIEW_MESSAGES.internal_error,
+          },
+        }
       : extra;
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "content-type": "application/json", "cache-control": "no-store" },
+    headers: {
+      "content-type": "application/json",
+      "cache-control": "no-store",
+    },
   });
 }
 
@@ -91,7 +116,9 @@ function contextFailure(reason: TenantFailureReason): Response {
       ? "unauthorized"
       : reason === "backend_failure"
         ? "internal_error"
-        : reason === "not_a_member" || reason === "membership_not_active" || reason === "tenant_not_live"
+        : reason === "not_a_member" ||
+            reason === "membership_not_active" ||
+            reason === "tenant_not_live"
           ? "forbidden"
           : "not_found";
   return reply(CONTEXT_STATUS[reason], code);
@@ -108,7 +135,9 @@ function originMismatch(request: Request): boolean {
 }
 
 function isJson(contentType: string | null): boolean {
-  return contentType?.split(";")[0]?.trim().toLowerCase() === "application/json";
+  return (
+    contentType?.split(";")[0]?.trim().toLowerCase() === "application/json"
+  );
 }
 
 async function readJsonBody(
@@ -122,7 +151,8 @@ async function readJsonBody(
     return { ok: false, response: reply(413, "payload_too_large") };
   }
   const text = await request.text();
-  if (text.length > MAX_REQUEST_BODY_BYTES) return { ok: false, response: reply(413, "payload_too_large") };
+  if (text.length > MAX_REQUEST_BODY_BYTES)
+    return { ok: false, response: reply(413, "payload_too_large") };
   try {
     return { ok: true, value: JSON.parse(text) };
   } catch {
@@ -133,10 +163,15 @@ async function readJsonBody(
 async function gate(
   request: Request,
   deps: ReviewDeps,
-): Promise<{ ok: true; context: TenantContext; token: string } | { ok: false; response: Response }> {
+): Promise<
+  | { ok: true; context: TenantContext; token: string }
+  | { ok: false; response: Response }
+> {
   const resolution = await deps.resolveContext(request);
-  if (!resolution.ok) return { ok: false, response: contextFailure(resolution.reason) };
-  if (originMismatch(request)) return { ok: false, response: reply(403, "origin_mismatch") };
+  if (!resolution.ok)
+    return { ok: false, response: contextFailure(resolution.reason) };
+  if (originMismatch(request))
+    return { ok: false, response: reply(403, "origin_mismatch") };
   const token = await deps.accessToken(request);
   if (token === null || token.trim().length === 0) {
     return { ok: false, response: reply(401, "unauthorized") };
@@ -150,7 +185,10 @@ function mapRpcFailure(kind: ReviewRpcFailureKind, message: string): Response {
   });
 }
 
-export async function handleReviewDecision(request: Request, deps: ReviewDeps): Promise<Response> {
+export async function handleReviewDecision(
+  request: Request,
+  deps: ReviewDeps,
+): Promise<Response> {
   const gated = await gate(request, deps);
   if (!gated.ok) return gated.response;
   const body = await readJsonBody(request);
@@ -169,7 +207,10 @@ export async function handleReviewDecision(request: Request, deps: ReviewDeps): 
   return reply(200, "ok", { decisionId: outcome.id });
 }
 
-export async function handlePublishKnowledgeVersion(request: Request, deps: ReviewDeps): Promise<Response> {
+export async function handlePublishKnowledgeVersion(
+  request: Request,
+  deps: ReviewDeps,
+): Promise<Response> {
   const gated = await gate(request, deps);
   if (!gated.ok) return gated.response;
   const body = await readJsonBody(request);
@@ -186,7 +227,10 @@ export async function handlePublishKnowledgeVersion(request: Request, deps: Revi
   return reply(200, "ok", { sourceVersionId: outcome.id });
 }
 
-export async function handleRevokeSource(request: Request, deps: ReviewDeps): Promise<Response> {
+export async function handleRevokeSource(
+  request: Request,
+  deps: ReviewDeps,
+): Promise<Response> {
   const gated = await gate(request, deps);
   if (!gated.ok) return gated.response;
   const body = await readJsonBody(request);
@@ -202,4 +246,22 @@ export async function handleRevokeSource(request: Request, deps: ReviewDeps): Pr
   });
   if (!outcome.ok) return mapRpcFailure(outcome.kind, outcome.message);
   return reply(200, "ok", { ok: true });
+}
+
+export async function handleReclassCollection(request: Request, deps: ReviewDeps): Promise<Response> {
+  const gated = await gate(request, deps);
+  if (!gated.ok) return gated.response;
+  const body = await readJsonBody(request);
+  if (!body.ok) return body.response;
+  const parsed = ReclassBody.safeParse(body.value);
+  if (!parsed.success) return reply(400, "invalid_request");
+
+  const outcome = await deps.client.reclassCollection({
+    context: gated.context,
+    accessToken: gated.token,
+    collectionId: parsed.data.collectionId,
+    newDataClass: parsed.data.newDataClass,
+  });
+  if (!outcome.ok) return mapRpcFailure(outcome.kind, outcome.message);
+  return reply(200, "ok", { auditId: outcome.id });
 }
