@@ -39,6 +39,10 @@ pnpm exec vitest run src/platform/budgets src/platform/audit
 
 Unit and pgTAP suites prove the SQL authority and MeterPort / F22 writers. They do not replace the OWNER Hyperdrive smoke.
 
+## Code half (agent)
+
+`src/platform/budgets/ledger-sql.ts` — `createBudgetLedgerExecFromSql({ binding: env.BUDGET_DB })` returns `null` when unbound (fail closed) and dials only `reserve_v1` / `reconcile_v1` when bound. Wire it into the Worker gateway deps once the OWNER binding exists.
+
 ## Out of scope
 
-Wiring the production `BudgetLedgerExec` adapter that dials `BUDGET_DB` from the Worker (code follows once the binding exists); Company1 ceiling numbers (§20.8); F22 SQL persistence into `agent_runs` (T-104 / #178).
+Company1 ceiling numbers (§20.8); F22 SQL persistence into `agent_runs` (T-104 / #178).
