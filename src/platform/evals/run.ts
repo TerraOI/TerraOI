@@ -147,6 +147,8 @@ export async function runExpertEval(input: RunExpertEvalInput): Promise<EvalRunR
 /**
  * Clearance for one eval case: tenant policy may only narrow the platform matrix.
  * An eval run never widens clearance to make a `client_confidential` case call DeepSeek/OpenRouter (§16).
+ * A `platform` override is itself narrowed against `PLATFORM_DEFAULT_CLEARANCE`, so a caller can
+ * test a stricter matrix but never a wider one (supervisor round 1 on #241).
  */
 export function clearanceForEvalCase(args: {
   dataClass: DataClass;
@@ -154,7 +156,9 @@ export function clearanceForEvalCase(args: {
   platform?: ClearanceMatrix;
 }): ClearanceMatrix {
   void args.dataClass;
-  return narrowClearance(args.tenantPolicy, args.platform ?? PLATFORM_DEFAULT_CLEARANCE);
+  const platform =
+    args.platform === undefined ? PLATFORM_DEFAULT_CLEARANCE : narrowClearance(args.platform, PLATFORM_DEFAULT_CLEARANCE);
+  return narrowClearance(args.tenantPolicy, platform);
 }
 
 function assertProvidersWithinClearance(
