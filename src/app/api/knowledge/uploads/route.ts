@@ -1,4 +1,4 @@
-import { uploadDeps, uploadUnavailableResponse } from "@/platform/knowledge/upload-adapters";
+import { uploadDepsForRequest, uploadUnavailableResponse } from "@/platform/knowledge/upload-adapters";
 import { handleCreateUpload } from "@/platform/knowledge/upload-session";
 
 // Lane 2 HTTP surface (FAQ-0005, #11): `POST /api/knowledge/uploads` issues a bounded upload
@@ -7,8 +7,8 @@ import { handleCreateUpload } from "@/platform/knowledge/upload-session";
 
 export const dynamic = "force-dynamic";
 
-export function POST(request: Request): Promise<Response> {
-  const deps = uploadDeps();
-  if (deps === null) return Promise.resolve(uploadUnavailableResponse());
+export async function POST(request: Request): Promise<Response> {
+  const deps = await uploadDepsForRequest(request);
+  if (deps === null) return uploadUnavailableResponse();
   return handleCreateUpload(request, deps);
 }

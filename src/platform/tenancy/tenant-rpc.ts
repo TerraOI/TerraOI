@@ -94,7 +94,13 @@ export type NotConfiguredReason =
 
 export type TenantRpcFailure =
   | { ok: false; kind: "tenancy"; sqlstate: TenancySqlState }
-  | { ok: false; kind: "backend_failure"; reason: BackendFailureReason }
+  | {
+      ok: false;
+      kind: "backend_failure";
+      reason: BackendFailureReason;
+      /** Present when PostgREST returned a five-digit SQLSTATE that is not a tenancy refusal. */
+      sqlstate?: string;
+    }
   | { ok: false; kind: "not_configured"; reason: NotConfiguredReason };
 
 export type TenantRpcOutcome = { ok: true; data: unknown } | TenantRpcFailure;
@@ -227,16 +233,22 @@ export async function withTenantRpc(
   if (!response.ok) {
     // Only a failed answer is read as a diagnosis, and only for its SQLSTATE: an RPC row that happens
     // to carry a `code` column equal to a SQLSTATE must not be mistaken for a refusal.
-    const refused = tenancySqlState(asRecord(parseJson(text))?.["code"]);
+    const code = asRecord(parseJson(text))?.["code"];
+    const refused = tenancySqlState(code);
     if (refused !== undefined) {
       // The SQLSTATE is the fact, and it outranks the status: a scope refusal must never be read as
       // "no rows", whatever number PostgREST chose to answer it with.
       return { ok: false, kind: "tenancy", sqlstate: refused };
     }
+    // Non-tenancy SQLSTATEs (e.g. 23514 last-admin, 23503/23505 constraints) stay backend_failure
+    // so callers that care — T-202 admin — can map them without this helper inventing employee copy.
+    const sqlstate =
+      typeof code === "string" && /^\d{5}$/.test(code) ? code : undefined;
     return {
       ok: false,
       kind: "backend_failure",
       reason: response.status >= 500 ? "server_error" : "rejected",
+      ...(sqlstate === undefined ? {} : { sqlstate }),
     };
   }
   if (text.trim().length === 0) return { ok: true, data: null };

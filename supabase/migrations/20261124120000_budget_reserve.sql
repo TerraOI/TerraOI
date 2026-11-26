@@ -52,6 +52,10 @@ create table public.budget_reservations (
   provider_key text not null check (char_length(provider_key) between 1 and 64),
   max_units bigint not null check (max_units > 0),
   state text not null check (state in ('reserved', 'settled', 'released', 'ambiguous')),
+  -- The UTC day and month the liability was booked in. reconcile_v1 adjusts only the counters of
+  -- the period that still matches (supervisor round 1 on #255, B1).
+  day_key date not null,
+  month_key text not null check (month_key ~ '^[0-9]{4}-[0-9]{2}$'),
   created_at timestamptz not null default now(),
   reconciled_at timestamptz,
   used_units bigint check (used_units is null or used_units >= 0),
@@ -208,17 +212,35 @@ begin
     end if;
   end if;
 
+  -- Idempotent under the lock (B2): a concurrent call with the same attempt_id missed the fast-path
+  -- lookup above and queued on the account lock. The insert then finds the first row, returns its id
+  -- and books nothing, instead of raising 23505 on a retried attempt (§20.4 item 8).
   insert into public.budget_reservations (
-    organisation_id, run_id, attempt_id, user_id, task, provider_key, max_units, state
+    organisation_id, run_id, attempt_id, user_id, task, provider_key, max_units, state,
+    day_key, month_key
   ) values (
-    p_organisation_id, p_run_id, p_attempt_id, p_user_id, p_task, p_provider_key, v_max, 'reserved'
-  ) returning id into v_id;
+    p_organisation_id, p_run_id, p_attempt_id, p_user_id, p_task, p_provider_key, v_max, 'reserved',
+    v_acct.day_key, v_acct.month_key
+  )
+  on conflict (organisation_id, attempt_id) do nothing
+  returning id into v_id;
+  if v_id is null then
+    select id into v_id
+      from public.budget_reservations
+     where organisation_id = p_organisation_id
+       and attempt_id = p_attempt_id;
+    return v_id;
+  end if;
 
+  -- The settled counters are written back too: a rollover zeroes them in v_acct, and leaving them
+  -- out would carry yesterday's spend into today's ceiling (caught by 095 test 29).
   update public.budget_accounts
      set day_key = v_acct.day_key,
          day_reserved_units = v_acct.day_reserved_units + v_max,
+         day_settled_units = v_acct.day_settled_units,
          month_key = v_acct.month_key,
          month_reserved_units = v_acct.month_reserved_units + v_max,
+         month_settled_units = v_acct.month_settled_units,
          updated_at = now()
    where organisation_id = p_organisation_id;
 
@@ -239,6 +261,12 @@ set search_path = public, pg_temp
 as $fn$
 declare
   v_row public.budget_reservations%rowtype;
+  v_acct public.budget_accounts%rowtype;
+  v_day date := (timezone('utc', now()))::date;
+  v_month text := to_char(timezone('utc', now()), 'YYYY-MM');
+  v_used bigint;
+  v_same_day boolean;
+  v_same_month boolean;
 begin
   if p_organisation_id is null or nullif(btrim(p_attempt_id), '') is null or p_reservation_id is null then
     raise exception 'organisation_id, attempt_id and reservation_id are required' using errcode = '22023';
@@ -270,17 +298,47 @@ begin
          end
    where id = v_row.id;
 
+  v_used := case when p_outcome = 'released' then 0 else coalesce(p_used_units, v_row.max_units) end;
+
+  -- B1: lock the account and apply the same rollover reserve_v1 does, then adjust only the counters
+  -- of the period the reservation was booked in, if that period is still current. A reservation from a
+  -- past day (or month) touches no current counter: its liability expired with that period, and its
+  -- spend belongs to that period, not to today's.
+  select * into v_acct
+    from public.budget_accounts
+   where organisation_id = p_organisation_id
+   for update;
+  if not found then
+    raise exception 'budget account unavailable' using errcode = 'P0001';
+  end if;
+  if v_acct.day_key <> v_day then
+    v_acct.day_key := v_day;
+    v_acct.day_reserved_units := 0;
+    v_acct.day_settled_units := 0;
+  end if;
+  if v_acct.month_key <> v_month then
+    v_acct.month_key := v_month;
+    v_acct.month_reserved_units := 0;
+    v_acct.month_settled_units := 0;
+  end if;
+  v_same_day := v_row.day_key = v_acct.day_key;
+  v_same_month := v_row.month_key = v_acct.month_key;
+
   update public.budget_accounts
-     set day_reserved_units = greatest(0, day_reserved_units - v_row.max_units),
-         month_reserved_units = greatest(0, month_reserved_units - v_row.max_units),
-         day_settled_units = day_settled_units + case
-           when p_outcome = 'released' then 0
-           else coalesce(p_used_units, v_row.max_units)
-         end,
-         month_settled_units = month_settled_units + case
-           when p_outcome = 'released' then 0
-           else coalesce(p_used_units, v_row.max_units)
-         end,
+     set day_key = v_acct.day_key,
+         month_key = v_acct.month_key,
+         day_reserved_units = case when v_same_day
+           then greatest(0, v_acct.day_reserved_units - v_row.max_units)
+           else v_acct.day_reserved_units end,
+         day_settled_units = case when v_same_day
+           then v_acct.day_settled_units + v_used
+           else v_acct.day_settled_units end,
+         month_reserved_units = case when v_same_month
+           then greatest(0, v_acct.month_reserved_units - v_row.max_units)
+           else v_acct.month_reserved_units end,
+         month_settled_units = case when v_same_month
+           then v_acct.month_settled_units + v_used
+           else v_acct.month_settled_units end,
          updated_at = now()
    where organisation_id = p_organisation_id;
 end;
