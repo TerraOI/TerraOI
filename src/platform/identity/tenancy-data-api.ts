@@ -105,7 +105,10 @@ function firstRow(payload: unknown): unknown | undefined {
 }
 
 export function createTenancyDataApi(options: TenancyDataApiOptions): TenancyDataApi {
-  const base = options.supabaseUrl.replace(/\/+$/, "");
+  // PostgREST lives under `/rest/v1` of the project URL (R-5): `SUPABASE_URL` is the project root —
+  // the same value Auth REST is reached under at `/auth/v1` — so the RPC base is derived, not assumed.
+  const root = options.supabaseUrl.replace(/\/+$/, "");
+  const base = root.length === 0 || root.endsWith("/rest/v1") ? root : `${root}/rest/v1`;
   const fetchImpl: TenancyFetch = options.fetchImpl ?? ((fetch as unknown) as TenancyFetch);
 
   /** One POST to one named RPC. The tenant argument is assembled here and nowhere else. */

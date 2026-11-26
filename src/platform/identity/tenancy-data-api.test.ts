@@ -49,7 +49,7 @@ describe("the membership read is an RPC, not a table select", () => {
     const found = await api.findMembership(ORG, TOKEN);
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]?.url).toBe(`${BASE}/rpc/current_membership_v1`);
+    expect(calls[0]?.url).toBe(`${BASE}/rest/v1/rpc/current_membership_v1`);
     expect(calls[0]?.method).toBe("POST");
     // The body names the tenant and nothing else: there is no key that could ask for another user's
     // membership, which is what the direct table read made possible.
@@ -106,7 +106,7 @@ describe("the policy revision read is scoped RPC per FAQ-0011", () => {
     const { api, calls } = harness(json(true, 200, "3"));
     const revision = await api.policyRevision(ORG, TOKEN);
 
-    expect(calls[0]?.url).toBe(`${BASE}/rpc/current_policy_revision_v1`);
+    expect(calls[0]?.url).toBe(`${BASE}/rest/v1/rpc/current_policy_revision_v1`);
     expect(JSON.parse(String(calls[0]?.body))).toEqual({ p_organisation_id: ORG });
     expect(revision).toBe(3);
   });
@@ -133,7 +133,7 @@ describe("the host read stays on its anon RPC", () => {
 
     const host = await api.findHost("company1.terraoi.app");
 
-    expect(calls[0]?.url).toBe(`${BASE}/rpc/resolve_tenant_host`);
+    expect(calls[0]?.url).toBe(`${BASE}/rest/v1/rpc/resolve_tenant_host`);
     expect(JSON.parse(String(calls[0]?.body))).toEqual({ p_host: "company1.terraoi.app" });
     expect(host?.organisationId).toBe(ORG);
   });
@@ -163,5 +163,23 @@ describe("the failure vocabulary is closed and safe", () => {
   it("treats a non-JSON success as a backend failure, not as empty data", async () => {
     const { api } = harness(json(true, 200, "<html>gateway</html>"));
     await expect(api.findMembership(ORG, TOKEN)).rejects.toMatchObject({ kind: "backend_failure" });
+  });
+});
+
+describe("the RPC base is PostgREST under the project URL (R-5)", () => {
+  it("does not append /rest/v1 twice when the configured URL already ends with it", async () => {
+    const calls: string[] = [];
+    const api = createTenancyDataApi({
+      supabaseUrl: `${BASE}/rest/v1/`,
+      anonKey: ANON,
+      fetchImpl: async (url) => {
+        calls.push(url);
+        return { ok: true, status: 200, text: async () => "[]" } as Awaited<
+          ReturnType<TenancyFetch>
+        >;
+      },
+    });
+    await api.findHost("company1.terraoi.app");
+    expect(calls).toEqual([`${BASE}/rest/v1/rpc/resolve_tenant_host`]);
   });
 });
