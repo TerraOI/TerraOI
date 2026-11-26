@@ -108,16 +108,24 @@ describe("verifyCapturedObject", () => {
     expect(outcome).toBe("quarantined");
   });
 
-  it("a PNG or a ZIP is not ingested as a document by this packet (T-211/T-212 own those)", async () => {
-    for (const bytes of [syntheticZipBytes(), syntheticPngBytes()]) {
-      const { reason, outcome } = await expectRefusal({
-        read: { status: "ok", bytes },
-        maxBytes: MAX_UPLOAD_BYTES,
-        expectedSha256: await sha256Hex(bytes),
-      });
-      expect(reason).toBe("unsupported_type");
-      expect(outcome).toBe("quarantined");
-    }
+  it("a bare ZIP that is not OOXML stays quarantined; a PNG is capturable (T-212)", async () => {
+    const zip = syntheticZipBytes();
+    const zipRefusal = await expectRefusal({
+      read: { status: "ok", bytes: zip },
+      maxBytes: MAX_UPLOAD_BYTES,
+      expectedSha256: await sha256Hex(zip),
+    });
+    expect(zipRefusal.reason).toBe("unsupported_type");
+    expect(zipRefusal.outcome).toBe("quarantined");
+
+    const png = syntheticPngBytes();
+    const pngResult = await verifyCapturedObject({
+      read: { status: "ok", bytes: png },
+      maxBytes: MAX_UPLOAD_BYTES,
+      expectedSha256: await sha256Hex(png),
+    });
+    expect(pngResult.ok).toBe(true);
+    expect(pngResult.mediaType).toBe("image/png");
   });
 
   it("an encrypted PDF is quarantined rather than decrypted or indexed", async () => {
