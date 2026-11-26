@@ -4,7 +4,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(28);
+select plan(32);
 
 create function pg_temp.syn_hash(p_seed text) returns text
 language sql immutable as $fn$
@@ -41,7 +41,8 @@ insert into public.knowledge_sources (id, organisation_id, collection_id, kind, 
   ('61000000-0000-4000-8000-000000000201', '11111111-1111-4111-8111-111111111111', '51000000-0000-4000-8000-000000000001', 'upload', 'synth-exact-provision', '00000000-0000-4000-8000-0000000000a1'),
   ('61000000-0000-4000-8000-000000000202', '11111111-1111-4111-8111-111111111111', '51000000-0000-4000-8000-000000000001', 'upload', 'synth-exact-filename', '00000000-0000-4000-8000-0000000000a1'),
   ('61000000-0000-4000-8000-000000000203', '11111111-1111-4111-8111-111111111111', '51000000-0000-4000-8000-000000000001', 'upload', 'synth-exact-unpublished', '00000000-0000-4000-8000-0000000000a1'),
-  ('62000000-0000-4000-8000-000000000201', '22222222-2222-4222-8222-222222222222', '52000000-0000-4000-8000-000000000001', 'upload', 'synth-exact-c2', '00000000-0000-4000-8000-0000000000b1');
+  ('62000000-0000-4000-8000-000000000201', '22222222-2222-4222-8222-222222222222', '52000000-0000-4000-8000-000000000001', 'upload', 'synth-exact-c2', '00000000-0000-4000-8000-0000000000b1'),
+  ('61000000-0000-4000-8000-000000000204', '11111111-1111-4111-8111-111111111111', '51000000-0000-4000-8000-000000000002', 'upload', 'synth-exact-site-a', '00000000-0000-4000-8000-0000000000a1');
 
 insert into public.source_versions (id, organisation_id, source_id, collection_id, version_number,
                                     uploaded_by, data_class, content_hash, object_ref, state,
@@ -62,7 +63,11 @@ insert into public.source_versions (id, organisation_id, source_id, collection_i
   ('72000000-0000-4000-8000-000000000201', '22222222-2222-4222-8222-222222222222', '62000000-0000-4000-8000-000000000201', '52000000-0000-4000-8000-000000000001', 1,
    '00000000-0000-4000-8000-0000000000b1', 'public', pg_temp.syn_hash('e2c'),
    'knowledge/22222222-2222-4222-8222-222222222222/62000000-0000-4000-8000-000000000201/v1.pdf',
-   'published', 'v1', 'Company2-only marker EXACT-C2-TOKEN-41 for cross-tenant negatives.', now(), null);
+   'published', 'v1', 'Company2-only marker EXACT-C2-TOKEN-41 for cross-tenant negatives.', now(), null),
+  ('71000000-0000-4000-8000-000000000204', '11111111-1111-4111-8111-111111111111', '61000000-0000-4000-8000-000000000204', '51000000-0000-4000-8000-000000000002', 1,
+   '00000000-0000-4000-8000-0000000000a1', 'client_confidential', pg_temp.syn_hash('e204'),
+   'knowledge/11111111-1111-4111-8111-111111111111/61000000-0000-4000-8000-000000000204/v1.pdf',
+   'published', 'v1', 'Site A only marker EXACT-SITEA-55 lives in the project-bound collection.', now(), null);
 
 insert into public.knowledge_chunks (id, organisation_id, source_version_id, chunk_index, locator, body_text, data_class) values
   ('81000000-0000-4000-8000-000000000201', '11111111-1111-4111-8111-111111111111', '71000000-0000-4000-8000-000000000201', 0,
@@ -72,7 +77,9 @@ insert into public.knowledge_chunks (id, organisation_id, source_version_id, chu
   ('81000000-0000-4000-8000-000000000203', '11111111-1111-4111-8111-111111111111', '71000000-0000-4000-8000-000000000203', 0,
    '{"page": 1, "section": "Draft"}', 'Unpublished marker EXACT-DRAFT-9 must never match.', 'public'),
   ('82000000-0000-4000-8000-000000000201', '22222222-2222-4222-8222-222222222222', '72000000-0000-4000-8000-000000000201', 0,
-   '{"page": 1, "section": "Radar"}', 'Company2-only marker EXACT-C2-TOKEN-41 for cross-tenant negatives.', 'public');
+   '{"page": 1, "section": "Radar"}', 'Company2-only marker EXACT-C2-TOKEN-41 for cross-tenant negatives.', 'public'),
+  ('81000000-0000-4000-8000-000000000204', '11111111-1111-4111-8111-111111111111', '71000000-0000-4000-8000-000000000204', 0,
+   '{"page": 1, "section": "Site A"}', 'Site A only marker EXACT-SITEA-55 lives in the project-bound collection.', 'client_confidential');
 
 -- ---------------------------------------------------------------- shape / grants
 select is((select count(*)::int from pg_proc p
@@ -258,6 +265,59 @@ select is((select result from t_out where case_name = 'bad_limit'), '22023',
 select is((select chunk_id from t_rows where case_name = 'provision'),
   '81000000-0000-4000-8000-000000000201'::uuid,
   '28 provision match names the fixture chunk id');
+
+-- ---------------------------------------------------------------- reader guards (supervisor round 1 on #247)
+-- B1 project audience. With p_project_id => null the predicate admits project-bound collections and
+-- leaves the project check to RLS on knowledge_chunks / knowledge_collections. …a1 is a Site A member;
+-- …a2 is an active company1 member who is not. Making the function SECURITY DEFINER fails 30.
+reset role;
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+insert into t_count (case_name, n)
+select 'site_a_member', count(*)::int
+  from public.exact_lookup_v1(
+    '11111111-1111-4111-8111-111111111111', array[]::text[], null, null, 'EXACT-SITEA-55', 12
+  );
+reset role;
+select is((select n from t_count where case_name = 'site_a_member'), 1,
+  '29 a Site A member finds the marker in the Site A client_confidential collection');
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a2';
+insert into t_count (case_name, n)
+select 'not_site_a_member', count(*)::int
+  from public.exact_lookup_v1(
+    '11111111-1111-4111-8111-111111111111', array[]::text[], null, null, 'EXACT-SITEA-55', 12
+  );
+reset role;
+select is((select n from t_count where case_name = 'not_site_a_member'), 0,
+  '30 a company1 member outside Site A gets zero rows for a Site A-only marker (§6.2)');
+
+-- B3 suspended member: …a3 is suspended in company1 (seed.sql), so is_active_member refuses.
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a3';
+insert into t_out (case_name, result)
+select 'suspended', pg_temp.try_lookup(
+  '11111111-1111-4111-8111-111111111111', array[]::text[], null, null, 'EXACT-SQ-77', 12
+);
+reset role;
+select is((select result from t_out where case_name = 'suspended'), '28000',
+  '31 a suspended member is refused 28000 (§4.2)');
+
+-- B2 revocation (F14): revoke the source as owner, then the same marker returns nothing in the same
+-- session. Dropping `s.lifecycle_state = 'active'` from the function fails this.
+update public.knowledge_sources set lifecycle_state = 'revoked', revoked_at = now()
+ where id = '61000000-0000-4000-8000-000000000201';
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+insert into t_count (case_name, n)
+select 'revoked', count(*)::int
+  from public.exact_lookup_v1(
+    '11111111-1111-4111-8111-111111111111', array[]::text[], null, null, 'EXACT-SQ-77', 12
+  );
+reset role;
+select is((select n from t_count where case_name = 'revoked'), 0,
+  '32 a revoked source''s published chunk stops matching in the same session (F14)');
 
 select * from finish();
 rollback;
