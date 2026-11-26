@@ -1,6 +1,6 @@
 # T-202 Tenant admin: invites, roles, projects and collections
 
-Lane: 1 · Week: 2 · Protected: yes (`src/platform/tenancy/`) · Depends on: T-003, T-101, T-102, T-111 · Status: in progress (wyuinline) — **PR-1 merged as [#179](https://github.com/TerraOI/TerraOI/pull/179)**. **PR-1b** invitations open as [#226](https://github.com/TerraOI/TerraOI/pull/226). **#39 contributor seed** claimed on `t-202-contributor-seed`. **PR-2 is not started**: admin pages / collection UI / brand-fallback banner / last-admin guard (#202). Staging evidence owed (T-004 §20.8).
+Lane: 1 · Week: 2 · Protected: yes (`src/platform/tenancy/`) · Depends on: T-003, T-101, T-102, T-111 · Status: in progress (wyuinline) — **PR-1** [#179](https://github.com/TerraOI/TerraOI/pull/179) merged: five role/project RPCs + `policy_revision`. **PR-1b** invite [#226](https://github.com/TerraOI/TerraOI/pull/226), contributor seed [#227](https://github.com/TerraOI/TerraOI/pull/227), last-admin [#229](https://github.com/TerraOI/TerraOI/pull/229) open. **PR-2a** claimed on `t-202-admin-ui`: `createAdminRpcClient` + `/admin` hub (members/projects/collections forms and brand-fallback banner follow). Staging evidence owed (T-004 §20.8; [#177](https://github.com/TerraOI/TerraOI/issues/177)).
 Plan refs: §4.2, §5.2 (permission areas), §6.1–§6.2, §15.0 (Thin: tenant admin pages); F02, F05, F08
 
 ## Supervisor rulings to apply (2026-11-09)
