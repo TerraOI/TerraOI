@@ -26,6 +26,10 @@ export type FeedbackDraftRating = "incorrect" | "suggest_correction";
 export interface DraftEvalCaseFromFeedbackPayload {
   expertKey: string;
   question: string;
+  /**
+   * The caller's label. Since round 1 on #254 the RPC stores the highest of this, the rated run's class
+   * and the conversation's: a lower label is raised, never trusted (§6.2).
+   */
   dataClass: string;
   rating: FeedbackDraftRating;
   derivedFromRunId: string;

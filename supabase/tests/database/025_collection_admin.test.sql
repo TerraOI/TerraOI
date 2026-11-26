@@ -15,11 +15,10 @@
 --   member of field notes (41000000-…-002)**, which is what the #153 tests 49-51 use: an org admin who
 --   is not a member of the project the collection is bound to.
 --
--- The `contributor` role of #39 is **created inside this transaction**, not in seed.sql: seed.sql is a
--- shared file, it has no contributor role, and 010_tenancy.test.sql counts the six seeded company1
--- permission rows and four role assignments, so a permanent row here would move another slot's numbers.
--- The file therefore ends with `rollback;` — pg_prove runs every file in its own session against one
--- freshly reset database, and a row left behind would make the suite order-dependent.
+-- The `contributor` role of #39 is now seeded (`…004` + `knowledge.write`, granted to …a2). This file
+-- used to create it transaction-locally; that collided on `(organisation_id, key)` once the seed
+-- landed. Capture-vs-admin negatives use the seeded grant. The file still ends with `rollback;` for
+-- its other transaction-local fixtures (pg_prove runs every file in its own session).
 --
 -- Three rulings are pinned rather than hidden, and all three are closed on the record:
 --   #154 `knowledge_collections` has no `description` column (knowledge_core.sql:77-110), so
@@ -184,23 +183,8 @@ begin
 end;
 $fn$;
 
--- The #39 contributor role, for the negative that separates capture permission from admin permission.
--- Written as the migration owner (RLS is enabled, not FORCEd, and tenant configuration has no member
--- write policies at all: knowledge_core.sql:870-875), inside this transaction, rolled back at the end.
-insert into public.organisation_roles (id, organisation_id, key, name)
-  values ('31000000-0000-4000-8000-000000000003', '11111111-1111-4111-8111-111111111111',
-          'contributor', 'Contributor (synthetic, #39)')
-  on conflict (organisation_id, key) do nothing;
-insert into public.role_permissions (organisation_id, role_id, area, level)
-  values ('11111111-1111-4111-8111-111111111111', '31000000-0000-4000-8000-000000000003',
-          'knowledge.write', 'write')
-  on conflict (role_id, area) do nothing;
-insert into public.membership_roles (organisation_id, membership_id, role_id)
-select m.organisation_id, m.id, '31000000-0000-4000-8000-000000000003'
-  from public.organisation_memberships m
- where m.organisation_id = '11111111-1111-4111-8111-111111111111'
-   and m.user_id = '00000000-0000-4000-8000-0000000000a2'
-on conflict (membership_id, role_id) do nothing;
+-- #39 contributor is seeded (role …004, knowledge.write, granted to …a2). No local insert: a second
+-- `contributor` key would collide, and naming the old fixture id …003 would FK-fail after the seed.
 
 -- Results produced under the role under test, read back as the owner. The tables are created **as
 -- `authenticated`**, the 010 idiom, because a temp table is owned by the role that created it and the

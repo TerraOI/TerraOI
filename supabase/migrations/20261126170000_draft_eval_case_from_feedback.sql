@@ -1,9 +1,14 @@
 -- T-312 PR-9: draft_eval_case_from_feedback_v1 (#102 / plan §14.1 step 5).
--- Timestamp after 20261121230000 (PR-5 run writers). Does not edit merged migrations.
+-- Timestamp after 20261126160000 (main's newest at merge; renamed from 20261123160000 by the supervisor,
+-- COORDINATION §3). Does not edit merged migrations.
 --
 -- Feedback-derived cases stay in the database only (origin = 'pilot'); export already omits them.
--- derived_from_* are stored as opaque tenant UUIDs today — composite FKs onto agent_runs/messages
--- land after T-104 (#178) merges (columns already exist from PR-2).
+-- Supervisor round 1 on #254: T-104 (#178) is on main, so the rated answer is now looked up rather
+-- than taken on trust. The message must be an assistant answer, produced by the named run, in a
+-- conversation the caller owns (42501 otherwise, without saying which part failed), and the run's
+-- expert must be the expert_key given. The case's data_class is the highest of the caller's label,
+-- the run's class and every message in the conversation up to the answer (packet: "highest of run
+-- evidence and conversation", §6.2): a caller can raise it but never lower it.
 
 create unique index if not exists eval_cases_pilot_message_unique
   on public.eval_cases (organisation_id, derived_from_message_id)
@@ -32,6 +37,8 @@ declare
   v_payload jsonb;
   v_run_text text;
   v_msg_text text;
+  v_run_expert text;
+  v_source_rank integer;
 begin
   perform public.set_tenant_scope(p_organisation_id);
   v_org := public.current_organisation_id();
@@ -72,6 +79,36 @@ begin
   exception when invalid_text_representation then
     raise exception 'derived_from ids must be uuids' using errcode = '22023';
   end;
+
+  -- The rated answer: an assistant row of the named run, in a conversation of the caller's.
+  select r.expert_key,
+         greatest(
+           public.data_class_rank(r.data_class),
+           (select max(public.data_class_rank(h.data_class))
+              from public.messages h
+             where h.organisation_id = m.organisation_id
+               and h.conversation_id = m.conversation_id
+               and h.seq <= m.seq))
+    into v_run_expert, v_source_rank
+    from public.messages m
+    join public.conversations c
+      on c.id = m.conversation_id and c.organisation_id = m.organisation_id
+    join public.agent_runs r
+      on r.id = m.run_id and r.organisation_id = m.organisation_id
+   where m.organisation_id = v_org
+     and m.id = v_message_id
+     and m.role = 'assistant'
+     and m.run_id = v_run_id
+     and c.user_id = v_actor;
+  if not found then
+    raise exception 'no such answer for this caller' using errcode = '42501';
+  end if;
+  if v_run_expert <> v_expert then
+    raise exception 'expert_key does not match the rated run' using errcode = '22023';
+  end if;
+  if public.data_class_rank(v_data_class) < v_source_rank then
+    v_data_class := (array['public', 'internal', 'client_confidential', 'restricted'])[v_source_rank + 1];
+  end if;
 
   v_case_key := 'PILOT-'
     || upper(substr(replace(v_run_id::text, '-', ''), 1, 8))

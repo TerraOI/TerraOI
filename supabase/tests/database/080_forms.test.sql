@@ -8,8 +8,9 @@
 -- lands, and after that it is the definition of the behaviour.
 --
 -- Fixtures are supabase/seed.sql: company1 11111111-1111-4111-8111-111111111111 (...a1 owner and
--- admin, ...a2 member with no knowledge.write, ...a3 suspended membership, ...a4 member of both
--- tenants and of project site-a) and company2 22222222-2222-4222-8222-222222222222 (...b1 owner).
+-- admin, ...a2 member + seeded contributor / knowledge.write, ...a3 suspended, ...a4 member of both
+-- tenants and of project site-a — read-only for the submit-refusal pin after #39) and company2
+-- 22222222-2222-4222-8222-222222222222 (...b1 owner).
 -- Collections: 51000000-0000-4000-8000-000000000001 tenant-wide public, 51000000-0000-4000-8000-
 -- 000000000002 project site-a client_confidential, 52000000-0000-4000-8000-000000000001 company2
 -- public. The three seeded templates are added by this PR; no test here inserts seed rows
@@ -19,7 +20,7 @@
 
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(72);
+select plan(99);
 
 -- ---------------------------------------------------------------- probes: SQLSTATE or a value
 create function pg_temp.try_draft(
@@ -65,6 +66,40 @@ begin
 end;
 $fn$;
 
+create function pg_temp.try_list_templates(p_organisation_id uuid) returns text
+language plpgsql security invoker as $fn$
+declare
+  v_ids text;
+begin
+  begin
+    perform public.clear_tenant_scope();
+    select string_agg(t.id::text, ',' order by t.id::text)
+      into v_ids
+      from public.list_form_templates_v1(p_organisation_id) as t;
+    return coalesce(v_ids, 'empty');
+  exception when others then
+    return sqlstate::text;
+  end;
+end;
+$fn$;
+
+create function pg_temp.try_get_template(p_organisation_id uuid, p_template_id uuid) returns text
+language plpgsql security invoker as $fn$
+declare
+  v_res text;
+begin
+  begin
+    perform public.clear_tenant_scope();
+    select t.status || '/' || t.version
+      into v_res
+      from public.get_form_template_v1(p_organisation_id, p_template_id) as t;
+    return coalesce(v_res, 'empty');
+  exception when others then
+    return sqlstate::text;
+  end;
+end;
+$fn$;
+
 
 -- ------------------------------------------------------------------------ 1..16 shape and grants
 select has_table('public', 'form_templates',
@@ -98,6 +133,24 @@ select is(has_table_privilege('authenticated', 'public.form_templates', 'select'
   '13 templates are readable through RLS, so the shell can render one');
 select is(has_table_privilege('authenticated', 'public.form_templates', 'insert'), false,
   '14 templates are not writable by the request role: only platform seeds and later admin RPCs (7.6)');
+select has_function('public', 'list_form_templates_v1', array['uuid'],
+  '70 list_form_templates_v1 takes p_organisation_id first (FAQ-0011, Round-1 B1)');
+select has_function('public', 'get_form_template_v1', array['uuid', 'uuid'],
+  '71 get_form_template_v1 takes p_organisation_id first and p_template_id second (FAQ-0011, B1)');
+select is((select provolatile::text from pg_proc
+            where oid = 'public.list_form_templates_v1(uuid)'::regprocedure), 'v',
+  '72 list_form_templates_v1 is volatile because it calls set_tenant_scope (FAQ-0011)');
+select is((select provolatile::text from pg_proc
+            where oid = 'public.get_form_template_v1(uuid,uuid)'::regprocedure), 'v',
+  '73 get_form_template_v1 is volatile because it calls set_tenant_scope (FAQ-0011)');
+select is(has_function_privilege('authenticated', 'public.list_form_templates_v1(uuid)', 'execute'), true,
+  '74 authenticated may call list_form_templates_v1');
+select is(has_function_privilege('anon', 'public.list_form_templates_v1(uuid)', 'execute'), false,
+  '75 anon cannot execute list_form_templates_v1');
+select is(has_function_privilege('authenticated', 'public.get_form_template_v1(uuid,uuid)', 'execute'), true,
+  '76 authenticated may call get_form_template_v1');
+select is(has_function_privilege('anon', 'public.get_form_template_v1(uuid,uuid)', 'execute'), false,
+  '77 anon cannot execute get_form_template_v1');
 
 -- ------------------------------------------------------------------- 15..16 the seeded catalogue
 select is((select count(*) from public.form_templates), 3::bigint,
@@ -309,6 +362,8 @@ select is(pg_temp.try_submit('11111111-1111-4111-8111-111111111111',
   '46 a replayed submit is refused: one submission, one source version, even on retry');
 
 -- ---------------------------------------------------------- 47..54 who may draft and who may submit
+-- …a2 holds seeded `contributor` (#39) so it may submit; the submit-refusal case uses …a4.
+-- …a2 still owns the Site A audience refusal (not a Site A member) and the private-draft pins.
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a2';
 insert into pg_temp.drafts (tag, result) values
@@ -324,9 +379,18 @@ select ok((select result from pg_temp.drafts where tag = 'a2_uav') is not null,
   '47 a plain member may open a draft: filling a form is not publishing (7.6 step 2)');
 select is((select result from pg_temp.drafts where tag = 'a2_site_a'), '42501',
   '48 a Site A template refuses a submitter outside Site A: audience is the collection''s (T-214)');
+
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a4';
+insert into pg_temp.drafts (tag, result) values
+  ('a4_uav', pg_temp.try_draft('11111111-1111-4111-8111-111111111111'::uuid,
+                                '80000000-0000-4000-8000-000000000001'::uuid, 'v1',
+                                ('{"airframe_check": "synthetic", "battery_pct": 70,'
+                                || ' "weather_notes": "synthetic"}')::jsonb));
 select is(pg_temp.try_submit('11111111-1111-4111-8111-111111111111',
-          (select result::uuid from pg_temp.drafts where tag = 'a2_uav')), '42501',
-  '49 submitting needs the merged publish predicate: a member without knowledge.write is refused (#39)');
+          (select result::uuid from pg_temp.drafts where tag = 'a4_uav')), '42501',
+  '49 submitting needs the merged publish predicate: a member without knowledge.write is refused (#39; …a4 after contributor seed on …a2)');
+
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a2';
 select is((select count(*) from public.form_submissions
             where created_by = '00000000-0000-4000-8000-0000000000a2'), 1::bigint,
   '50 the author still sees their own draft');
@@ -404,6 +468,99 @@ select is((select state || '/' || (values_json ->> 'airframe_check') from public
           'submitted/tether and props checked',
   '60 the superseded submission keeps its own values: nothing is rewritten in place');
 
+-- ------------------------------------------- 78..82 identical-value drafts both capture (Round-1 B2)
+-- Two distinct drafts with identical values (e.g. consecutive daily pre-flight checks) must both
+-- capture into the same collection: content_hash hashes submission_id with body_text, while
+-- replay of a single draft is still refused by state = 'submitted'.
+insert into pg_temp.drafts (tag, result) values
+  ('a1_same_1', pg_temp.try_draft('11111111-1111-4111-8111-111111111111'::uuid,
+                                  '80000000-0000-4000-8000-000000000001'::uuid, 'v1',
+                                  ('{"airframe_check": "daily check unchanged", "battery_pct": 100,'
+                                  || ' "weather_notes": "clear"}')::jsonb)),
+  ('a1_same_2', pg_temp.try_draft('11111111-1111-4111-8111-111111111111'::uuid,
+                                  '80000000-0000-4000-8000-000000000001'::uuid, 'v1',
+                                  ('{"airframe_check": "daily check unchanged", "battery_pct": 100,'
+                                  || ' "weather_notes": "clear"}')::jsonb));
+insert into pg_temp.drafts (tag, result) values
+  ('a1_same_1_sub', pg_temp.try_submit('11111111-1111-4111-8111-111111111111'::uuid,
+                                       (select result::uuid from pg_temp.drafts where tag = 'a1_same_1'))),
+  ('a1_same_2_sub', pg_temp.try_submit('11111111-1111-4111-8111-111111111111'::uuid,
+                                       (select result::uuid from pg_temp.drafts where tag = 'a1_same_2')));
+
+select is((select result from pg_temp.drafts where tag = 'a1_same_1_sub'),
+          (select result from pg_temp.drafts where tag = 'a1_same_1'),
+  '78 first of two drafts with identical field values captures cleanly (Round-1 B2)');
+select is((select result from pg_temp.drafts where tag = 'a1_same_2_sub'),
+          (select result from pg_temp.drafts where tag = 'a1_same_2'),
+  '79 second draft with identical field values also captures into the same collection (Round-1 B2)');
+
+reset role;
+select is((select count(distinct v.id)
+            from public.form_submissions s
+            join public.source_versions v on v.id = s.source_version_id
+           where s.id in ((select result::uuid from pg_temp.drafts where tag = 'a1_same_1'),
+                          (select result::uuid from pg_temp.drafts where tag = 'a1_same_2'))),
+          2::bigint,
+  '80 each identical-value submission writes its own distinct source_version');
+select is((select count(distinct v.content_hash)
+            from public.form_submissions s
+            join public.source_versions v on v.id = s.source_version_id
+           where s.id in ((select result::uuid from pg_temp.drafts where tag = 'a1_same_1'),
+                          (select result::uuid from pg_temp.drafts where tag = 'a1_same_2'))),
+          2::bigint,
+  '81 content_hash includes submission id with body so identical values get distinct hashes (B2)');
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+select is(pg_temp.try_submit('11111111-1111-4111-8111-111111111111',
+                             (select result::uuid from pg_temp.drafts where tag = 'a1_same_2')),
+          '22023',
+  '82 replaying the second already-submitted draft is still refused with 22023');
+
+-- ------------------------------------------- 83..92 scoped template read RPCs (Round-1 B1)
+select is(pg_temp.try_list_templates('11111111-1111-4111-8111-111111111111'),
+          '80000000-0000-4000-8000-000000000001,80000000-0000-4000-8000-000000000002',
+  '83 Site A member sees both tenant-wide and Site A templates via list_form_templates_v1 (B1)');
+select is(pg_temp.try_get_template('11111111-1111-4111-8111-111111111111',
+                                   '80000000-0000-4000-8000-000000000002'),
+          'published/v1',
+  '84 Site A member can fetch the project-scoped template via get_form_template_v1 (B1)');
+select is(pg_temp.try_get_template('11111111-1111-4111-8111-111111111111',
+                                   '80000000-0000-4000-8000-000000000003'),
+          'empty',
+  '85 get_form_template_v1 returns no row for a foreign tenant template');
+select is(pg_temp.try_list_templates('22222222-2222-4222-8222-222222222222'),
+          '28000',
+  '86 company1 member cannot call list_form_templates_v1 for company2 (28000)');
+
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a2';
+select is(pg_temp.try_list_templates('11111111-1111-4111-8111-111111111111'),
+          '80000000-0000-4000-8000-000000000001',
+  '87 non-Site-A member sees only tenant-wide templates via list_form_templates_v1 (is_project_member)');
+select is(pg_temp.try_get_template('11111111-1111-4111-8111-111111111111',
+                                   '80000000-0000-4000-8000-000000000002'),
+          'empty',
+  '88 non-Site-A member cannot fetch the Site A template by id via get_form_template_v1');
+
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a4';
+select is(pg_temp.try_list_templates('11111111-1111-4111-8111-111111111111'),
+          '80000000-0000-4000-8000-000000000001,80000000-0000-4000-8000-000000000002',
+  '89 dual member scoped to company1 via list_form_templates_v1 sees company1 templates only');
+select is(pg_temp.try_list_templates('22222222-2222-4222-8222-222222222222'),
+          '80000000-0000-4000-8000-000000000003',
+  '90 dual member scoped to company2 via list_form_templates_v1 sees company2 template only');
+
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a3';
+select is(pg_temp.try_list_templates('11111111-1111-4111-8111-111111111111'),
+          '28000',
+  '91 suspended member is refused by list_form_templates_v1 (28000)');
+select is(pg_temp.try_get_template('11111111-1111-4111-8111-111111111111',
+                                   '80000000-0000-4000-8000-000000000001'),
+          '28000',
+  '92 suspended member is refused by get_form_template_v1 (28000)');
+
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+
 
 -- ------------------------------------------------- 61 a re-versioned or retired template mid-draft
 insert into pg_temp.drafts (tag, result) values
@@ -422,6 +579,13 @@ select is(pg_temp.try_submit('11111111-1111-4111-8111-111111111111',
           '22023',
   '61 a draft opened before the template was retired is refused by name of that version: never '
   || 'silently re-validated against a newer one (16 Forms/OCR row)');
+select is(pg_temp.try_list_templates('11111111-1111-4111-8111-111111111111'),
+          '80000000-0000-4000-8000-000000000002',
+  '93 list_form_templates_v1 drops a retired template from the open list (16, B1)');
+select is(pg_temp.try_get_template('11111111-1111-4111-8111-111111111111',
+                                   '80000000-0000-4000-8000-000000000001'),
+          'retired/v1',
+  '94 get_form_template_v1 reports status retired so submit refuses by version name (16, B1)');
 
 -- ----------------------------------------------------- 62..67 untrusted template content at write
 -- A template is untrusted content with a path into retrieval (4.8), so the guard lives in the
@@ -481,5 +645,27 @@ select is(pg_temp.try_raw_template(
             '{}'::jsonb, 'public'), '23514',
   '69 required must be a JSON array: a string only fails later inside jsonb_array_elements_text');
 
+-- ------------------------------------------- 95..96 unpublished draft template hidden from reads
+insert into public.form_templates (
+  id, organisation_id, scope, service_key, name, version, json_schema, ui_hints,
+  default_collection_id, data_class, status, published_at
+) values (
+  '80000000-0000-4000-8000-000000000099', '11111111-1111-4111-8111-111111111111', 'tenant',
+  'uav-compliance', 'Unpublished draft template (synthetic)', 'v1',
+  '{"type": "object", "properties": {"note": {"type": "string"}}}'::jsonb, '{}'::jsonb,
+  '51000000-0000-4000-8000-000000000001', 'public', 'draft', null
+);
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+select is(pg_temp.try_list_templates('11111111-1111-4111-8111-111111111111'),
+          '80000000-0000-4000-8000-000000000002',
+  '95 list_form_templates_v1 hides unpublished draft templates');
+select is(pg_temp.try_get_template('11111111-1111-4111-8111-111111111111',
+                                   '80000000-0000-4000-8000-000000000099'),
+          'empty',
+  '96 get_form_template_v1 hides unpublished draft templates');
+
+reset role;
 select * from finish();
 rollback;
