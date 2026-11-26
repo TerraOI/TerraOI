@@ -227,7 +227,14 @@ select is_empty($$
            ('public.publish_knowledge_version_v1(uuid, uuid)'::regprocedure),
            ('public.revoke_source_v1(uuid, uuid, text)'::regprocedure),
            -- T-214 PR-1 (`20261124140000_project_acl.sql`): shared source access decision (F08).
-           ('public.authorize_source_access_v1(uuid, uuid, text)'::regprocedure)
+           ('public.authorize_source_access_v1(uuid, uuid, text)'::regprocedure),
+           -- T-312 PR-2 (`20261125100000_evals.sql`): draft/review/list/export RPCs plus the RLS
+           -- predicate `member_has_evals_review` (granted like is_active_member — policies invoke it).
+           ('public.member_has_evals_review(uuid, text)'::regprocedure),
+           ('public.create_eval_case_draft_v1(uuid, jsonb)'::regprocedure),
+           ('public.review_eval_case_v1(uuid, uuid, text, jsonb)'::regprocedure),
+           ('public.list_eval_cases_v1(uuid, text)'::regprocedure),
+           ('public.export_approved_eval_cases_v1(uuid)'::regprocedure)
          ) as allowed(proc)
      )
 $$, '32 no function in public is executable by authenticated beyond the named allow-list (§4.3, #60)');
