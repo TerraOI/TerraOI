@@ -1,8 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createTenantContext, type TenantContext } from "@/contracts/tenant-context";
+import {
+  createTenantContext,
+  type TenantContext,
+} from "@/contracts/tenant-context";
 
-import type { ExactHit, ExactLookupClient, ExactLookupResult } from "./exact-lookup";
+import type {
+  ExactHit,
+  ExactLookupClient,
+  ExactLookupResult,
+} from "./exact-lookup";
 import { planCorpusQuery } from "./query-plan";
 import type { SearchCorpusClient, SearchCorpusResult } from "./search-corpus";
 
@@ -44,13 +51,17 @@ const HIT: ExactHit = {
   rank: 1,
 };
 
-function exactClient(impl: (identifier: string) => Promise<ExactLookupResult>): ExactLookupClient {
+function exactClient(
+  impl: (identifier: string) => Promise<ExactLookupResult>,
+): ExactLookupClient {
   return {
     lookup: async (call) => impl(call.identifier),
   };
 }
 
-function hybridClient(search: SearchCorpusClient["search"]): SearchCorpusClient {
+function hybridClient(
+  search: SearchCorpusClient["search"],
+): SearchCorpusClient {
   return { search };
 }
 
@@ -96,13 +107,18 @@ describe("planCorpusQuery (T-216 PR-2: exact before hybrid)", () => {
         originalQuery: "4.2.1",
       },
       {
-        exact: exactClient(async () => ({ ok: true, hits: [HIT], dataClass: "internal" })),
+        exact: exactClient(async () => ({
+          ok: true,
+          hits: [HIT],
+          dataClass: "internal",
+        })),
         hybrid: hybridClient(hybridSearch),
       },
     );
 
     expect(result.ok).toBe(true);
-    if (!result.ok || result.lane !== "exact") throw new Error("expected exact lane");
+    if (!result.ok || result.lane !== "exact")
+      throw new Error("expected exact lane");
     expect(result.hits).toHaveLength(1);
     expect(result.evidence[0]?.exactMatch).toBe(true);
     expect(result.originalQuery).toBe("4.2.1");
@@ -124,13 +140,18 @@ describe("planCorpusQuery (T-216 PR-2: exact before hybrid)", () => {
         searchedQuery: "site clearance for the 120 m tower",
       },
       {
-        exact: exactClient(async () => ({ ok: true, hits: [], dataClass: null })),
+        exact: exactClient(async () => ({
+          ok: true,
+          hits: [],
+          dataClass: null,
+        })),
         hybrid: hybridClient(hybridSearch),
       },
     );
 
     expect(result.ok).toBe(true);
-    if (!result.ok || result.lane !== "hybrid") throw new Error("expected hybrid lane");
+    if (!result.ok || result.lane !== "hybrid")
+      throw new Error("expected hybrid lane");
     expect(result.exactSkipped).toBe(false);
     expect(result.originalQuery).toBe("and the 120 m one?");
     expect(result.searchedQuery).toBe("site clearance for the 120 m tower");
@@ -142,7 +163,9 @@ describe("planCorpusQuery (T-216 PR-2: exact before hybrid)", () => {
     const hybridSearch = vi.fn(async () => HYBRID_OK);
     const result = await planCorpusQuery(
       {
-        context: context({ organisationId: "11111111-1111-4111-8111-111111111111" }),
+        context: context({
+          organisationId: "11111111-1111-4111-8111-111111111111",
+        }),
         accessToken: "synth-token",
         originalQuery: "SYNTH-UAV-MAN-A17",
       },
@@ -193,9 +216,35 @@ describe("planCorpusQuery (T-216 PR-2: exact before hybrid)", () => {
     );
 
     expect(result.ok).toBe(true);
-    if (!result.ok || result.lane !== "hybrid") throw new Error("expected hybrid lane");
+    if (!result.ok || result.lane !== "hybrid")
+      throw new Error("expected hybrid lane");
     expect(result.exactSkipped).toBe(true);
     expect(result.exactSkipReason).toBe("transport");
     expect(hybridSearch).toHaveBeenCalledOnce();
+  });
+
+  it("skips exact lookup for a question longer than an identifier and still searches hybrid", async () => {
+    const lookup = vi.fn(async () => ({
+      ok: true as const,
+      hits: [],
+      dataClass: null,
+    }));
+    const hybridSearch = vi.fn(async () => HYBRID_OK);
+    const longQuestion = `What does the manual say about ${"rotor clearance and ".repeat(15)}personnel?`;
+    expect(longQuestion.length).toBeGreaterThan(200);
+    const result = await planCorpusQuery(
+      {
+        context: context(),
+        accessToken: "synth-token",
+        originalQuery: longQuestion,
+      },
+      { exact: { lookup }, hybrid: hybridClient(hybridSearch) },
+    );
+    expect(lookup).not.toHaveBeenCalled();
+    expect(hybridSearch).toHaveBeenCalledOnce();
+    if (!result.ok || result.lane !== "hybrid")
+      throw new Error("expected hybrid lane");
+    expect(result.exactSkipped).toBe(true);
+    expect(result.exactSkipReason).toBe("identifier_too_long");
   });
 });
