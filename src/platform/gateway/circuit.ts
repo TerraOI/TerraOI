@@ -45,7 +45,11 @@ export interface HealthWriter {
   noteQuotaExhausted(providerKey: ProviderKey, exhausted: boolean): void;
 }
 
-const DEFAULT_POLICY: CircuitPolicy = { openAfterFailures: 3, cooldownMs: 60_000, checkIntervalMs: 30_000 };
+const DEFAULT_POLICY: CircuitPolicy = {
+  openAfterFailures: 3,
+  cooldownMs: 60_000,
+  checkIntervalMs: 30_000,
+};
 
 export class CircuitBook implements HealthReader, HealthWriter {
   private readonly windows = new Map<ProviderKey, ProviderWindow>();
@@ -55,13 +59,19 @@ export class CircuitBook implements HealthReader, HealthWriter {
     this.policy = { ...DEFAULT_POLICY, ...policy };
   }
 
-  availability(providerKey: ProviderKey, nowMs: number): "available" | "circuit_open" | "unhealthy" {
+  availability(
+    providerKey: ProviderKey,
+    nowMs: number,
+  ): "available" | "circuit_open" | "unhealthy" {
     const current = this.window(providerKey);
     if (current.state === "open") {
       // The cooldown is the health-check window. Once it passes, the next attempt *is* the probe:
       // the circuit is left one failure short of open, so a probe that fails again re-opens it
       // immediately instead of letting a broken provider take `openAfterFailures` calls each time.
-      if (current.openedAtMs === null || nowMs - current.openedAtMs < this.policy.cooldownMs) {
+      if (
+        current.openedAtMs === null ||
+        nowMs - current.openedAtMs < this.policy.cooldownMs
+      ) {
         return "circuit_open";
       }
       // Half-open: the next call is the probe. Clear a prior scheduled-down mark so the attempt
@@ -112,7 +122,11 @@ export class CircuitBook implements HealthReader, HealthWriter {
   }
 
   /** F37: a successful health check closes the circuit immediately, inside the cooldown. */
-  noteHealthCheck(providerKey: ProviderKey, healthy: boolean, nowMs: number): void {
+  noteHealthCheck(
+    providerKey: ProviderKey,
+    healthy: boolean,
+    nowMs: number,
+  ): void {
     const current = this.window(providerKey);
     current.lastCheckedAtMs = nowMs;
     if (healthy) {
@@ -133,7 +147,11 @@ export class CircuitBook implements HealthReader, HealthWriter {
    * Scheduled F37 probe result. A failure marks the provider **unhealthy** so the next route skips
    * it without opening a call; a success clears that mark and closes any open circuit.
    */
-  noteScheduledProbe(providerKey: ProviderKey, healthy: boolean, nowMs: number): void {
+  noteScheduledProbe(
+    providerKey: ProviderKey,
+    healthy: boolean,
+    nowMs: number,
+  ): void {
     const current = this.window(providerKey);
     current.lastCheckedAtMs = nowMs;
     current.lastProbeHealthy = healthy;
@@ -146,11 +164,15 @@ export class CircuitBook implements HealthReader, HealthWriter {
     }
   }
 
-  /** Scheduled pass found no probe: treat as unhealthy for routing, status stays `unknown`. */
+  /**
+   * Scheduled pass found no probe: the status is `unknown`, and routing is left to the passive
+   * circuit. Paid adapters register no `health()` on purpose (a probe against a billed endpoint
+   * spends money, adapters.ts), so marking them unhealthy here would take Claude out of every chain
+   * for the life of the isolate (supervisor round 1 on #249, B1).
+   */
   noteMissingProbe(providerKey: ProviderKey, nowMs: number): void {
     const current = this.window(providerKey);
     current.lastCheckedAtMs = nowMs;
-    current.lastProbeHealthy = false;
     current.probeMissing = true;
     current.lastObservedBy = "scheduled";
   }
@@ -159,12 +181,15 @@ export class CircuitBook implements HealthReader, HealthWriter {
     this.window(providerKey).lastObservedBy = "passive";
   }
 
-  probeStatus(providerKey: ProviderKey): "healthy" | "degraded" | "down" | "unknown" | "unreachable" {
+  probeStatus(
+    providerKey: ProviderKey,
+  ): "healthy" | "degraded" | "down" | "unknown" | "unreachable" {
     const current = this.window(providerKey);
     if (current.probeMissing) return "unknown";
     if (current.lastProbeHealthy === true) return "healthy";
     if (current.lastProbeHealthy === false) return "down";
-    if (current.state === "open" || current.consecutiveFailures > 0) return "degraded";
+    if (current.state === "open" || current.consecutiveFailures > 0)
+      return "degraded";
     return "unknown";
   }
 
