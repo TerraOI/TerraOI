@@ -60,10 +60,13 @@ insert into public.organisation_memberships (organisation_id, user_id, status, j
   ('22222222-2222-4222-8222-222222222222', '00000000-0000-4000-8000-0000000000a4', 'active', now())
 on conflict (organisation_id, user_id) do nothing;
 
--- roles and permission areas (plan §5.2): seeded per tenant, tenant-scoped like everything else
+-- roles and permission areas (plan §5.2): seeded per tenant, tenant-scoped like everything else.
+-- `contributor` + `knowledge.write` is the #39 / FAQ-0006 upload path (capture, not publication).
+-- Role id …004: …003 is reserved by 040/025 transaction-local fixtures (#179 ruling).
 insert into public.organisation_roles (id, organisation_id, key, name) values
   ('31000000-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111', 'member', 'Member'),
   ('31000000-0000-4000-8000-000000000002', '11111111-1111-4111-8111-111111111111', 'admin', 'Tenant admin'),
+  ('31000000-0000-4000-8000-000000000004', '11111111-1111-4111-8111-111111111111', 'contributor', 'Contributor'),
   ('32000000-0000-4000-8000-000000000001', '22222222-2222-4222-8222-222222222222', 'member', 'Member')
 on conflict (organisation_id, key) do nothing;
 
@@ -74,6 +77,7 @@ insert into public.role_permissions (organisation_id, role_id, area, level) valu
   ('11111111-1111-4111-8111-111111111111', '31000000-0000-4000-8000-000000000002', 'knowledge.admin', 'admin'),
   ('11111111-1111-4111-8111-111111111111', '31000000-0000-4000-8000-000000000002', 'members.admin', 'admin'),
   ('11111111-1111-4111-8111-111111111111', '31000000-0000-4000-8000-000000000002', 'projects.admin', 'admin'),
+  ('11111111-1111-4111-8111-111111111111', '31000000-0000-4000-8000-000000000004', 'knowledge.write', 'write'),
   ('22222222-2222-4222-8222-222222222222', '32000000-0000-4000-8000-000000000001', 'chat.ask', 'read')
 on conflict (role_id, area) do nothing;
 
@@ -85,6 +89,17 @@ select m.organisation_id, m.id, r.id
    and r.key = case when m.user_id in ('00000000-0000-4000-8000-0000000000a1',
                                        '00000000-0000-4000-8000-0000000000b1')
                     then 'admin' else 'member' end
+on conflict (membership_id, role_id) do nothing;
+
+-- Field member …a2 also holds `contributor` so ordinary employees can capture (#39).
+insert into public.membership_roles (organisation_id, membership_id, role_id)
+select m.organisation_id, m.id, r.id
+  from public.organisation_memberships m
+  join public.organisation_roles r
+    on r.organisation_id = m.organisation_id
+   and r.key = 'contributor'
+ where m.user_id = '00000000-0000-4000-8000-0000000000a2'
+   and m.organisation_id = '11111111-1111-4111-8111-111111111111'
 on conflict (membership_id, role_id) do nothing;
 
 -- ------------------------------------------------------------ projects

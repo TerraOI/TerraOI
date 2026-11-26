@@ -1,4 +1,5 @@
 import type { ObjectReadResult } from "./object-store";
+import { entryText, readZipEntries } from "./ooxml-zip";
 import {
   detectPdfFeatures,
   featureNotes,
@@ -64,6 +65,9 @@ export interface SignatureGuess {
   family: "pdf" | "portable_executable" | "zip" | "image" | "unknown";
 }
 
+export const DOCX_MEDIA = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+export const XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
 /** Types an object by its bytes. A file name is never an input here (plan §7.2 step 2). */
 export function sniffSignature(bytes: Uint8Array): SignatureGuess {
   if (bytes.length === 0) return { mediaType: null, family: "unknown" };
@@ -73,8 +77,7 @@ export function sniffSignature(bytes: Uint8Array): SignatureGuess {
     (bytes[0] === 0x50 && bytes[1] === 0x4b && (bytes[2] === 0x03 || bytes[2] === 0x05 || bytes[2] === 0x07)) ||
     (bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x00 && bytes[3] === 0x00)
   ) {
-    // ZIP: DOCX and XLSX are ZIP containers, and a ZIP is the classic decompression-bomb carrier.
-    // Both are T-212's parsers; this packet refuses them rather than half-supporting them.
+    // ZIP container: DOCX/XLSX are resolved in verify by reading `[Content_Types].xml` (T-212).
     return { mediaType: "application/zip", family: "zip" };
   }
   if (bytes[0] === 0x89 && indexOfAscii(bytes, "PNG", 1) === 1) return { mediaType: "image/png", family: "image" };
@@ -94,6 +97,35 @@ async function defaultSha256(bytes: Uint8Array): Promise<string> {
   let out = "";
   for (const byte of new Uint8Array(digest)) out += byte.toString(16).padStart(2, "0");
   return out;
+}
+
+async function resolveOoxmlMediaType(
+  bytes: Uint8Array,
+  budgetBytes: number,
+): Promise<
+  | { ok: true; mediaType: string; notes: string[] }
+  | { ok: false; reason: "bomb" | "unsupported"; notes: string[] }
+> {
+  const unzipped = await readZipEntries(bytes, budgetBytes);
+  if (!unzipped.ok) {
+    return {
+      ok: false,
+      reason: unzipped.reason === "bomb" ? "bomb" : "unsupported",
+      notes: [unzipped.reason === "bomb" ? "decompression_bomb" : "malformed_zip"],
+    };
+  }
+  const notes: string[] = [];
+  if (unzipped.entries.some((e) => /vbaProject|macros/i.test(e.name))) {
+    notes.push("macro_package_present_as_data");
+  }
+  const typesXml = entryText(unzipped.entries, "[Content_Types].xml") ?? "";
+  if (/wordprocessingml\.document\.main\+xml/i.test(typesXml) || unzipped.entries.some((e) => e.name === "word/document.xml")) {
+    return { ok: true, mediaType: DOCX_MEDIA, notes };
+  }
+  if (/spreadsheetml\.sheet\.main\+xml/i.test(typesXml) || unzipped.entries.some((e) => e.name.startsWith("xl/"))) {
+    return { ok: true, mediaType: XLSX_MEDIA, notes };
+  }
+  return { ok: false, reason: "unsupported", notes: [...notes, "zip_not_ooxml"] };
 }
 
 export interface VerifyObjectInput {
@@ -148,15 +180,49 @@ export async function verifyCapturedObject(input: VerifyObjectInput): Promise<Ve
   if (guess.family === "portable_executable") {
     return refusal("quarantined", "signature_mismatch", { sizeBytes: bytes.length });
   }
-  if (guess.family !== "pdf") {
-    return refusal("quarantined", "unsupported_type", { sizeBytes: bytes.length, mediaType: guess.mediaType });
-  }
 
   // The digest is computed over exactly the bytes that were read, and the stored value is this one.
   const sha256 = input.hash ?? defaultSha256;
   const contentSha256 = await sha256(bytes);
   if (contentSha256 !== input.expectedSha256.toLowerCase()) {
-    return refusal("failed", "hash_mismatch", { sizeBytes: bytes.length, mediaType: guess.mediaType });
+    return refusal("failed", "hash_mismatch", {
+      sizeBytes: bytes.length,
+      mediaType: guess.mediaType,
+    });
+  }
+
+  // T-212: images and OOXML are capturable. Routing (not capture) sends images to the box (#135).
+  if (guess.family === "image") {
+    return {
+      ok: true,
+      outcome: "verified",
+      reason: null,
+      sizeBytes: bytes.length,
+      mediaType: guess.mediaType,
+      contentSha256,
+      notes: [],
+    };
+  }
+
+  if (guess.family === "zip") {
+    const ooxml = await resolveOoxmlMediaType(bytes, input.limits?.maxDecompressedBytes ?? MAX_DECOMPRESSED_BYTES);
+    if (!ooxml.ok) {
+      const reason: UploadFailureReason = ooxml.reason === "bomb" ? "decompression_bomb" : "unsupported_type";
+      return refusal("quarantined", reason, { sizeBytes: bytes.length, mediaType: guess.mediaType, notes: ooxml.notes });
+    }
+    return {
+      ok: true,
+      outcome: "verified",
+      reason: null,
+      sizeBytes: bytes.length,
+      mediaType: ooxml.mediaType,
+      contentSha256,
+      notes: ooxml.notes,
+    };
+  }
+
+  if (guess.family !== "pdf") {
+    return refusal("quarantined", "unsupported_type", { sizeBytes: bytes.length, mediaType: guess.mediaType });
   }
 
   if (!hasPdfEof(bytes)) {
