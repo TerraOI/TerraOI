@@ -198,6 +198,12 @@ const MembershipRoleBodySchema = z.strictObject({
   roleId: z.uuid(),
 });
 
+const InviteMemberBodySchema = z.strictObject({
+  csrfToken: z.string().min(1).max(512),
+  email: z.string().min(1).max(254),
+  roleId: z.uuid(),
+});
+
 function jsonReply(status: number, body: Record<string, unknown>): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -417,4 +423,33 @@ export async function handleMembershipRoleAction(input: {
   }
 
   return jsonReply(200, { ok: true, action: data.action });
+}
+
+export async function handleInviteMember(input: {
+  request: Request;
+  hostOptions?: HostAdapterOptions;
+  ports: AdminPorts;
+}): Promise<Response> {
+  // Supervisor round 1 on #237: the shared guard (round 1 on #234), not a copy of it.
+  const guarded = await guardAdminPost(input, InviteMemberBodySchema, "The invite request is invalid.");
+  if (!guarded.ok) return guarded.response;
+  const { auth, data } = guarded;
+  const { ports } = input;
+
+  const invited = await ports.adminRpc.inviteMember({
+    context: auth.context,
+    accessToken: auth.accessToken,
+    email: data.email,
+    roleId: data.roleId,
+  });
+
+  if (!invited.ok) {
+    return jsonReply(statusForRpcFailure(invited.kind), {
+      ok: false,
+      code: invited.kind,
+      message: invited.message,
+    });
+  }
+
+  return jsonReply(200, { ok: true });
 }
