@@ -4,6 +4,7 @@ import { createBoundMeterPortFromBudgetLedger } from "./meter";
 import {
   createBudgetLedgerExecFromSql,
   createMeterPortFromBudgetDb,
+  createProductionMeterPort,
   type BudgetSql,
 } from "./ledger-sql";
 
@@ -176,5 +177,37 @@ describe("createBudgetLedgerExecFromSql — BUDGET_DB Hyperdrive carrier", () =>
       expect.stringContaining("reconcile_v1"),
     ]);
     expect(calls[1]?.values[4]).toBe(12);
+  });
+});
+
+describe("createProductionMeterPort — env → MeterPort seam (T-313 PR-10)", () => {
+  it("returns null when BUDGET_DB is unbound or null (fail closed)", () => {
+    expect(createProductionMeterPort({})).toBeNull();
+    expect(createProductionMeterPort({ BUDGET_DB: null })).toBeNull();
+    expect(createProductionMeterPort({ BUDGET_DB: undefined })).toBeNull();
+  });
+
+  it("wires a bound BUDGET_DB into a MeterPort that can reserve", async () => {
+    const { sql, calls } = recordingSql(async (call) => {
+      if (call.sql.includes("reserve_v1")) return [{ id: RES }];
+      return [];
+    });
+    const meter = createProductionMeterPort(
+      { BUDGET_DB: { connectionString: "unused-when-openSql-injected" } },
+      { openSql: () => sql },
+    );
+    expect(meter).not.toBeNull();
+
+    const { reservationId } = await meter!.reserve({
+      organisationId: ORG,
+      runId: RUN,
+      attemptId: "compose:prod:1",
+      task: "compose",
+      providerKey: "local_box",
+      maxInputUnits: 5,
+      maxOutputUnits: 5,
+    });
+    expect(reservationId).toBe(RES);
+    expect(calls.some((c) => c.sql.includes("reserve_v1"))).toBe(true);
   });
 });

@@ -149,3 +149,24 @@ export function createMeterPortFromBudgetDb(
   if (exec === null) return null;
   return createBoundMeterPortFromBudgetLedger(exec, options);
 }
+
+export type BudgetGatewayEnv = {
+  /** Hyperdrive binding for budget_ledger over BUDGET_DB (#134). */
+  BUDGET_DB?: BudgetDbBinding | null;
+};
+
+/**
+ * T-313 PR-10: production seam for F19 MeterPort.
+ * Returns null when BUDGET_DB unbound — never invent an infinite free meter.
+ * OWNER binds Hyperdrive (T-004); this helper only maps env → factory.
+ */
+export function createProductionMeterPort(
+  env: BudgetGatewayEnv,
+  deps: Omit<BudgetDbDeps, "binding"> = {},
+  options?: { userIdForRun?: (runId: string) => string | null },
+): MeterPort | null {
+  return createMeterPortFromBudgetDb(
+    { ...deps, binding: env.BUDGET_DB ?? null },
+    options ?? {},
+  );
+}
