@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -45,8 +45,7 @@ function approvedCase(overrides: Partial<EvalCase> & Pick<EvalCase, "caseId">): 
 const tempRoots: string[] = [];
 
 afterEach(() => {
-  // Temp dirs are under os.tmpdir(); leave them for the OS. Track only for clarity.
-  tempRoots.length = 0;
+  for (const root of tempRoots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
 describe("orderEvalCases (F35 deterministic order)", () => {
@@ -59,6 +58,11 @@ describe("orderEvalCases (F35 deterministic order)", () => {
     const first = orderEvalCases(cases).map((c) => c.caseId);
     const second = orderEvalCases([...cases].reverse()).map((c) => c.caseId);
     expect(first).toEqual(["UAV-E002", "UAV-E010", "UAV-E030"]);
+    // Code-unit order: upper case sorts before lower case on every runner.
+    expect(orderEvalCases([approvedCase({ caseId: "uav-a" }), approvedCase({ caseId: "UAV-B" })]).map((c) => c.caseId)).toEqual([
+      "UAV-B",
+      "uav-a",
+    ]);
     expect(second).toEqual(first);
   });
 });
@@ -80,6 +84,16 @@ describe("loadApprovedEvalCases (F35 ignores drafts)", () => {
 
     const loaded = loadApprovedEvalCases(root, "uav-expert");
     expect(loaded.map((c) => c.caseId)).toEqual(["UAV-E100"]);
+  });
+
+  it("refuses a drafted case placed in the approved folder instead of running it", () => {
+    const root = mkdtempSync(join(tmpdir(), "terraoi-evals-"));
+    tempRoots.push(root);
+    const expertDir = join(root, "uav-expert");
+    mkdirSync(expertDir, { recursive: true });
+    const drafted = approvedCase({ caseId: "UAV-E102", status: "drafted", approvedBy: null, approvedAt: null });
+    writeFileSync(join(expertDir, "UAV-E102.json"), `${JSON.stringify(drafted, null, 2)}\n`);
+    expect(() => loadApprovedEvalCases(root, "uav-expert")).toThrow(/status=approved/);
   });
 });
 
@@ -141,5 +155,16 @@ describe("clearanceForEvalCase (never widen for a case)", () => {
     expect(matrix.client_confidential.every((p) => PLATFORM_DEFAULT_CLEARANCE.client_confidential.includes(p))).toBe(
       true,
     );
+  });
+});
+
+describe("clearanceForEvalCase (a platform override never widens)", () => {
+  it("narrows a wider platform override against the platform default", () => {
+    const wide = {
+      ...PLATFORM_DEFAULT_CLEARANCE,
+      client_confidential: ["local_box", "claude", "deepseek", "openrouter"],
+    } as typeof PLATFORM_DEFAULT_CLEARANCE;
+    const matrix = clearanceForEvalCase({ dataClass: "client_confidential", platform: wide });
+    expect(matrix.client_confidential).toEqual(PLATFORM_DEFAULT_CLEARANCE.client_confidential);
   });
 });
