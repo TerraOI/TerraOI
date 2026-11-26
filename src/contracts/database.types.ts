@@ -867,6 +867,38 @@ isOneToOne: false
                   Relationships: [
                     
                   ]
+                },"source_acl_bindings": {
+                  Row: {
+                    "created_at": string,"id": string,"organisation_id": string,"project_id": string,"source_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"id"?: string,"organisation_id": string,"project_id": string,"source_id": string
+                  }
+                  Update: {
+                    "created_at"?: string,"id"?: string,"organisation_id"?: string,"project_id"?: string,"source_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "source_acl_bindings_organisation_fk"
+      columns: ["organisation_id"]
+isOneToOne: false
+      referencedRelation: "organisations"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "source_acl_bindings_project_fk"
+      columns: ["project_id","organisation_id"]
+isOneToOne: false
+      referencedRelation: "projects"
+      referencedColumns: ["id","organisation_id"]
+    },{
+      foreignKeyName: "source_acl_bindings_source_fk"
+      columns: ["source_id","organisation_id"]
+isOneToOne: false
+      referencedRelation: "knowledge_sources"
+      referencedColumns: ["id","organisation_id"]
+    }
+                  ]
                 },"source_versions": {
                   Row: {
                     "body_text": string | null,"collection_id": string,"content_hash": string,"created_at": string,"data_class": string,"failure_note": string | null,"id": string,"object_ref": string,"organisation_id": string,"parser_generation": string,"payload": Json | null,"published_at": string | null,"revoked_at": string | null,"source_id": string,"state": string,"updated_at": string,"uploaded_by": string,"version_number": number
@@ -1102,6 +1134,9 @@ isOneToOne: false
             "add_project_member_v1":
 { Args: { "p_organisation_id": string,"p_project_id": string,"p_user_id": string }; Returns: undefined
                            },
+"authorize_source_access_v1":
+{ Args: { "p_organisation_id": string,"p_purpose": string,"p_source_id": string }; Returns: boolean
+                           },
 "begin_upload_session_v1":
 { Args: { "p_collection_id": string,"p_declared_size_bytes": number,"p_filename": string,"p_idempotency_key": string,"p_organisation_id": string }; Returns: {
               "o_expires_at": string,"o_max_size_bytes": number,"o_object_ref": string,"o_reused": boolean,"o_session_id": string,"o_state": string
@@ -1290,6 +1325,9 @@ isOneToOne: false
                            },
 "set_tenant_scope":
 { Args: { "p_organisation_id": string }; Returns: string
+                           },
+"source_audience_allows":
+{ Args: { "p_source_id": string }; Returns: boolean
                            },
 "source_is_readable":
 { Args: { "p_source_id": string }; Returns: boolean
