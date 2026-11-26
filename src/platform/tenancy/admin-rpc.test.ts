@@ -166,6 +166,51 @@ describe("createAdminRpcClient (T-202)", () => {
     });
   });
 
+  it("reads 23514 as last-admin only for revoke: elsewhere it is an ordinary refused value", async () => {
+    const check = recordingFetch(async () => errorResponse("23514"));
+    const client = createAdminRpcClient({
+      postgrestBaseUrl: "https://db.example/rest/v1",
+      fetchImpl: check.fetchImpl,
+    });
+    const project = await client.createProject({
+      context: CTX,
+      accessToken: TOKEN,
+      key: "site-z",
+      name: "Site Z",
+      visibility: "project",
+    });
+    const collection = await client.createCollection({
+      context: CTX,
+      accessToken: TOKEN,
+      key: "site-z-docs",
+      name: "Site Z documents",
+      service: "uav",
+      dataClass: "internal",
+      projectId: null,
+    });
+    for (const outcome of [project, collection]) {
+      expect(outcome.ok).toBe(false);
+      if (outcome.ok) throw new Error("unreachable");
+      expect(outcome.kind).not.toBe("last_admin");
+      expect(outcome.kind).toBe("validation");
+    }
+  });
+
+  it("maps 22023 from a grant to a suspended or removed member as target_inactive", async () => {
+    const inactive = recordingFetch(async () => errorResponse("22023"));
+    const client = createAdminRpcClient({
+      postgrestBaseUrl: "https://db.example/rest/v1",
+      fetchImpl: inactive.fetchImpl,
+    });
+    await expect(
+      client.grantMembershipRole({ context: CTX, accessToken: TOKEN, userId: USER, roleId: ROLE }),
+    ).resolves.toEqual({
+      ok: false,
+      kind: "target_inactive",
+      message: SAFE_ADMIN_RPC_MESSAGE.target_inactive,
+    });
+  });
+
   it("createCollection refuses client_confidential without a project before dialling", async () => {
     const fetchImpl = vi.fn<FetchImpl>();
     const client = createAdminRpcClient({

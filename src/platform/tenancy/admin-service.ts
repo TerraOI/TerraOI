@@ -232,6 +232,7 @@ function statusForRpcFailure(kind: AdminRpcFailureKind): number {
     case "constraint":
     case "rejected":
     case "last_admin":
+    case "target_inactive":
       return 409;
     case "tenancy":
       return 403;
@@ -246,14 +247,27 @@ function statusForRpcFailure(kind: AdminRpcFailureKind): number {
   }
 }
 
-export async function handleCreateProject(input: {
-  request: Request;
-  hostOptions?: HostAdapterOptions;
-  ports: AdminPorts;
-}): Promise<Response> {
+type GuardedAdminPost<T> =
+  | { ok: true; auth: Extract<AuthenticatedAdminContext, { ok: true }>; data: T }
+  | { ok: false; response: Response };
+
+/**
+ * The guard pipeline every admin create POST shares (method, session, Origin, content type, body
+ * cap, strict schema, CSRF), in one place so a new form cannot skip a step (supervisor round 1 on
+ * #234). The schema must be a strict object: a body naming an organisation is refused, never stripped.
+ */
+async function guardAdminPost<T extends { csrfToken: string }>(
+  input: { request: Request; hostOptions?: HostAdapterOptions; ports: AdminPorts },
+  schema: z.ZodType<T>,
+  invalidMessage: string,
+): Promise<GuardedAdminPost<T>> {
   const { request, ports } = input;
+  const refuse = (status: number, body: Record<string, unknown>): GuardedAdminPost<T> => ({
+    ok: false,
+    response: jsonReply(status, body),
+  });
   if (request.method !== "POST") {
-    return jsonReply(405, { ok: false, code: "method_not_allowed", message: "Method not allowed." });
+    return refuse(405, { ok: false, code: "method_not_allowed", message: "Method not allowed." });
   }
 
   const auth = await resolveAuthenticatedContext(input);
@@ -266,11 +280,11 @@ export async function handleCreateProject(input: {
           : auth.kind === "unavailable"
             ? 503
             : 404;
-    return jsonReply(status, { ok: false, code: auth.kind, message: auth.message });
+    return refuse(status, { ok: false, code: auth.kind, message: auth.message });
   }
 
   if (!originAllowed(request, auth.host)) {
-    return jsonReply(403, {
+    return refuse(403, {
       ok: false,
       code: "origin_mismatch",
       message: "This request did not come from this workspace.",
@@ -279,29 +293,29 @@ export async function handleCreateProject(input: {
 
   const contentType = (request.headers.get("content-type") ?? "").split(";")[0]?.trim().toLowerCase();
   if (contentType !== "application/json") {
-    return jsonReply(415, { ok: false, code: "unsupported_media_type", message: "Send a JSON body." });
+    return refuse(415, { ok: false, code: "unsupported_media_type", message: "Send a JSON body." });
   }
 
   const secret = ports.signingSecret();
   if (!hasUsableSecret(secret)) {
-    return jsonReply(503, { ok: false, code: "unavailable", message: SAFE_FAILURE_MESSAGE.backend_failure });
+    return refuse(503, { ok: false, code: "unavailable", message: SAFE_FAILURE_MESSAGE.backend_failure });
   }
 
   const rawBody = await readCappedBody(request, MAX_ADMIN_BODY_BYTES);
   if (rawBody === null) {
-    return jsonReply(413, { ok: false, code: "payload_too_large", message: "The request is too large." });
+    return refuse(413, { ok: false, code: "payload_too_large", message: "The request is too large." });
   }
 
   let parsedJson: unknown;
   try {
     parsedJson = JSON.parse(rawBody);
   } catch {
-    return jsonReply(400, { ok: false, code: "invalid_request", message: "The request body is not valid JSON." });
+    return refuse(400, { ok: false, code: "invalid_request", message: "The request body is not valid JSON." });
   }
 
-  const body = CreateProjectBodySchema.safeParse(parsedJson);
+  const body = schema.safeParse(parsedJson);
   if (!body.success) {
-    return jsonReply(400, { ok: false, code: "invalid_request", message: "The project request is invalid." });
+    return refuse(400, { ok: false, code: "invalid_request", message: invalidMessage });
   }
 
   const csrf = await verifyCsrfToken({
@@ -311,17 +325,16 @@ export async function handleCreateProject(input: {
     now: ports.now(),
   });
   if (!csrf.ok) {
-    return jsonReply(403, { ok: false, code: "csrf_invalid", message: "Refresh the page and try again." });
+    return refuse(403, { ok: false, code: "csrf_invalid", message: "Refresh the page and try again." });
   }
 
-  const created = await ports.adminRpc.createProject({
-    context: auth.context,
-    accessToken: auth.accessToken,
-    key: body.data.key,
-    name: body.data.name,
-    visibility: body.data.visibility,
-  });
+  return { ok: true, auth, data: body.data };
+}
 
+function createdReply(
+  created: Awaited<ReturnType<AdminRpcClient["createProject"]>>,
+  idField: "projectId" | "collectionId",
+): Response {
   if (!created.ok) {
     return jsonReply(statusForRpcFailure(created.kind), {
       ok: false,
@@ -329,8 +342,25 @@ export async function handleCreateProject(input: {
       message: created.message,
     });
   }
+  return jsonReply(201, { ok: true, [idField]: created.id });
+}
 
-  return jsonReply(201, { ok: true, projectId: created.id });
+export async function handleCreateProject(input: {
+  request: Request;
+  hostOptions?: HostAdapterOptions;
+  ports: AdminPorts;
+}): Promise<Response> {
+  const guarded = await guardAdminPost(input, CreateProjectBodySchema, "The project request is invalid.");
+  if (!guarded.ok) return guarded.response;
+  const { auth, data } = guarded;
+  const created = await input.ports.adminRpc.createProject({
+    context: auth.context,
+    accessToken: auth.accessToken,
+    key: data.key,
+    name: data.name,
+    visibility: data.visibility,
+  });
+  return createdReply(created, "projectId");
 }
 
 export async function handleCreateCollection(input: {
@@ -338,88 +368,23 @@ export async function handleCreateCollection(input: {
   hostOptions?: HostAdapterOptions;
   ports: AdminPorts;
 }): Promise<Response> {
-  const { request, ports } = input;
-  if (request.method !== "POST") {
-    return jsonReply(405, { ok: false, code: "method_not_allowed", message: "Method not allowed." });
-  }
-
-  const auth = await resolveAuthenticatedContext(input);
-  if (!auth.ok) {
-    const status =
-      auth.kind === "redirect"
-        ? 401
-        : auth.kind === "no_access"
-          ? 403
-          : auth.kind === "unavailable"
-            ? 503
-            : 404;
-    return jsonReply(status, { ok: false, code: auth.kind, message: auth.message });
-  }
-
-  if (!originAllowed(request, auth.host)) {
-    return jsonReply(403, {
-      ok: false,
-      code: "origin_mismatch",
-      message: "This request did not come from this workspace.",
-    });
-  }
-
-  const contentType = (request.headers.get("content-type") ?? "").split(";")[0]?.trim().toLowerCase();
-  if (contentType !== "application/json") {
-    return jsonReply(415, { ok: false, code: "unsupported_media_type", message: "Send a JSON body." });
-  }
-
-  const secret = ports.signingSecret();
-  if (!hasUsableSecret(secret)) {
-    return jsonReply(503, { ok: false, code: "unavailable", message: SAFE_FAILURE_MESSAGE.backend_failure });
-  }
-
-  const rawBody = await readCappedBody(request, MAX_ADMIN_BODY_BYTES);
-  if (rawBody === null) {
-    return jsonReply(413, { ok: false, code: "payload_too_large", message: "The request is too large." });
-  }
-
-  let parsedJson: unknown;
-  try {
-    parsedJson = JSON.parse(rawBody);
-  } catch {
-    return jsonReply(400, { ok: false, code: "invalid_request", message: "The request body is not valid JSON." });
-  }
-
-  const body = CreateCollectionBodySchema.safeParse(parsedJson);
-  if (!body.success) {
-    return jsonReply(400, { ok: false, code: "invalid_request", message: "The collection request is invalid." });
-  }
-
-  const csrf = await verifyCsrfToken({
-    token: body.data.csrfToken,
-    host: auth.host,
-    secret,
-    now: ports.now(),
-  });
-  if (!csrf.ok) {
-    return jsonReply(403, { ok: false, code: "csrf_invalid", message: "Refresh the page and try again." });
-  }
-
-  const created = await ports.adminRpc.createCollection({
+  const guarded = await guardAdminPost(
+    input,
+    CreateCollectionBodySchema,
+    "The collection request is invalid.",
+  );
+  if (!guarded.ok) return guarded.response;
+  const { auth, data } = guarded;
+  const created = await input.ports.adminRpc.createCollection({
     context: auth.context,
     accessToken: auth.accessToken,
-    key: body.data.key,
-    name: body.data.name,
-    service: body.data.service,
-    dataClass: body.data.dataClass,
-    projectId: body.data.projectId,
+    key: data.key,
+    name: data.name,
+    service: data.service,
+    dataClass: data.dataClass,
+    projectId: data.projectId,
   });
-
-  if (!created.ok) {
-    return jsonReply(statusForRpcFailure(created.kind), {
-      ok: false,
-      code: created.kind,
-      message: created.message,
-    });
-  }
-
-  return jsonReply(201, { ok: true, collectionId: created.id });
+  return createdReply(created, "collectionId");
 }
 
 export async function handleMembershipRoleAction(input: {
@@ -427,77 +392,25 @@ export async function handleMembershipRoleAction(input: {
   hostOptions?: HostAdapterOptions;
   ports: AdminPorts;
 }): Promise<Response> {
-  const { request, ports } = input;
-  if (request.method !== "POST") {
-    return jsonReply(405, { ok: false, code: "method_not_allowed", message: "Method not allowed." });
-  }
-
-  const auth = await resolveAuthenticatedContext(input);
-  if (!auth.ok) {
-    const status =
-      auth.kind === "redirect"
-        ? 401
-        : auth.kind === "no_access"
-          ? 403
-          : auth.kind === "unavailable"
-            ? 503
-            : 404;
-    return jsonReply(status, { ok: false, code: auth.kind, message: auth.message });
-  }
-
-  if (!originAllowed(request, auth.host)) {
-    return jsonReply(403, {
-      ok: false,
-      code: "origin_mismatch",
-      message: "This request did not come from this workspace.",
-    });
-  }
-
-  const contentType = (request.headers.get("content-type") ?? "").split(";")[0]?.trim().toLowerCase();
-  if (contentType !== "application/json") {
-    return jsonReply(415, { ok: false, code: "unsupported_media_type", message: "Send a JSON body." });
-  }
-
-  const secret = ports.signingSecret();
-  if (!hasUsableSecret(secret)) {
-    return jsonReply(503, { ok: false, code: "unavailable", message: SAFE_FAILURE_MESSAGE.backend_failure });
-  }
-
-  const rawBody = await readCappedBody(request, MAX_ADMIN_BODY_BYTES);
-  if (rawBody === null) {
-    return jsonReply(413, { ok: false, code: "payload_too_large", message: "The request is too large." });
-  }
-
-  let parsedJson: unknown;
-  try {
-    parsedJson = JSON.parse(rawBody);
-  } catch {
-    return jsonReply(400, { ok: false, code: "invalid_request", message: "The request body is not valid JSON." });
-  }
-
-  const body = MembershipRoleBodySchema.safeParse(parsedJson);
-  if (!body.success) {
-    return jsonReply(400, { ok: false, code: "invalid_request", message: "The membership role request is invalid." });
-  }
-
-  const csrf = await verifyCsrfToken({
-    token: body.data.csrfToken,
-    host: auth.host,
-    secret,
-    now: ports.now(),
-  });
-  if (!csrf.ok) {
-    return jsonReply(403, { ok: false, code: "csrf_invalid", message: "Refresh the page and try again." });
-  }
+  // Supervisor round 1 on #236: the shared guard (round 1 on #234) rather than a copy of it, so the
+  // three admin POSTs cannot drift apart on method, auth, origin, size, JSON or CSRF checks.
+  const guarded = await guardAdminPost(
+    input,
+    MembershipRoleBodySchema,
+    "The membership role request is invalid.",
+  );
+  if (!guarded.ok) return guarded.response;
+  const { auth, data } = guarded;
+  const { ports } = input;
 
   const args = {
     context: auth.context,
     accessToken: auth.accessToken,
-    userId: body.data.userId,
-    roleId: body.data.roleId,
+    userId: data.userId,
+    roleId: data.roleId,
   };
   const outcome =
-    body.data.action === "grant"
+    data.action === "grant"
       ? await ports.adminRpc.grantMembershipRole(args)
       : await ports.adminRpc.revokeMembershipRole(args);
 
@@ -509,7 +422,7 @@ export async function handleMembershipRoleAction(input: {
     });
   }
 
-  return jsonReply(200, { ok: true, action: body.data.action });
+  return jsonReply(200, { ok: true, action: data.action });
 }
 
 export async function handleInviteMember(input: {
@@ -517,74 +430,17 @@ export async function handleInviteMember(input: {
   hostOptions?: HostAdapterOptions;
   ports: AdminPorts;
 }): Promise<Response> {
-  const { request, ports } = input;
-  if (request.method !== "POST") {
-    return jsonReply(405, { ok: false, code: "method_not_allowed", message: "Method not allowed." });
-  }
-
-  const auth = await resolveAuthenticatedContext(input);
-  if (!auth.ok) {
-    const status =
-      auth.kind === "redirect"
-        ? 401
-        : auth.kind === "no_access"
-          ? 403
-          : auth.kind === "unavailable"
-            ? 503
-            : 404;
-    return jsonReply(status, { ok: false, code: auth.kind, message: auth.message });
-  }
-
-  if (!originAllowed(request, auth.host)) {
-    return jsonReply(403, {
-      ok: false,
-      code: "origin_mismatch",
-      message: "This request did not come from this workspace.",
-    });
-  }
-
-  const contentType = (request.headers.get("content-type") ?? "").split(";")[0]?.trim().toLowerCase();
-  if (contentType !== "application/json") {
-    return jsonReply(415, { ok: false, code: "unsupported_media_type", message: "Send a JSON body." });
-  }
-
-  const secret = ports.signingSecret();
-  if (!hasUsableSecret(secret)) {
-    return jsonReply(503, { ok: false, code: "unavailable", message: SAFE_FAILURE_MESSAGE.backend_failure });
-  }
-
-  const rawBody = await readCappedBody(request, MAX_ADMIN_BODY_BYTES);
-  if (rawBody === null) {
-    return jsonReply(413, { ok: false, code: "payload_too_large", message: "The request is too large." });
-  }
-
-  let parsedJson: unknown;
-  try {
-    parsedJson = JSON.parse(rawBody);
-  } catch {
-    return jsonReply(400, { ok: false, code: "invalid_request", message: "The request body is not valid JSON." });
-  }
-
-  const body = InviteMemberBodySchema.safeParse(parsedJson);
-  if (!body.success) {
-    return jsonReply(400, { ok: false, code: "invalid_request", message: "The invite request is invalid." });
-  }
-
-  const csrf = await verifyCsrfToken({
-    token: body.data.csrfToken,
-    host: auth.host,
-    secret,
-    now: ports.now(),
-  });
-  if (!csrf.ok) {
-    return jsonReply(403, { ok: false, code: "csrf_invalid", message: "Refresh the page and try again." });
-  }
+  // Supervisor round 1 on #237: the shared guard (round 1 on #234), not a copy of it.
+  const guarded = await guardAdminPost(input, InviteMemberBodySchema, "The invite request is invalid.");
+  if (!guarded.ok) return guarded.response;
+  const { auth, data } = guarded;
+  const { ports } = input;
 
   const invited = await ports.adminRpc.inviteMember({
     context: auth.context,
     accessToken: auth.accessToken,
-    email: body.data.email,
-    roleId: body.data.roleId,
+    email: data.email,
+    roleId: data.roleId,
   });
 
   if (!invited.ok) {
