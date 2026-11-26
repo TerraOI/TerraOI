@@ -1,6 +1,6 @@
 # T-312 Eval harness (F34–F36): CI subset on PRs, full set nightly on staging
 
-Lane: 2 · Week: 3 · Protected: yes (`supabase/migrations/`, `.github/` is not this packet's) · Depends on: T-111 (merged), T-113 (the chunker and embedding gate merged as #80; publish is not on `main`; the pin is decided by the #6 engineering decision), T-114 (open as draft #160 and #162), T-104 (open as #178), T-311 (same week: an expert version to run; not started) · Status: ready
+Lane: 2 · Week: 3 · Protected: yes (`supabase/migrations/`, `.github/` is not this packet's) · Depends on: T-111 (merged), T-113 (the chunker and embedding gate merged as #80; publish is not on `main`; the pin is decided by the #6 engineering decision), T-114 (open as draft #160 and #162), T-104 (open as #178), T-311 (same week: an expert version to run; not started) · Status: in progress (wyuinline) — **PR-1** [#222](https://github.com/TerraOI/TerraOI/pull/222) contract-first. **PR-2** claimed on `t-312-evals-sql`: `eval_cases`/`eval_reviews`/`eval_runs`/`eval_results` + scoped review RPCs + `090` (#82 / #102). Runner/nightly remain later slices.
 Plan refs: §14.1 (workflow + pilot-entry thresholds), §14 (measure table), §6.1 (Evaluation group), §15.2 (M1-PILOT gate), §16 (Retrieval/Model chain rows), §20.3; F34, F35, F36 (TOI-ADR-17)
 
 ## Supervisor rulings to apply (2026-11-09)
