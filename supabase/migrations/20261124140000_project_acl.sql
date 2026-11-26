@@ -73,11 +73,14 @@ comment on function public.collection_is_readable(uuid) is
   'Tenant scope + project audience for the knowledge read path; archived projects stop collection visibility (T-214).';
 
 /**
- * Project audience for a source (T-214, §6.2):
- * - no bindings → collection rules (null project = tenant-wide; else active project membership)
- * - with bindings → member of an active bound project, OR of the collection's project when that
- *   project is set. A tenant-wide collection alone does not widen past the bindings (a source
- *   shared into two projects stays invisible to a member of neither).
+ * Project audience for a source (T-214, §6.2). Bindings only ever narrow (supervisor round 1 on #272,
+ * B1), so this decision and retrieval (which also needs the collection row, visible only to the
+ * collection's audience) can never disagree:
+ * - project-bound collection → member of that active project. A binding never admits someone outside
+ *   it; download/cite and retrieve give the same answer.
+ * - tenant-wide collection with bindings → member of an active bound project (a source shared into
+ *   two projects stays invisible to a member of neither).
+ * - tenant-wide collection without bindings → every active member.
  */
 create or replace function public.source_audience_allows(p_source_id uuid)
 returns boolean language sql stable security definer set search_path = public, pg_temp as $$
@@ -126,19 +129,17 @@ returns boolean language sql stable security definer set search_path = public, p
   )
   select case
     when not exists (select 1 from src) then false
+    when (select collection_project_id from src) is not null then
+      (select ok from collection_project_ok)
     when (select v from has_bindings) then
       (select ok from binding_ok)
-      or (
-        (select collection_project_id from src) is not null
-        and (select ok from collection_project_ok)
-      )
     else
       (select ok from collection_ok)
   end;
 $$;
 
 comment on function public.source_audience_allows(uuid) is
-  'Project audience for one source (T-214): with bindings, active bound project or the collection''s set project; without bindings, collection rules. SECURITY DEFINER; not granted to request roles.';
+  'Project audience for one source (T-214): a project-bound collection admits only that active project''s members; a tenant-wide collection with bindings admits members of an active bound project; otherwise every active member. Bindings only narrow. SECURITY DEFINER; not granted to request roles.';
 
 revoke execute on function public.source_audience_allows(uuid)
   from public, anon, authenticated, service_role;

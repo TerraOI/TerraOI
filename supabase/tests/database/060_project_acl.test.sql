@@ -5,7 +5,7 @@
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(30);
+select plan(35);
 
 -- ---------------------------------------------------------------- helpers
 create function pg_temp.try_scope(p_organisation_id uuid) returns text
@@ -195,6 +195,21 @@ reset role;
 select is((select n from t_count where case_name = 'archived_grid'), 0,
   '14 and search returns zero evidence rows for the same query');
 
+-- Archived project, the other two places that check `p.status = 'active'` (supervisor round 1 on #272,
+-- B2): the shared access decision and collection_is_readable itself.
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a1';
+insert into t_out values ('archived_download', pg_temp.try_authorize(
+  '11111111-1111-4111-8111-111111111111', '61000000-0000-4000-8000-000000000002', 'download'));
+select public.set_tenant_scope('11111111-1111-4111-8111-111111111111');
+insert into t_out values ('archived_collection',
+  public.collection_is_readable('51000000-0000-4000-8000-000000000002')::text);
+reset role;
+select is((select result from t_out where case_name = 'archived_download'), 'false',
+  '31 after the project is archived, authorize_source_access_v1 withholds download from its member');
+select is((select result from t_out where case_name = 'archived_collection'), 'false',
+  '32 and collection_is_readable is false for the archived project''s collection');
+
 -- restore project for cleanliness
 select pg_temp.owner_sql(
   'update public.projects set status = ''active'' where id = '
@@ -236,6 +251,30 @@ select is((select result::bigint from t_out where case_name = 'rev_noop_delta'),
   '16 a replayed binding insert is a no-op for policy_revision');
 select is((select result::bigint from t_out where case_name = 'rev_delete_delta'), 1::bigint,
   '17 deleting a binding moves policy_revision by one (#98)');
+
+-- ---------------------------------------------------------------- 33-35 bindings only narrow (#272 B1)
+-- The Site A source is bound to project B. …a2 is a member of B (added at 12) but not of Site A. The
+-- access decision and retrieval must give the same answer, and that answer is no: a binding cannot
+-- admit someone outside the collection's project (F08: one decision for retrieve, cite, download).
+select pg_temp.owner_sql(
+  'insert into public.source_acl_bindings (organisation_id, source_id, project_id) values '
+  || '(''11111111-1111-4111-8111-111111111111'', ''61000000-0000-4000-8000-000000000002'', '
+  || '''43000000-0000-4000-8000-000000000001'') on conflict (source_id, project_id) do nothing');
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-0000000000a2';
+insert into t_out values ('bound_b_retrieve', pg_temp.try_authorize(
+  '11111111-1111-4111-8111-111111111111', '61000000-0000-4000-8000-000000000002', 'retrieve'));
+insert into t_out values ('bound_b_download', pg_temp.try_authorize(
+  '11111111-1111-4111-8111-111111111111', '61000000-0000-4000-8000-000000000002', 'download'));
+insert into t_count values ('bound_b_grid', pg_temp.try_search_rows(
+  '11111111-1111-4111-8111-111111111111', 'grid'));
+reset role;
+select is((select result from t_out where case_name = 'bound_b_retrieve'), 'false',
+  '33 a member of a bound project outside the collection''s project is refused retrieve');
+select is((select result from t_out where case_name = 'bound_b_download'), 'false',
+  '34 …and download, the same answer');
+select is((select n from t_count where case_name = 'bound_b_grid'), 0,
+  '35 …and search_corpus_v1 returns no evidence row for that source either');
 
 -- ---------------------------------------------------------------- 18-22 RPC shape and privileges
 select is(p.provolatile::text, 'v',

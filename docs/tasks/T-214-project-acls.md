@@ -8,6 +8,18 @@ These supersede anything below that disagrees.
 - **`policy_revision`** ([#98](https://github.com/TerraOI/TerraOI/issues/98)): attach T-202's `bump_policy_revision()` to the project ACL tables; assert the move in `060`.
 - **Tenant scope** ([#163](https://github.com/TerraOI/TerraOI/issues/163), FAQ-0011): every tenant-scoped RPC this packet adds takes `p_organisation_id uuid` **first** and begins with `perform public.set_tenant_scope(p_organisation_id);`, so it is `volatile`. Its TypeScript caller goes through `withTenantRpc` (T-101c). pgTAP pins the signature, the volatility, and a refusal for an organisation the caller is not a member of.
 
+- **Bindings only narrow** (supervisor, #272 round 1): a project-bound collection admits only that
+  active project's members, whatever its bindings. On a tenant-wide collection, bindings restrict the
+  audience to the bound projects. `authorize_source_access_v1` and `search_corpus_v1` therefore always
+  agree (F08: one decision). A true union would need `knowledge_collections_scoped_read` widened as well.
+- **Collection metadata after archive:** `knowledge_collections_scoped_read` keeps its own inline
+  predicate with no archived check. A member can still list an archived project's collection *row*
+  (name, key, data class), but `collection_is_readable`, `source_is_readable` and retrieval all
+  refuse its content (060 tests 13, 14, 31, 32). Hiding the row too belongs with the archive UI in T-202 PR-2.
+- **Binding writes:** no write path exists in PR-1 (insert, update and delete are revoked, and there is no RPC).
+  `bind_source_to_project_v1` lands in T-214 PR-2 with the admin UI. Until then, 060's owner-side
+  inserts are the only writers.
+
 ## Goal
 Project is a real information boundary, not a label: one access decision decides what retrieval
 returns, what a citation will open and what conversation history may show, so removing someone from a
