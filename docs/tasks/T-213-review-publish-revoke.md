@@ -37,6 +37,17 @@ F13 `publishKnowledgeVersion` → `publish_knowledge_version_v1`; F14 `revokeSou
 **Independence, per #8:** `review_independent` defaults to on for `client_confidential` collections and
 for requirement/authority sources, and the RPC compares the reviewer against the **server-set
 `uploaded_by`** written by `register_source_version_v1` (#13(1)), never a client-supplied author.
+**PR-1 implements the collection half only.** `knowledge_sources.kind` has no requirement/authority
+value today (`upload | note | form_submission | connector`), so there is nothing to key the
+source half on. It moves to the authority-taxonomy slice that adds that marker (a follow-up named in
+the box below); until then, mark a collection `review_independent` to cover such sources.
+**Who reviews** (owner ruling on #267, [FAQ-0015](../FAQ.md)): `knowledge.review` at write or above, or
+`knowledge.admin` at admin, for review, publish and revoke alike; `knowledge.write` is capture only
+(FAQ-0006). Every caller must also be in the collection's audience (project member when it is
+project-bound). Concurrent publishes serialize on the source row (`FOR UPDATE`, the same lock the
+worker switch in `chunk_publish` takes). A partial unique index on published versions is **not** used:
+that switch marks the target before the prior in one statement, and a non-deferrable index would
+reject it mid-statement.
 Derived-output invalidation reads the `data_class` and source-version dependency ids T-104 stores
 ([`maxDataClass`](../../src/contracts/data-class.ts)), keeping each derived row at its inherited class.
 
@@ -47,7 +58,9 @@ Derived-output invalidation reads the `data_class` and source-version dependency
 - [x] positive: a low-risk internal note auto-publishes where the collection policy allows (**PR-1**;
       requirement/authority SOP path stays for a later authority-taxonomy slice)
 - [x] negative: with `review_independent` on, the uploader's own `review_decision_v1` is refused, and so
-      is a company2 actor or a member lacking the review permission (**PR-1**)
+      is a company2 actor, a `knowledge.write`-only contributor, or a reviewer outside the project (**PR-1**)
+- [ ] negative: requirement/authority sources default to independent review (authority-taxonomy
+      slice; needs a source-kind marker that does not exist yet)
 - [x] negative: after `revoke_source_v1` the published+active predicate returns zero for that version;
       in-flight jobs are failed closed (**PR-1**)
 - [ ] negative: each affected derived row (T-104's messages/answers and their dependency ids) is marked
