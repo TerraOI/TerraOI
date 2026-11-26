@@ -1,9 +1,9 @@
 -- T-312 PR-2: eval_cases / eval_reviews / eval_runs / eval_results (#82, plan §6.1 / §14.1).
--- Written first (COORDINATION §6b). Slot 090. Red until 20261121220000_evals.sql lands.
+-- Written first (COORDINATION §6b). Slot 090. Red until 20261125100000_evals.sql lands.
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(32);
+select plan(41);
 
 -- ---------------------------------------------------------------- fixture helpers
 -- Prefer `set local` (same pattern as 010/013) so auth.uid() and role stick for the transaction.
@@ -221,7 +221,95 @@ select ok(
   ),
   '26 company1 admin role holds evals.review admin for export (#82)');
 
--- ---------------------------------------------------------------- 27–32 record_eval_run_v1 (append-only)
+-- ---------------------------------------------------------------- 27–33 supervisor round 1 on #240
+-- 27 a member without evals.review cannot draft (any member could otherwise seed the queue).
+select pg_temp.set_jwt('00000000-0000-4000-8000-0000000000a4');
+select is(
+  pg_temp.try_sql($$
+    select public.create_eval_case_draft_v1('11111111-1111-4111-8111-111111111111', jsonb_build_object(
+      'case_key', 'UAV-T090-A4', 'expert_key', 'uav-expert', 'origin', 'expert_written',
+      'case_type', 'answerable', 'question', 'Synthetic question.', 'data_class', 'internal',
+      'drafted_by', 'a4', 'drafted_on', '2026-11-21'))
+  $$),
+  '42501',
+  '27 a member without evals.review cannot draft an eval case');
+
+-- 28 and reads an empty list rather than an error or another reviewer's cases.
+select is(
+  (select count(*)::int from public.list_eval_cases_v1('11111111-1111-4111-8111-111111111111', null)),
+  0,
+  '28 a member without evals.review lists no eval cases');
+
+-- 29 a malformed drafted_on is a 22023 argument refusal, not a raw cast error.
+select pg_temp.set_jwt('00000000-0000-4000-8000-0000000000a1');
+select is(
+  pg_temp.try_sql($$
+    select public.create_eval_case_draft_v1('11111111-1111-4111-8111-111111111111', jsonb_build_object(
+      'case_key', 'UAV-T090-DATE', 'expert_key', 'uav-expert', 'origin', 'expert_written',
+      'case_type', 'answerable', 'question', 'Synthetic question.', 'data_class', 'internal',
+      'drafted_by', 'a1', 'drafted_on', 'not-a-date'))
+  $$),
+  '22023',
+  '29 a malformed drafted_on is refused as an argument (22023)');
+
+-- 30 an approver who stays active but loses evals.review no longer validates their approvals:
+-- take a2's eval_reviewer role away (a2 has no other evals.review grant) and the case leaves export.
+reset role;
+delete from public.membership_roles mr
+ using public.organisation_memberships m, public.organisation_roles r
+ where mr.membership_id = m.id
+   and mr.role_id = r.id
+   and m.organisation_id = '11111111-1111-4111-8111-111111111111'
+   and m.user_id = '00000000-0000-4000-8000-0000000000a2'
+   and r.key = 'eval_reviewer';
+select pg_temp.set_jwt('00000000-0000-4000-8000-0000000000a1');
+select ok(
+  not exists (
+    select 1 from public.export_approved_eval_cases_v1('11111111-1111-4111-8111-111111111111')
+     where id = (select case_id from t_draft)
+  ),
+  '30 a case approved by a member who lost evals.review drops out of the export');
+-- Restore the role so 32-33 test suspension on its own.
+reset role;
+insert into public.membership_roles (organisation_id, membership_id, role_id)
+select m.organisation_id, m.id, r.id
+  from public.organisation_memberships m
+  join public.organisation_roles r on r.organisation_id = m.organisation_id and r.key = 'eval_reviewer'
+ where m.organisation_id = '11111111-1111-4111-8111-111111111111'
+   and m.user_id = '00000000-0000-4000-8000-0000000000a2';
+select pg_temp.set_jwt('00000000-0000-4000-8000-0000000000a1');
+select ok(
+  exists (
+    select 1 from public.export_approved_eval_cases_v1('11111111-1111-4111-8111-111111111111')
+     where id = (select case_id from t_draft)
+  ),
+  '31 with the role restored the approval counts again');
+
+-- 32–33 an approval by a member who is later suspended stops counting: export drops the case, and
+-- the suspended member can no longer review at all.
+reset role;
+update public.organisation_memberships
+   set status = 'suspended'
+ where organisation_id = '11111111-1111-4111-8111-111111111111'
+   and user_id = '00000000-0000-4000-8000-0000000000a2';
+select pg_temp.set_jwt('00000000-0000-4000-8000-0000000000a1');
+select ok(
+  not exists (
+    select 1 from public.export_approved_eval_cases_v1('11111111-1111-4111-8111-111111111111')
+     where id = (select case_id from t_draft)
+  ),
+  '32 a case approved by a now-suspended member drops out of the export');
+select pg_temp.set_jwt('00000000-0000-4000-8000-0000000000a2');
+select is(
+  pg_temp.try_sql(format(
+    $$ select public.review_eval_case_v1('11111111-1111-4111-8111-111111111111', %L::uuid, 'approve', '{}'::jsonb) $$,
+    (select case_id from t_pilot)
+  )),
+  '28000',
+  '33 a suspended member cannot review');
+reset role;
+
+-- ---------------------------------------------------------------- 34–41 record_eval_run_v1 (append-only)
 select pg_temp.set_jwt('00000000-0000-4000-8000-0000000000a1');
 create temporary table t_run1 on commit drop as
   select public.record_eval_run_v1(
@@ -243,7 +331,7 @@ create temporary table t_run1 on commit drop as
     )
   ) as run_id;
 
-select ok((select run_id from t_run1) is not null, '27 record_eval_run_v1 returns a run id');
+select ok((select run_id from t_run1) is not null, '34 record_eval_run_v1 returns a run id');
 
 select is(
   (select count(*)::int from public.eval_results
@@ -252,7 +340,7 @@ select is(
       and failure_class is null
       and score = 1),
   1,
-  '28 one result per case carries score and null failure_class');
+  '35 one result per case carries score and null failure_class');
 
 create temporary table t_run2 on commit drop as
   select public.record_eval_run_v1(
@@ -276,7 +364,7 @@ create temporary table t_run2 on commit drop as
 
 select ok(
   (select run_id from t_run2) is distinct from (select run_id from t_run1),
-  '29 a rerun writes a new run id');
+  '36 a rerun writes a new run id');
 
 select is(
   (select count(*)::int from public.eval_runs
@@ -284,14 +372,14 @@ select is(
       and corpus_generation = 'synth-corpus-090-a'
       and status = 'completed'),
   1,
-  '30 the first run row is unchanged after a rerun');
+  '37 the first run row is unchanged after a rerun');
 
 select is(
   (select failure_class from public.eval_results
     where run_id = (select run_id from t_run1)
       and case_id = (select case_id from t_draft)),
   null,
-  '31 the first run''s result row is not edited by a rerun');
+  '38 the first run''s result row is not edited by a rerun');
 
 select pg_temp.set_jwt('00000000-0000-4000-8000-0000000000b1');
 select is(
@@ -312,7 +400,27 @@ select is(
     (select case_id from t_draft)
   )),
   '42501',
-  '32 company2 cannot attach a company1 case id to an eval run');
+  '39 company2 cannot attach a company1 case id to an eval run');
+
+select pg_temp.set_jwt('00000000-0000-4000-8000-0000000000a1');
+select is(
+  pg_temp.try_sql(format(
+    $$ select public.record_eval_run_v1('11111111-1111-4111-8111-111111111111',
+         jsonb_build_object('expert_key', 'uav-expert', 'expert_version', '1', 'corpus_generation', 'g', 'status', 'completed'),
+         jsonb_build_array(jsonb_build_object('case_id', %L::uuid, 'score', 7))) $$,
+    (select case_id from t_draft)
+  )),
+  '22023',
+  '40 a score outside 0..1 is refused as an argument');
+select is(
+  pg_temp.try_sql(format(
+    $$ select public.record_eval_run_v1('11111111-1111-4111-8111-111111111111',
+         jsonb_build_object('expert_key', 'gpr-expert', 'expert_version', '1', 'corpus_generation', 'g', 'status', 'completed'),
+         jsonb_build_array(jsonb_build_object('case_id', %L::uuid, 'score', 1))) $$,
+    (select case_id from t_draft)
+  )),
+  '22023',
+  '41 a case from another expert is not a result of this run');
 
 select * from finish();
 rollback;

@@ -1,6 +1,6 @@
 # T-215 Verifier pass 2 (semantic entailment), compose retry
 
-Lane: 2 · Week: 2 · Protected: yes (`src/platform/gateway/`) · Depends on: T-115, T-114, T-113, T-104 · Status: ready
+Lane: 2 · Week: 2 · Protected: yes (`src/platform/gateway/`) · Depends on: T-115, T-114, T-113, T-104 · Status: in progress (wyuinline) — **PR-1** [#245](https://github.com/TerraOI/TerraOI/pull/245) `createSemanticVerifier`; **PR-2** claimed on `t-215-compose-retry`: one compose retry after material pass-2 failure.
 Plan refs: §12.1 (M1 two-pass verifier), §12.4 (chain walking, clearance), §9.3, §16 (model chain row); F20, F21, F31, F38
 
 ## Supervisor rulings to apply (2026-11-09)
@@ -38,22 +38,28 @@ Behavior: [docs/contracts/model-chain.md](../../docs/contracts/model-chain.md); 
 outside `src/platform/gateway/` (AGENTS.md §4.3).
 
 ## Acceptance tests (write first)
-- [ ] positive: `src/platform/gateway/verifier-pass2.test.ts` — each claim is verified with **only** its
+- [x] positive: `src/platform/gateway/verifier-pass2.test.ts` — each claim is verified with **only** its
       claim text and cited spans (no other turn in the payload), and a `supported` verdict is delivered
-- [ ] negative: for `verify` the first eligible provider is **Claude** and no box verifier runs before an
+      (**PR-1**)
+- [x] negative: for `verify` the first eligible provider is **Claude** and no box verifier runs before an
       F35-passing second model exists (#9); the composing provider and any tier below `minVerifierTier`
       are excluded, and a `client_confidential` payload shows zero DeepSeek/OpenRouter calls in the mock
-- [ ] negative: `ExpertDefinition` rejects a `verify` chain that reorders that task's order and accepts
-      one that merely drops `local_box` (drop ≠ reorder)
-- [ ] negative: an `unsupported` or `contradicted` claim is dropped and coherence re-checked; if dropping
+      (**PR-1**)
+- [x] negative: `ExpertDefinition` rejects a `verify` chain that reorders that task's order and accepts
+      one that merely drops `local_box` (drop ≠ reorder) — already pinned in `expert-definition.test.ts`
+- [x] negative: an `unsupported` or `contradicted` claim is dropped and coherence re-checked; if dropping
       it changes the decision the answer comes back `refused`, not quietly shortened
-- [ ] failure: no eligible verifier → `requirement` claims are withheld, the answer is `partial` with the
+      (compose tests from T-115d; PR-2 pins single-tier refuse without retry)
+- [x] failure: no eligible verifier → `requirement` claims are withheld, the answer is `partial` with the
       limitation stated, and low-risk `source_fact` quotes that passed pass 1 may still appear
-- [ ] failure: composition fails pass 2 materially → **one** retry on the next eligible compose tier
+      (compose tests from T-115d)
+- [x] failure: composition fails pass 2 materially → **one** retry on the next eligible compose tier
       (assert exactly two compose attempts), the second failure returns `refused` or `partial`, and no
-      candidate text is streamed at any point
+      candidate text is streamed at any point (**PR-2**)
 - [ ] failure: verifier output that is malformed or off-schema advances to the next provider instead of
       crashing; which tier composed and verified goes to the run audit, never into `Answer`
+      (**PR-1** covers the first half only: malformed → fail-closed `unsupported` via gateway schema
+      advance + port mapping. The run-audit half lands with the compose wiring slice.)
 
 ## Done evidence
 `pnpm verify`; staging: with the box offline, ask a question needing a `requirement` claim and show the
