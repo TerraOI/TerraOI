@@ -135,11 +135,19 @@ $$, '31 no function in public is executable by anon except the named allow-list 
 --     request role at all, so it must not appear here: 026_brand_config.test.sql test 9 pins that
 --     closed until the admin surface and its seeded permission arrive.
 --   retrieval (`search_corpus.sql`): search_corpus_v1, the reader-only hybrid RPC (#136)
---   forms (`20261120213000_forms.sql`, T-301): save_form_draft_v1, submit_form_v1 — same shape,
+--   forms (`20261120213000_forms.sql` + `20261121021000_forms_read_rpc.sql`, T-301):
+--     list_form_templates_v1, get_form_template_v1, save_form_draft_v1, submit_form_v1 — same shape,
 --     `p_organisation_id` first and the scope set inside. The validators, the two guard trigger
 --     functions and the template-safety helpers are revoked and deliberately not listed here.
 --   tenant admin (`20261120215000_tenant_admin_rpc.sql`, T-202 PR-1): five write RPCs — grant/revoke
 --     membership role, create project, add/remove project member — each with `p_organisation_id` first
+--   chat persistence (`20261120216000_chat_persistence.sql`, T-104): the seven scoped chat RPCs. Same
+--     shape — `p_organisation_id` first, scope established inside, `authenticated` only and never
+--     `anon`, because chat is behind sign-in (plan §4.1). The migration's own guard, trigger and
+--     RPC-internal helper functions are deliberately absent, exactly like the eight knowledge trigger
+--     functions in 23-30: a trigger runs because the table names it, so it needs no EXECUTE grant, and
+--     granting one would add a REST endpoint. `035_chat_persistence.test.sql` test 13 pins the same
+--     seven from `pg_proc`, so the two files cannot drift apart.
 -- The session functions the ruling also lists live in `toi_identity`, not `public`
 -- (`20261107024000_session_store.sql:122-219`), and that migration grants them to **no role** at all
 -- pending #75 — so they cannot appear in a `public` allow-list; test 33 pins them closed instead.
@@ -173,11 +181,18 @@ select is_empty($$
            ('public.begin_upload_session_v1(uuid, uuid, text, text, bigint)'::regprocedure),
            ('public.register_source_version_v1(uuid, uuid, text, bigint, text)'::regprocedure),
            ('public.record_upload_outcome_v1(uuid, uuid, text, text)'::regprocedure),
+           -- T-112d / U-1 (`20261121180000_knowledge_storage_and_find_session.sql`): scoped session
+           -- reader for the complete path, and the Storage RLS predicate, which RLS executes as the
+           -- querying role (it answers only about the caller's own open session).
+           ('public.find_upload_session_v1(uuid, uuid)'::regprocedure),
+           ('public.user_may_access_knowledge_object(text)'::regprocedure),
            ('public.create_collection_v1(uuid, text, text, text, uuid, text)'::regprocedure),
            ('public.update_collection_v1(uuid, uuid, text)'::regprocedure),
            ('public.load_public_brand(text)'::regprocedure),
            ('public.get_tenant_brand_v1(uuid)'::regprocedure),
            ('public.search_corpus_v1(uuid, text[], uuid, uuid[], text, extensions.vector, uuid, date, text[], integer)'::regprocedure),
+           ('public.list_form_templates_v1(uuid)'::regprocedure),
+           ('public.get_form_template_v1(uuid, uuid)'::regprocedure),
            ('public.save_form_draft_v1(uuid, uuid, text, jsonb, uuid)'::regprocedure),
            ('public.submit_form_v1(uuid, uuid)'::regprocedure),
            -- T-202 PR-1 (`20261120215000_tenant_admin_rpc.sql`): the five tenant-admin write RPCs,
@@ -192,7 +207,14 @@ select is_empty($$
            ('public.revoke_membership_role_v1(uuid, uuid, uuid)'::regprocedure),
            ('public.create_project_v1(uuid, text, text, text)'::regprocedure),
            ('public.add_project_member_v1(uuid, uuid, uuid)'::regprocedure),
-           ('public.remove_project_member_v1(uuid, uuid, uuid)'::regprocedure)
+           ('public.remove_project_member_v1(uuid, uuid, uuid)'::regprocedure),
+           ('public.chat_ensure_conversation_v1(uuid, uuid, text, uuid)'::regprocedure),
+           ('public.chat_append_user_message_v1(uuid, uuid, text, text, text)'::regprocedure),
+           ('public.chat_start_run_v1(uuid, uuid, uuid, text, text, uuid, text)'::regprocedure),
+           ('public.chat_complete_run_v1(uuid, uuid, jsonb)'::regprocedure),
+           ('public.chat_load_conversation_v1(uuid, uuid)'::regprocedure),
+           ('public.chat_list_conversations_v1(uuid, integer)'::regprocedure),
+           ('public.chat_get_run_v1(uuid, uuid)'::regprocedure)
          ) as allowed(proc)
      )
 $$, '32 no function in public is executable by authenticated beyond the named allow-list (§4.3, #60)');
