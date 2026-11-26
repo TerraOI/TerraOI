@@ -2,8 +2,8 @@ import type { HealthObservation, HealthObservationSink, HealthStatus } from "./h
 
 /**
  * T-314 PR-3: map an F37 observation onto `gateway_config.record_provider_health_v1` (#134).
- * The SQL call itself runs as `toi_gateway_config` over CONFIG_DB; this module only shapes the
- * arguments. No secrets, no employee-visible strings.
+ * The SQL call itself runs as `toi_gateway_config` over CONFIG_DB (`health-config-db.ts`); this module
+ * only shapes the arguments. No secrets, no employee-visible strings.
  */
 
 export interface RecordProviderHealthArgs {
