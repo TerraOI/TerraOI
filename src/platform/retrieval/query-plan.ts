@@ -1,6 +1,11 @@
 import type { TenantContext } from "@/contracts/tenant-context";
 
-import type { ExactHit, ExactLookupClient, ExactLookupResult } from "./exact-lookup";
+import {
+  MAX_IDENTIFIER_CHARS,
+  type ExactHit,
+  type ExactLookupClient,
+  type ExactLookupResult,
+} from "./exact-lookup";
 import type {
   RetrievedChunk,
   SearchCorpusCall,
@@ -98,7 +103,9 @@ function exactHitsToEvidence(hits: ExactHit[]): RetrievedChunk[] {
  * Soft exact failures (transport / unwired / retryable) fall through to hybrid so a down exact
  * path is not a dead end. Hard tenancy refusals stop the plan — empty hybrid would hide the deny.
  */
-function shouldFallThrough(exact: ExactLookupResult): exact is Extract<ExactLookupResult, { ok: false }> {
+function shouldFallThrough(
+  exact: ExactLookupResult,
+): exact is Extract<ExactLookupResult, { ok: false }> {
   if (exact.ok) return false;
   switch (exact.refusal.reason) {
     case "unwired":
@@ -130,6 +137,18 @@ export async function planCorpusQuery(
 ): Promise<QueryPlanResult> {
   const originalQuery = input.originalQuery;
   const searchedQuery = input.searchedQuery ?? originalQuery;
+
+  // An ordinary question longer than an identifier can be is not an identifier: skip the exact lane
+  // (no RPC call) and search hybrid, instead of failing a question hybrid would accept (2000 chars).
+  if (searchedQuery.length > MAX_IDENTIFIER_CHARS) {
+    return runHybrid(
+      input,
+      deps,
+      originalQuery,
+      searchedQuery,
+      "identifier_too_long",
+    );
+  }
 
   const exact = await deps.exact.lookup({
     context: input.context,
@@ -163,7 +182,23 @@ export async function planCorpusQuery(
     };
   }
 
-  const exactSkipped = !exact.ok;
+  return runHybrid(
+    input,
+    deps,
+    originalQuery,
+    searchedQuery,
+    exact.ok ? undefined : exact.refusal.reason,
+  );
+}
+
+async function runHybrid(
+  input: QueryPlanInput,
+  deps: QueryPlanDeps,
+  originalQuery: string,
+  searchedQuery: string,
+  exactSkipReason: string | undefined,
+): Promise<QueryPlanResult> {
+  const exactSkipped = exactSkipReason !== undefined;
   const hybrid = await deps.hybrid.search({
     context: input.context,
     accessToken: input.accessToken,
@@ -183,8 +218,6 @@ export async function planCorpusQuery(
     hits: [],
     hybrid,
     exactSkipped,
-    ...(exactSkipped && !exact.ok
-      ? { exactSkipReason: exact.refusal.reason }
-      : {}),
+    ...(exactSkipReason === undefined ? {} : { exactSkipReason }),
   };
 }

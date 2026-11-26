@@ -14,7 +14,7 @@
   ],
   "expectedAnswerStatus": "refused",
   "citationRequired": false,
-  "dataClass": "internal",
+  "dataClass": "client_confidential",
   "projectScope": "synth-tenant-wide",
   "forbiddenClaims": [
     "Must not invent a policy about bookings; must not claim it can act in external systems (M1 stops at read/draft, plan 10.5)."
@@ -26,6 +26,7 @@
     "SYNTH-UAV-SITEBRIEF-02"
   ],
   "expectedEvidence": [],
+  "expectedRefusalKey": "out_of_scope",
   "approvedBy": null,
   "approvedAt": null,
   "draftedBy": "agent (T-315 draft)",

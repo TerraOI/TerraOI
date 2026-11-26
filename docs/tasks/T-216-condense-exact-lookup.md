@@ -6,6 +6,7 @@ Plan refs: §8.1 steps 4–5, §8.2, §12.4 (per-task chains), §16 (retrieval r
 ## Supervisor rulings to apply (2026-11-09)
 These supersede anything below that disagrees.
 - **Spans** ([#95](https://github.com/TerraOI/TerraOI/issues/95), ADR-0008): `exact_lookup_v1` returns text, never offsets.
+- **Scale note** (supervisor, #247 round 1): `strpos(lower(body_text), …)` scans the tenant's whole published corpus on every call. That's fine at M1 volume. Once a tenant passes about 10⁵ chunks, add a `pg_trgm` GIN index on `lower(body_text)`. A version whose filename *and* first-chunk body both match is labelled `body_phrase`; filename-first labelling must not collapse the other body hits of that version, so change it only with a test.
 - **Tenant scope** ([#163](https://github.com/TerraOI/TerraOI/issues/163), FAQ-0011): every tenant-scoped RPC this packet adds takes `p_organisation_id uuid` **first** and begins with `perform public.set_tenant_scope(p_organisation_id);`, so it is `volatile`. Its TypeScript caller goes through `withTenantRpc` (T-101c). pgTAP pins the signature, the volatility, and a refusal for an organisation the caller is not a member of.
 
 ## Goal
