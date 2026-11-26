@@ -1,10 +1,19 @@
 import type { ProgressEvent, TierChangeReason } from "@/contracts/chat";
 import type { DataClass } from "@/contracts/data-class";
-import type { CapabilityTier, ClearanceMatrix, TaskClass } from "@/contracts/provider-route";
+import type {
+  CapabilityTier,
+  ClearanceMatrix,
+  TaskClass,
+} from "@/contracts/provider-route";
 import type { ProviderKey } from "@/contracts/keys";
 import type { TenantContext } from "@/contracts/tenant-context";
 
-import type { AdapterCallOutcome, ModelMessage, ProviderAdapter, ProviderFailureKind } from "./adapters";
+import type {
+  AdapterCallOutcome,
+  ModelMessage,
+  ProviderAdapter,
+  ProviderFailureKind,
+} from "./adapters";
 import type { GatewayConfiguration } from "./config";
 import type { HealthWriter } from "./circuit";
 import {
@@ -32,7 +41,10 @@ export const UNAVAILABLE_MESSAGE =
 
 /** A conservative pre-call estimate in units, so free-tier exhaustion is predicted, not discovered (§12.3). */
 function estimateInputUnits(messages: readonly ModelMessage[]): number {
-  const chars = messages.reduce((total, message) => total + message.text.length, 0);
+  const chars = messages.reduce(
+    (total, message) => total + message.text.length,
+    0,
+  );
   return Math.ceil((chars / 4) * 1.1);
 }
 
@@ -84,6 +96,12 @@ interface GatewayCallInputBase<T> {
 export interface ModelCallInput<T> extends GatewayCallInputBase<T> {
   task: "route" | "condense" | "compose";
   composedWith?: never;
+  /**
+   * Optional for these tasks: names a second call of the same task in one run (the compose retry,
+   * §12.1). Chain positions restart at 1 for whatever chain a call is given, so without a tag a
+   * retry's first attempt would share the first call's attempt id and its reservation (§12.3).
+   */
+  passTag?: string;
 }
 
 /**
@@ -170,7 +188,10 @@ export type GatewayCallResult<T> =
 // `invalid_request` is deliberately absent: a request this gateway built wrong never becomes a tier
 // change, because the chain does not walk past it. Excluding it from the map's keys makes the
 // compiler prove that every lookup site has handled it first.
-const FAILURE_TO_PROGRESS_REASON: Record<Exclude<ProviderFailureKind, "invalid_request">, TierChangeReason> = {
+const FAILURE_TO_PROGRESS_REASON: Record<
+  Exclude<ProviderFailureKind, "invalid_request">,
+  TierChangeReason
+> = {
   connection: "provider_unavailable",
   timeout: "provider_unavailable",
   server_error: "provider_unavailable",
@@ -191,17 +212,30 @@ function extractStructured(text: string): unknown {
   }
 }
 
-function attemptIdOf(runId: string, chainPosition: number, task: string, passTag: string): string {
+function attemptIdOf(
+  runId: string,
+  chainPosition: number,
+  task: string,
+  passTag: string,
+): string {
   // A (run, chain position) pair is not a call. One position can hold a compose **and** a per-claim
   // verify, and their reservations must not satisfy or double-book each other (§12.3), so the id names
   // the call. A replay of the same call still deduplicates, which is the property the pair alone
   // appeared to provide. There is no fallback tag: a verify that cannot say which pass it is gets
   // refused before anything is reserved (see `callModelGateway`).
-  const role = task === "verify" ? `verify:${passTag}` : task;
+  const role =
+    task === "verify"
+      ? `verify:${passTag}`
+      : passTag.length > 0
+        ? `${task}:${passTag}`
+        : task;
   return `${runId}:${chainPosition}:${role}`;
 }
 
-function parseWith<T>(schema: OutputSchema<T> | undefined, text: string): T | undefined {
+function parseWith<T>(
+  schema: OutputSchema<T> | undefined,
+  text: string,
+): T | undefined {
   if (schema === undefined) return undefined;
   try {
     return schema.parse(extractStructured(text));
@@ -222,7 +256,10 @@ export async function callModelGateway<T>(
   // metering key, so one claim's reservation satisfies another's (§12.3). The type requires the tag;
   // this is the runtime half, because an input can be replayed from a queue payload an older caller
   // built. Nothing is routed, reserved or called.
-  if (input.task === "verify" && (typeof input.passTag !== "string" || input.passTag.trim().length === 0)) {
+  if (
+    input.task === "verify" &&
+    (typeof input.passTag !== "string" || input.passTag.trim().length === 0)
+  ) {
     return {
       ok: false,
       status: "unavailable",
@@ -242,7 +279,12 @@ export async function callModelGateway<T>(
   };
   const routeRequest: RouteRequest =
     input.task === "verify"
-      ? { ...common, task: "verify", composedWith: input.composedWith, minTier: input.minTier }
+      ? {
+          ...common,
+          task: "verify",
+          composedWith: input.composedWith,
+          minTier: input.minTier,
+        }
       : { ...common, task: input.task };
 
   const decision = selectModelRoute(routeRequest, {
@@ -269,8 +311,10 @@ export async function callModelGateway<T>(
 
   const emitAdvance = (toPosition: number, reason: TierChangeReason): void => {
     // Chain positions only: a progress stream is employee-visible (§9.3).
-    if (deps.onProgress === undefined || input.conversationId === undefined) return;
-    if (previousPosition === undefined || previousPosition === toPosition) return;
+    if (deps.onProgress === undefined || input.conversationId === undefined)
+      return;
+    if (previousPosition === undefined || previousPosition === toPosition)
+      return;
     deps.onProgress({
       type: "tier_changed",
       runId: input.runId,
@@ -285,10 +329,12 @@ export async function callModelGateway<T>(
   for (const entry of decision.eligible) {
     // Plan §8.3: a stage deadline bounds the whole walk, not just one call.
     if (clock() >= deadlineAtMs) {
-      if (advanceReason !== undefined) emitAdvance(entry.chainPosition, "deadline");
+      if (advanceReason !== undefined)
+        emitAdvance(entry.chainPosition, "deadline");
       return fail("deadline");
     }
-    if (advanceReason !== undefined) emitAdvance(entry.chainPosition, advanceReason);
+    if (advanceReason !== undefined)
+      emitAdvance(entry.chainPosition, advanceReason);
 
     const adapter = deps.adapters.get(entry.providerKey);
     if (adapter === undefined) {
@@ -303,7 +349,7 @@ export async function callModelGateway<T>(
       input.runId,
       entry.chainPosition,
       input.task,
-      input.task === "verify" ? input.passTag : "",
+      input.passTag ?? "",
     );
     let reservationId: string;
     try {
@@ -352,8 +398,13 @@ export async function callModelGateway<T>(
 
     if (outcome.ok) {
       const truncated = outcome.finishReason === "length";
-      const parsed = truncated ? undefined : parseWith(input.outputSchema, outcome.text);
-      if (truncated || (parsed === undefined && input.outputSchema !== undefined)) {
+      const parsed = truncated
+        ? undefined
+        : parseWith(input.outputSchema, outcome.text);
+      if (
+        truncated ||
+        (parsed === undefined && input.outputSchema !== undefined)
+      ) {
         // The model ran and the answer is unusable: that work is billed, and it is the schema's
         // job to fail rather than deliver prose (plan §12.1, F38 "invalid structured output").
         attempt.outcome = truncated ? "context_overflow" : "invalid_output";
@@ -391,9 +442,16 @@ export async function callModelGateway<T>(
       return fail("misconfigured_call");
     }
     // §12.3: an ambiguous attempt keeps its liability; a clean failure releases the reservation.
-    await reconcile(deps, attempt, reservationId, outcome, outcome.possiblyBilled ? "ambiguous" : "released");
+    await reconcile(
+      deps,
+      attempt,
+      reservationId,
+      outcome,
+      outcome.possiblyBilled ? "ambiguous" : "released",
+    );
     deps.health.recordFailure(entry.providerKey, clock());
-    if (kind === "rate_limited") deps.health.noteQuotaExhausted(entry.providerKey, true);
+    if (kind === "rate_limited")
+      deps.health.noteQuotaExhausted(entry.providerKey, true);
     previousPosition = entry.chainPosition;
     advanceReason = FAILURE_TO_PROGRESS_REASON[kind];
   }
@@ -416,7 +474,10 @@ async function reconcile(
     outcome: outcomeKind,
     ...(usage === undefined
       ? {}
-      : { usedInputUnits: usage.inputUnits, usedOutputUnits: usage.outputUnits }),
+      : {
+          usedInputUnits: usage.inputUnits,
+          usedOutputUnits: usage.outputUnits,
+        }),
   });
   attempt.reconciled = outcomeKind;
 }
