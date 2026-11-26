@@ -41,7 +41,7 @@ Unit and pgTAP suites prove the SQL authority and MeterPort / F22 writers. They 
 
 ## Code half (agent)
 
-`src/platform/budgets/ledger-sql.ts` — `createBudgetLedgerExecFromSql({ binding: env.BUDGET_DB })` returns `null` when unbound (fail closed) and dials only `reserve_v1` / `reconcile_v1` when bound. Wire it into the Worker gateway deps once the OWNER binding exists.
+`src/platform/budgets/ledger-sql.ts` — `createBudgetLedgerExecFromSql({ binding: env.BUDGET_DB })` returns `null` when unbound (fail closed) and dials only `reserve_v1` / `reconcile_v1` when bound. `createMeterPortFromBudgetDb` composes that into a gateway `MeterPort` (also `null` when unbound). Pass `env.BUDGET_DB` into gateway deps once the OWNER binding exists; do not substitute an in-memory ceiling.
 
 ## Out of scope
 
