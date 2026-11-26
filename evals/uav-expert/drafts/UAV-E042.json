@@ -27,6 +27,7 @@
     "SYNTH-UAV-MAN-A17"
   ],
   "expectedEvidence": [],
+  "expectedRefusalKey": "insufficient_support",
   "approvedBy": null,
   "approvedAt": null,
   "draftedBy": "agent (T-315 draft)",
