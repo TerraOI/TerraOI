@@ -1,9 +1,9 @@
 -- T-312 PR-2: eval_cases / eval_reviews / eval_runs / eval_results (#82, plan §6.1 / §14.1).
--- Written first (COORDINATION §6b). Slot 090. Red until 20261121220000_evals.sql lands.
+-- Written first (COORDINATION §6b). Slot 090. Red until 20261125100000_evals.sql lands.
 begin;
 create extension if not exists pgtap with schema extensions;
 
-select plan(26);
+select plan(33);
 
 -- ---------------------------------------------------------------- fixture helpers
 -- Prefer `set local` (same pattern as 010/013) so auth.uid() and role stick for the transaction.
@@ -220,6 +220,94 @@ select ok(
        and area = 'evals.review' and level = 'admin'
   ),
   '26 company1 admin role holds evals.review admin for export (#82)');
+
+-- ---------------------------------------------------------------- 27–33 supervisor round 1 on #240
+-- 27 a member without evals.review cannot draft (any member could otherwise seed the queue).
+select pg_temp.set_jwt('00000000-0000-4000-8000-0000000000a4');
+select is(
+  pg_temp.try_sql($$
+    select public.create_eval_case_draft_v1('11111111-1111-4111-8111-111111111111', jsonb_build_object(
+      'case_key', 'UAV-T090-A4', 'expert_key', 'uav-expert', 'origin', 'expert_written',
+      'case_type', 'answerable', 'question', 'Synthetic question.', 'data_class', 'internal',
+      'drafted_by', 'a4', 'drafted_on', '2026-11-21'))
+  $$),
+  '42501',
+  '27 a member without evals.review cannot draft an eval case');
+
+-- 28 and reads an empty list rather than an error or another reviewer's cases.
+select is(
+  (select count(*)::int from public.list_eval_cases_v1('11111111-1111-4111-8111-111111111111', null)),
+  0,
+  '28 a member without evals.review lists no eval cases');
+
+-- 29 a malformed drafted_on is a 22023 argument refusal, not a raw cast error.
+select pg_temp.set_jwt('00000000-0000-4000-8000-0000000000a1');
+select is(
+  pg_temp.try_sql($$
+    select public.create_eval_case_draft_v1('11111111-1111-4111-8111-111111111111', jsonb_build_object(
+      'case_key', 'UAV-T090-DATE', 'expert_key', 'uav-expert', 'origin', 'expert_written',
+      'case_type', 'answerable', 'question', 'Synthetic question.', 'data_class', 'internal',
+      'drafted_by', 'a1', 'drafted_on', 'not-a-date'))
+  $$),
+  '22023',
+  '29 a malformed drafted_on is refused as an argument (22023)');
+
+-- 30 an approver who stays active but loses evals.review no longer validates their approvals:
+-- take a2's eval_reviewer role away (a2 has no other evals.review grant) and the case leaves export.
+reset role;
+delete from public.membership_roles mr
+ using public.organisation_memberships m, public.organisation_roles r
+ where mr.membership_id = m.id
+   and mr.role_id = r.id
+   and m.organisation_id = '11111111-1111-4111-8111-111111111111'
+   and m.user_id = '00000000-0000-4000-8000-0000000000a2'
+   and r.key = 'eval_reviewer';
+select pg_temp.set_jwt('00000000-0000-4000-8000-0000000000a1');
+select ok(
+  not exists (
+    select 1 from public.export_approved_eval_cases_v1('11111111-1111-4111-8111-111111111111')
+     where id = (select case_id from t_draft)
+  ),
+  '30 a case approved by a member who lost evals.review drops out of the export');
+-- Restore the role so 32-33 test suspension on its own.
+reset role;
+insert into public.membership_roles (organisation_id, membership_id, role_id)
+select m.organisation_id, m.id, r.id
+  from public.organisation_memberships m
+  join public.organisation_roles r on r.organisation_id = m.organisation_id and r.key = 'eval_reviewer'
+ where m.organisation_id = '11111111-1111-4111-8111-111111111111'
+   and m.user_id = '00000000-0000-4000-8000-0000000000a2';
+select pg_temp.set_jwt('00000000-0000-4000-8000-0000000000a1');
+select ok(
+  exists (
+    select 1 from public.export_approved_eval_cases_v1('11111111-1111-4111-8111-111111111111')
+     where id = (select case_id from t_draft)
+  ),
+  '31 with the role restored the approval counts again');
+
+-- 32–33 an approval by a member who is later suspended stops counting: export drops the case, and
+-- the suspended member can no longer review at all.
+reset role;
+update public.organisation_memberships
+   set status = 'suspended'
+ where organisation_id = '11111111-1111-4111-8111-111111111111'
+   and user_id = '00000000-0000-4000-8000-0000000000a2';
+select pg_temp.set_jwt('00000000-0000-4000-8000-0000000000a1');
+select ok(
+  not exists (
+    select 1 from public.export_approved_eval_cases_v1('11111111-1111-4111-8111-111111111111')
+     where id = (select case_id from t_draft)
+  ),
+  '32 a case approved by a now-suspended member drops out of the export');
+select pg_temp.set_jwt('00000000-0000-4000-8000-0000000000a2');
+select is(
+  pg_temp.try_sql(format(
+    $$ select public.review_eval_case_v1('11111111-1111-4111-8111-111111111111', %L::uuid, 'approve', '{}'::jsonb) $$,
+    (select case_id from t_pilot)
+  )),
+  '28000',
+  '33 a suspended member cannot review');
+reset role;
 
 select * from finish();
 rollback;
