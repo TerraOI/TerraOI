@@ -1,6 +1,10 @@
 import type { ProviderKey } from "@/contracts/keys";
 
-import { CircuitBook, checkProviderHealth, type HealthProbeRegistry } from "./circuit";
+import {
+  CircuitBook,
+  checkProviderHealth,
+  type HealthProbeRegistry,
+} from "./circuit";
 
 /**
  * T-314 PR-2: F37 scheduled health pass + observation sink (plan §12.4 (b), §17.1, F37).
@@ -11,7 +15,8 @@ import { CircuitBook, checkProviderHealth, type HealthProbeRegistry } from "./ci
  * on `CircuitBook` for the life of the isolate — same assumption #45 confirmed for M1.
  */
 
-export type HealthStatus = "healthy" | "degraded" | "down" | "unknown" | "unreachable";
+export type HealthStatus =
+  "healthy" | "degraded" | "down" | "unknown" | "unreachable";
 
 export interface HealthObservation {
   providerKey: ProviderKey;
@@ -56,7 +61,11 @@ export function isHealthCheckDue(
   return nowMs - last >= checkIntervalMs;
 }
 
-export function readHealthSnapshot(book: CircuitBook, providerKey: ProviderKey, nowMs: number): HealthSnapshot {
+export function readHealthSnapshot(
+  book: CircuitBook,
+  providerKey: ProviderKey,
+  nowMs: number,
+): HealthSnapshot {
   const window = book.snapshot(providerKey);
   const availability = book.availability(providerKey, nowMs);
   return {
@@ -91,13 +100,19 @@ export async function runScheduledHealthChecks(deps: {
     let status: HealthStatus;
 
     if (probe?.health === undefined) {
-      // Unknown is never assumed healthy (same rule as `checkProviderHealth`).
+      // Unknown is never reported healthy, and it is not a reason to skip the provider either: the
+      // passive circuit governs providers that cannot be probed.
       healthy = false;
       status = "unknown";
       deps.book.noteMissingProbe(providerKey, deps.nowMs);
     } else {
       const before = Date.now();
-      healthy = (await probe.health()) === true;
+      try {
+        healthy = (await probe.health()) === true;
+      } catch {
+        // A probe that throws is a failed probe; it must not abort the pass for the providers after it.
+        healthy = false;
+      }
       latencyMs = Math.max(0, Date.now() - before);
       status = healthy ? "healthy" : "down";
       deps.book.noteScheduledProbe(providerKey, healthy, deps.nowMs);
@@ -113,7 +128,8 @@ export async function runScheduledHealthChecks(deps: {
       checkedAtMs: started,
       status,
       latencyMs,
-      circuitOpen: deps.book.availability(providerKey, deps.nowMs) === "circuit_open",
+      circuitOpen:
+        deps.book.availability(providerKey, deps.nowMs) === "circuit_open",
       observedBy: "scheduled",
     };
     await deps.sink?.record(observation);
