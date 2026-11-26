@@ -1,0 +1,134 @@
+.fallbackBanner {
+  margin: 0 0 20px;
+  padding: 12px 14px;
+  border: 1px solid #d8c48a;
+  border-radius: 6px;
+  background: #f7f1e0;
+}
+
+.fallbackTitle {
+  margin: 0 0 4px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--graphite, #17252b);
+}
+
+.fallbackNote {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.45;
+  color: var(--slate, #52636b);
+}
+
+.container {
+  max-width: 560px;
+}
+
+.header {
+  margin-bottom: 20px;
+}
+
+.backLink {
+  display: inline-block;
+  margin-bottom: 10px;
+  color: var(--accent, #52636b);
+  font-size: 0.875rem;
+  text-decoration: none;
+}
+
+.backLink:hover {
+  text-decoration: underline;
+}
+
+.title {
+  margin: 0 0 6px;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--graphite, #17252b);
+}
+
+.subtitle {
+  margin: 0;
+  color: var(--slate, #52636b);
+  line-height: 1.5;
+}
+
+.form {
+  display: grid;
+  gap: 14px;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+}
+
+.label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--graphite, #17252b);
+}
+
+.hint {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--slate, #52636b);
+  line-height: 1.4;
+}
+
+.input,
+.select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border, #dce3e6);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--graphite, #17252b);
+  font: inherit;
+}
+
+.input:focus,
+.select:focus {
+  outline: 2px solid var(--accent, #52636b);
+  outline-offset: 1px;
+}
+
+.status {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.45;
+}
+
+.statusError {
+  color: #8b2e2e;
+}
+
+.statusOk {
+  color: #1f5c3a;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.primaryButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 16px;
+  border: none;
+  border-radius: 6px;
+  background: var(--primary, #17252b);
+  color: var(--on-primary, #fff);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.primaryButton:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}

@@ -74,8 +74,9 @@ describe("free-tier unit metering (plan §12.3)", () => {
         eligibleChainAfterCurrent: ["claude"],
         setQuotaExhausted,
       }),
-    ).toEqual({ skipFreeProvider: false });
+    ).toEqual({ skipFreeProvider: false, heldUnits: 50 });
     expect(setQuotaExhausted).not.toHaveBeenCalled();
+    expect(book.remaining("local_box")).toBe(450);
   });
 
   it("paid providers are not free-tier metered by this book", () => {
@@ -91,7 +92,7 @@ describe("free-tier unit metering (plan §12.3)", () => {
         eligibleChainAfterCurrent: [],
         setQuotaExhausted: () => undefined,
       }),
-    ).toEqual({ skipFreeProvider: false });
+    ).toEqual({ skipFreeProvider: false, heldUnits: 0 });
   });
 
   it("exhausting with no paid fallback still marks quota exhausted and reserves nothing free", () => {
@@ -111,5 +112,36 @@ describe("free-tier unit metering (plan §12.3)", () => {
       nextPaidToReserveBeforeCall: null,
     });
     expect(setQuotaExhausted).toHaveBeenCalledWith("workers_ai", true);
+  });
+
+  it("holds units at admission so two calls in flight cannot share one allowance (#256 B1)", () => {
+    const book = createFreeAllowanceBook({ allowances: { workers_ai: 100 } });
+    expect(book.hold("workers_ai", 60, ["claude"]).status).toBe(
+      "within_allowance",
+    );
+    // The first call has not settled yet; the second must already see only 40 left.
+    expect(book.hold("workers_ai", 60, ["claude"])).toMatchObject({
+      status: "would_exhaust",
+    });
+    expect(book.remaining("workers_ai")).toBe(40);
+  });
+
+  it("finish returns unused held units, and keeps the whole hold when usage is unknown", () => {
+    const book = createFreeAllowanceBook({ allowances: { local_box: 100 } });
+    book.hold("local_box", 50, []);
+    expect(book.finish("local_box", 50, 10)).toMatchObject({
+      remainingUnits: 90,
+      settledUnits: 10,
+    });
+    book.hold("local_box", 50, []);
+    expect(book.finish("local_box", 50, null)).toMatchObject({
+      remainingUnits: 40,
+      settledUnits: 60,
+    });
+    book.hold("local_box", 30, []);
+    expect(book.finish("local_box", 30, 0)).toMatchObject({
+      remainingUnits: 40,
+      settledUnits: 60,
+    });
   });
 });
