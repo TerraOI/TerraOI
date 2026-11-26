@@ -94,7 +94,11 @@ export async function runExpertEvalAndPersist(
         },
       };
     }
-    caseIdToUuid = caseIdToUuidFromList(listed.cases);
+    // Supervisor round 1 on #277: eval_cases is unique on (organisation, case_key, expert_key), so two
+    // experts may share a case key. Map only this run's expert, or first-wins picks another expert's row.
+    caseIdToUuid = caseIdToUuidFromList(
+      listed.cases.filter((row) => row.expertKey === input.expertKey),
+    );
   }
 
   const persist = await recordEvalRun(

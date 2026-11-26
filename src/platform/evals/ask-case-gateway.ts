@@ -25,11 +25,18 @@ export type EvalGatewayAnswer = z.infer<typeof EvalGatewayAnswer>;
 
 export interface EvalGatewayAskerConfig {
   context: TenantContext;
-  /** Base id; each case appends `:${caseId}` so reservations do not collide (§12.3). */
+  /**
+   * The eval run's id (a UUID: the budget ledger's `run_id` is `uuid`). Cases are told apart by the
+   * gateway pass tag `case:<caseId>`, so their attempt ids and reservations never collide (§12.3).
+   */
   runId: string;
   gatewayDeps: GatewayDeps;
   /** Compose chain from the run's `chain_config.compose` when present. */
   composeChain?: readonly ProviderKey[];
+  /**
+   * Kept for callers' shape; routing uses the per-case clearance `runExpertEval` already narrowed
+   * from this policy, so it is not read here.
+   */
   tenantPolicy?: Partial<ClearanceMatrix>;
   maxOutputUnits?: number;
   callTimeoutMs?: number;
@@ -81,14 +88,17 @@ export function gatewayResultToObservation(
 
 /**
  * Default F35 case asker: one `callModelGateway` compose per case (plan §14.1 — real gateway, no bypass).
- * Clearance enforcement for providers used stays in `runExpertEval`; the route honours `tenantPolicy`.
+ * The gateway routes under the case's narrowed clearance; `runExpertEval` re-checks providers used.
  */
 export function createEvalGatewayAsker(config: EvalGatewayAskerConfig): EvalCaseAsker {
   return async (ctx: EvalCaseAskContext) => {
     const result = await callModelGateway<EvalGatewayAnswer>(
       {
         context: config.context,
-        runId: `${config.runId}:${ctx.evalCase.caseId}`,
+        runId: config.runId,
+        // Supervisor round 1 on #274: `${runId}:${caseId}` is not a UUID and would fail the SQL
+        // ledger's reserve; the per-case distinction belongs in the attempt id instead.
+        passTag: `case:${ctx.evalCase.caseId}`,
         task: "compose",
         dataClass: ctx.evalCase.dataClass,
         messages: [
@@ -104,7 +114,9 @@ export function createEvalGatewayAsker(config: EvalGatewayAskerConfig): EvalCase
         maxOutputUnits: config.maxOutputUnits ?? DEFAULT_MAX_OUTPUT,
         callTimeoutMs: config.callTimeoutMs ?? DEFAULT_CALL_TIMEOUT_MS,
         stageDeadlineMs: config.stageDeadlineMs ?? DEFAULT_STAGE_DEADLINE_MS,
-        tenantPolicy: config.tenantPolicy,
+        // The case's already-narrowed clearance is the policy the gateway routes under, so a
+        // stricter platform matrix is enforced before any provider is called, not checked after.
+        tenantPolicy: ctx.clearance,
         chain: config.composeChain,
         outputSchema: EvalGatewayAnswer,
       },
