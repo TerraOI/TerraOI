@@ -112,6 +112,8 @@ export interface FixtureOptions {
   matrixRevision?: number;
   openAfterFailures?: number;
   cooldownMs?: number;
+  /** F37: how often the scheduled pass must re-probe (T-314). */
+  checkIntervalMs?: number;
 }
 
 export function testConfiguration(options: FixtureOptions = {}): GatewayConfiguration {
@@ -123,6 +125,7 @@ export function testConfiguration(options: FixtureOptions = {}): GatewayConfigur
     circuit: {
       openAfterFailures: options.openAfterFailures ?? 2,
       cooldownMs: options.cooldownMs ?? 30_000,
+      checkIntervalMs: options.checkIntervalMs ?? 30_000,
     },
   });
 }
@@ -130,6 +133,8 @@ export function testConfiguration(options: FixtureOptions = {}): GatewayConfigur
 export interface FakeProbe extends HealthProbe {
   providerKey: ProviderKey;
   healthChecks: number;
+  /** Mutable so a scheduled-pass test can flip the box offline mid-run. */
+  healthy: boolean;
 }
 
 /** A recorded health probe: F37 checks are asserted by call counts, never by a real box. */
@@ -137,9 +142,10 @@ export function fakeProbe(providerKey: ProviderKey, options: { healthy: boolean 
   const probe: FakeProbe = {
     providerKey,
     healthChecks: 0,
+    healthy: options.healthy,
     async health() {
       probe.healthChecks += 1;
-      return options.healthy;
+      return probe.healthy;
     },
   };
   return probe;

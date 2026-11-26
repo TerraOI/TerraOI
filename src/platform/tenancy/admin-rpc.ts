@@ -22,6 +22,13 @@ const PROJECT_VISIBILITY = z.enum(["organisation", "project"]);
 const COLLECTION_KEY = z.string().regex(/^[a-z0-9][a-z0-9-]{0,62}$/);
 const COLLECTION_NAME = z.string().trim().min(1).max(200);
 const DATA_CLASS = z.enum(["public", "internal", "client_confidential"]);
+const COLLECTION_SERVICE = z.string().trim().min(1).max(64);
+
+/**
+ * `23514` is a plain check_violation. Only the revoke RPC raises it to mean "this would remove the
+ * last admin" (#202 / FAQ-0014); for every other RPC it is an ordinary refused value.
+ */
+const LAST_ADMIN_RPCS: ReadonlySet<string> = new Set(["revoke_membership_role_v1"]);
 
 export interface AdminRpcDeps {
   postgrestBaseUrl?: string;
@@ -30,6 +37,7 @@ export interface AdminRpcDeps {
 
 export type AdminRpcFailureKind =
   | "validation"
+  | "target_inactive"
   | "tenancy"
   | "constraint"
   | "last_admin"
@@ -49,6 +57,7 @@ export type AdminCreateOutcome = { ok: true; id: string } | AdminRpcFailure;
 /** Fixed employee-safe messages: no SQLSTATE, table, host or tenant name. */
 export const SAFE_ADMIN_RPC_MESSAGE: Record<AdminRpcFailureKind, string> = {
   validation: "Check the fields and try again.",
+  target_inactive: "That person is not an active member of this workspace.",
   tenancy: "You do not have permission to perform this action in this workspace.",
   constraint: "That change could not be applied. The target may not exist in this workspace.",
   last_admin: "This workspace must keep at least one active admin.",
@@ -58,11 +67,19 @@ export const SAFE_ADMIN_RPC_MESSAGE: Record<AdminRpcFailureKind, string> = {
 };
 
 function mapBackendFailure(
+  rpc: string,
   reason: BackendFailureReason,
   sqlstate: string | undefined,
 ): AdminRpcFailure {
   if (sqlstate === "23514") {
-    return { ok: false, kind: "last_admin", message: SAFE_ADMIN_RPC_MESSAGE.last_admin };
+    return LAST_ADMIN_RPCS.has(rpc)
+      ? { ok: false, kind: "last_admin", message: SAFE_ADMIN_RPC_MESSAGE.last_admin }
+      : { ok: false, kind: "validation", message: SAFE_ADMIN_RPC_MESSAGE.validation };
+  }
+  if (sqlstate === "22023") {
+    // The merged RPCs raise 22023 for a suspended or removed target and for bad arguments; the
+    // client has already validated the arguments, so the target is what is left.
+    return { ok: false, kind: "target_inactive", message: SAFE_ADMIN_RPC_MESSAGE.target_inactive };
   }
   if (sqlstate === "23503" || sqlstate === "23505") {
     return { ok: false, kind: "constraint", message: SAFE_ADMIN_RPC_MESSAGE.constraint };
@@ -83,14 +100,14 @@ function mapBackendFailure(
   }
 }
 
-function mapTenantRpcFailure(failure: TenantRpcFailure): AdminRpcFailure {
+function mapTenantRpcFailure(rpc: string, failure: TenantRpcFailure): AdminRpcFailure {
   switch (failure.kind) {
     case "tenancy":
       return { ok: false, kind: "tenancy", message: SAFE_ADMIN_RPC_MESSAGE.tenancy };
     case "not_configured":
       return { ok: false, kind: "not_configured", message: SAFE_ADMIN_RPC_MESSAGE.not_configured };
     case "backend_failure":
-      return mapBackendFailure(failure.reason, failure.sqlstate);
+      return mapBackendFailure(rpc, failure.reason, failure.sqlstate);
     default: {
       const _exhaustive: never = failure;
       void _exhaustive;
@@ -162,7 +179,7 @@ export function createAdminRpcClient(deps: AdminRpcDeps): AdminRpcClient {
     accessToken: string,
   ): Promise<AdminVoidOutcome> {
     const outcome = await withTenantRpc(context, name, args, accessToken, config);
-    if (!outcome.ok) return mapTenantRpcFailure(outcome);
+    if (!outcome.ok) return mapTenantRpcFailure(name, outcome);
     return { ok: true };
   }
 
@@ -206,7 +223,7 @@ export function createAdminRpcClient(deps: AdminRpcDeps): AdminRpcClient {
         input.accessToken,
         config,
       );
-      if (!outcome.ok) return mapTenantRpcFailure(outcome);
+      if (!outcome.ok) return mapTenantRpcFailure("create_project_v1", outcome);
       return parseUuidReturn(outcome.data);
     },
 
@@ -235,7 +252,7 @@ export function createAdminRpcClient(deps: AdminRpcDeps): AdminRpcClient {
     },
 
     async createCollection(input) {
-      const service = z.string().trim().min(1).max(64).safeParse(input.service);
+      const service = COLLECTION_SERVICE.safeParse(input.service);
       if (
         !COLLECTION_KEY.safeParse(input.key).success ||
         !COLLECTION_NAME.safeParse(input.name).success ||
@@ -267,7 +284,7 @@ export function createAdminRpcClient(deps: AdminRpcDeps): AdminRpcClient {
         input.accessToken,
         config,
       );
-      if (!outcome.ok) return mapTenantRpcFailure(outcome);
+      if (!outcome.ok) return mapTenantRpcFailure("create_collection_v1", outcome);
       return parseUuidReturn(outcome.data);
     },
   };

@@ -23,7 +23,8 @@
   "adversarialClass": null,
   "expectedSource": "SYNTH-UAV-PF-CHECK-FORM-01 form_field:'compass_check_performed' (submission 2026-0007-SYNTH, template v1)",
   "expectedFixtures": [
-    "SYNTH-UAV-PF-CHECK-FORM-01"
+    "SYNTH-UAV-PF-CHECK-FORM-01",
+    "SYNTH-UAV-MAN-A17"
   ],
   "expectedEvidence": [],
   "approvedBy": null,
