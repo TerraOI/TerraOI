@@ -71,13 +71,12 @@ export function evaluatePublishGate(input: PublishGateInput): PublishGateVerdict
       ? false
       : baitResults.every((r) => r !== undefined && r.score === 1 && r.failureClass === null);
 
-  const answerableScored = answerable
-    .map((c) => byId.get(c.caseId))
-    .filter((r): r is EvalCaseScore => r !== undefined && r.score !== null);
+  // Supervisor round 1 on #244: the denominator is every eligible answerable case. A case with no
+  // result or an unscored (null) result counts as a miss — otherwise one scored case out of thirty
+  // would read as 100% and open the gate (fail closed, same as the bait check above).
+  const answerableCorrectCount = answerable.filter((c) => byId.get(c.caseId)?.score === 1).length;
   const answerableCorrect =
-    answerableScored.length === 0
-      ? 0
-      : answerableScored.filter((r) => r.score === 1).length / answerableScored.length;
+    answerable.length === 0 ? 0 : answerableCorrectCount / answerable.length;
 
   const recall = input.recallAt10;
 
@@ -123,8 +122,10 @@ export function evaluatePublishGate(input: PublishGateInput): PublishGateVerdict
       "answerable_correct_rate",
       "Correct useful answers on answerable cases",
       `>= ${PILOT_ENTRY_THRESHOLDS.minAnswerableCorrectRate * 100}%`,
-      answerableScored.length === 0 ? "n/a (none scored)" : `${(answerableCorrect * 100).toFixed(1)}%`,
-      answerableScored.length > 0 &&
+      answerable.length === 0
+        ? "n/a (no answerable cases)"
+        : `${answerableCorrectCount}/${answerable.length} (${(answerableCorrect * 100).toFixed(1)}%)`,
+      answerable.length > 0 &&
         answerableCorrect >= PILOT_ENTRY_THRESHOLDS.minAnswerableCorrectRate,
     ),
     check(

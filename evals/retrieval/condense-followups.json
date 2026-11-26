@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "description": "T-216 F30 condensation fixtures — synthetic anaphora only; no client text.",
+  "cases": [
+    {
+      "id": "CONDENSE-01",
+      "followUp": "and the 120 m one?",
+      "history": [
+        {
+          "role": "user",
+          "text": "What is the survey line clearance for the short baseline?"
+        },
+        {
+          "role": "assistant",
+          "text": "The short baseline uses a 60 m survey line clearance."
+        }
+      ],
+      "expectedSearchedQueryContains": ["120", "survey"]
+    }
+  ]
+}
