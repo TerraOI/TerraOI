@@ -1,0 +1,36 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  // Separate extraction deployment (#152 / ADR-0011): only home of the storage service-role key.
+  // Owner binds JOB_DB (toi_job_api) and puts TOI_STORAGE_SERVICE_ROLE_KEY via `wrangler secret`
+  // (T-004 §20.8). Never put connection strings or key material in this file.
+  "name": "terraoi-extraction",
+  "main": "./object-url-entrypoint.ts",
+  "compatibility_date": "2026-11-21",
+  "compatibility_flags": ["nodejs_compat"],
+  // #170: no public surface — app Worker reaches mintObjectUrl over a service binding only.
+  "workers_dev": false,
+  "preview_urls": false,
+  // Cut C/D: cron → outbox dispatch (#99) then pull (pull idle until T-212 extractor is wired).
+  "triggers": { "crons": ["* * * * *"] },
+  "vars": {
+    // Names only; values are owner deploy settings (T-004 §20.8).
+    "TOI_SUPABASE_URL": "",
+    "TOI_STORAGE_BUCKET": "knowledge"
+  },
+  "env": {
+    // The app Worker's env.staging binds OBJECT_URL_MINT to `terraoi-extraction-staging`, so the
+    // staging deploy of this Worker must exist under that name with the same closed surface.
+    "staging": {
+      "name": "terraoi-extraction-staging",
+      "workers_dev": false,
+      "preview_urls": false,
+      "vars": {
+        "TOI_SUPABASE_URL": "",
+        "TOI_STORAGE_BUCKET": "knowledge"
+      }
+    }
+  }
+  // Secrets (wrangler secret put): TOI_STORAGE_SERVICE_ROLE_KEY, TOI_WORKER_TOKEN
+  // Hyperdrive JOB_DB: bind under the staging/production env by the owner — same pattern as
+  // the app Worker's JOB_DB, login user IN ROLE toi_job_api.
+}

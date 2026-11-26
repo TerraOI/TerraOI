@@ -57,3 +57,13 @@ Recorded ruling, not a new decision: both questions below were raised by #149 an
 - **Widening this table later is never a code change.** A third-party OCR route — plan §7.2's "named alternative" — needs its own recorded decision first.
 
 **2. The deployment is named, which closes the bullet left open in Consequences.** `workers/` is a **separate Worker deployment** with its own wrangler config (`workers/wrangler.jsonc`), and it is the only home of the service-role key. That config arrives with the deployment's entrypoint, in T-211 PR-3: PR-2 ships the two pull loops, the signer and the boundary test, and a config naming a `main` that does not exist yet would describe a deployment that cannot deploy. The app Worker's `src/app/api/jobs/` routes (FAQ-0005) stay the box-facing surface, and they reach the signing code **only through a Cloudflare service binding**; the `workers/` Worker exposes no public signing route. T-004 §20.8 carries the second deploy target and its secret path so nobody adds the key to the app Worker. The consequence for the pull loops: the box's client speaks `/api/jobs/*` on the platform, and the short-lived URL it is handed is minted by the other deployment — and no code in `localbox/` can reach Storage, which is what `workers/import-boundary.test.ts` keeps machine-checked.
+
+## Decision (2026-11-20, [#170](https://github.com/TerraOI/TerraOI/issues/170)): the bound call and the trigger
+
+Recorded ruling. Nothing above narrows.
+
+**1. Bound call (option A, narrowed).** The app Worker's `/api/jobs/object-url` authenticates the box exactly as `lease`/`renew` do, then sends only `{ tokenHash, jobId, leaseToken, fence }` over the service binding. The raw worker credential does not cross. The `workers/` Worker calls `job_api.object_ref_for_lease_v1` over its own `JOB_DB`, signs with `createSignedUrl(…, 60)`, and returns `{ url }` or one generic refusal. The app Worker never receives, reads or logs `object_ref`; it passes the URL back and records nothing from it. The handler test asserts the response body is the only place the URL appears.
+
+**2. Binding auth: no shared secret.** The SQL lease compare is the control. Required shape: `workers/wrangler.jsonc` sets `workers_dev: false` and declares no `routes`; the binding targets a named `WorkerEntrypoint` RPC method (`ObjectUrlMint.mintObjectUrl`), not `fetch`; the app Worker is the only config that declares the binding; adding it elsewhere needs supervisor review.
+
+**3. Trigger (cron).** The cloud worker loop runs from `triggers.crons` + `scheduled()` (bounded by `DEFAULT_MAX_JOBS_PER_INVOCATION`). A Queue consumer needs its own ADR. (Cron lands in T-211 PR-3 Cut C with the outbox dispatcher.)
