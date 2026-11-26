@@ -140,8 +140,13 @@ export interface UploadDeps {
   /** Host + verified session → TenantContext, or a safe failure reason (plan §4.1, §4.2). */
   resolveContext(request: Request): Promise<TenantResolution>;
   store: UploadStore;
-  /** null until #38 decides the storage path; the route then fails closed with 503. */
+  /** null until storage is wired; the complete route then fails closed with 503 (#38). */
   objects: ObjectStoreOrUnavailable;
+  /**
+   * Mint a signed upload URL for the server-issued object key (#38). Absent in unit tests that
+   * only exercise the session/complete handlers against a fake store.
+   */
+  signUpload?: (objectRef: string) => Promise<string | null>;
   limits?: Partial<UploadLimits>;
   hash?: (bytes: Uint8Array) => Promise<string>;
 }
@@ -325,15 +330,28 @@ export async function handleCreateUpload(request: Request, deps: UploadDeps): Pr
   }
 
   switch (started.status) {
-    case "ok":
+    case "ok": {
+      let uploadUrl: string | undefined;
+      if (deps.signUpload !== undefined) {
+        try {
+          const signed = await deps.signUpload(started.session.objectRef);
+          if (signed === null) return reply(503, "storage_unavailable");
+          uploadUrl = signed;
+        } catch (error) {
+          logFailure("signUpload", error);
+          return reply(503, "storage_unavailable");
+        }
+      }
       return reply(201, "created", {
         uploadId: started.session.id,
         // The client is told where it may put the object; it is never asked where to put it.
         objectRef: started.session.objectRef,
+        ...(uploadUrl === undefined ? {} : { uploadUrl }),
         maxBytes: started.session.maxBytes,
         expiresAt: started.session.expiresAt,
         state: started.session.state,
       });
+    }
     case "collection_not_found":
       // Another tenant's collection id and an unknown one are the same answer: no existence signal.
       return reply(404, "not_found");
