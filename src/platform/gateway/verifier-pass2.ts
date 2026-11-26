@@ -124,8 +124,18 @@ export function createSemanticVerifier(
 ): SemanticVerifierPort {
   return {
     async verify(input) {
-      const pass2Claims = buildPass2Claims(input.claims, input.evidence);
-      if (pass2Claims.length === 0) return [];
+      const built = buildPass2Claims(input.claims, input.evidence);
+      if (built.length === 0) return [];
+      // A claim whose cited spans resolve to nothing cannot be entailed by them: refuse it here
+      // rather than trusting a model told to use only the spans.
+      const spanless = new Set(built.filter((claim) => claim.spans.length === 0).map((c) => c.claimId));
+      const pass2Claims = built.filter((claim) => !spanless.has(claim.claimId));
+      const spanlessVerdict = (claimId: string): SemanticVerdict => ({
+        claimId,
+        status: "unsupported",
+        reason: "no_cited_span",
+      });
+      if (pass2Claims.length === 0) return built.map((claim) => spanlessVerdict(claim.claimId));
 
       const result = await callModelGateway<Pass2Output>(
         {
@@ -149,17 +159,17 @@ export function createSemanticVerifier(
       );
 
       if (!result.ok || result.parsed === undefined) {
-        return pass2Claims.map(
-          (claim): SemanticVerdict => ({
-            claimId: claim.claimId,
-            status: "unsupported",
-            reason: "verifier_unavailable",
-          }),
+        return built.map(
+          (claim): SemanticVerdict =>
+            spanless.has(claim.claimId)
+              ? spanlessVerdict(claim.claimId)
+              : { claimId: claim.claimId, status: "unsupported", reason: "verifier_unavailable" },
         );
       }
 
       const byId = new Map(result.parsed.verdicts.map((v) => [v.claimId, v]));
-      return pass2Claims.map((claim): SemanticVerdict => {
+      return built.map((claim): SemanticVerdict => {
+        if (spanless.has(claim.claimId)) return spanlessVerdict(claim.claimId);
         const hit = byId.get(claim.claimId);
         if (hit === undefined) {
           return { claimId: claim.claimId, status: "unsupported", reason: "missing_verdict" };

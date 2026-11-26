@@ -54,9 +54,10 @@ outside `src/platform/gateway/` (AGENTS.md §4.3).
 - [ ] failure: composition fails pass 2 materially → **one** retry on the next eligible compose tier
       (assert exactly two compose attempts), the second failure returns `refused` or `partial`, and no
       candidate text is streamed at any point
-- [x] failure: verifier output that is malformed or off-schema advances to the next provider instead of
+- [ ] failure: verifier output that is malformed or off-schema advances to the next provider instead of
       crashing; which tier composed and verified goes to the run audit, never into `Answer`
-      (**PR-1**: malformed → fail-closed `unsupported` via gateway schema advance + port mapping)
+      (**PR-1** covers the first half only: malformed → fail-closed `unsupported` via gateway schema
+      advance + port mapping. The run-audit half lands with the compose wiring slice.)
 
 ## Done evidence
 `pnpm verify`; staging: with the box offline, ask a question needing a `requirement` claim and show the
