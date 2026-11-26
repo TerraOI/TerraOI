@@ -20,8 +20,8 @@ import { DEFAULT_LEASE_SECONDS, DEFAULT_MAX_JOBS_PER_INVOCATION } from "./ocr-pu
  * staging concern — tests inject fixture vectors. Gateway clearance is never bypassed: the
  * embed port is expected to refuse before contacting a provider (plan §12.4).
  *
- * Publish (`publish_version_v1`) is a separate stage keyed off `index_succeeded` outbox
- * dispatch and is out of this module's loop.
+ * Publish (`publish_version_v1`) is a separate stage in `publish-pull.ts`, keyed off
+ * `index_succeeded` outbox dispatch.
  */
 
 export type { LeaseRow, LeaseHolder, RenewOutcome, AbortOutcome };

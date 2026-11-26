@@ -143,10 +143,13 @@ insert into t_out
 select is((select result from t_out where case_name = 'box_index'), 'empty',
   '7 local_box credential finds no index work (index is cloud_worker only)');
 
-insert into t_out values
-  ('publish', pg_temp.try_lease(pg_temp.syn_hash('cloud-c1'), 'publish', 300));
-select is((select result from t_out where case_name = 'publish'), '22023',
-  '8 publish stage remains refused at the lease gate');
+-- Publish is opened by `20261124130000_publish_stage_lease` (048). With no queued publish
+-- fixture here, the cloud credential's answer is an empty lease (not a 22023 stage refuse).
+insert into t_out
+  select 'publish_empty', case when o_found then 'found' else 'empty' end
+    from job_api.lease_parse_job_v1(pg_temp.syn_hash('cloud-c1'), 'publish', 300);
+select is((select result from t_out where case_name = 'publish_empty'), 'empty',
+  '8 publish stage is leaseable but finds no queued publish row in this fixture set');
 
 create temp table t_art as
   select o_found, o_artifact_index, o_body_text, o_locator

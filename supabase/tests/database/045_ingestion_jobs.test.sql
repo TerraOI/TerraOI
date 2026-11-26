@@ -433,7 +433,7 @@ select is((select count(*) from public.ingestion_jobs
   '42 the capped row stays in the table for a human (and for the reconciler), rather than vanishing');
 insert into t_out values
   ('bad_hash', pg_temp.try_lease('not-a-hash', 'extract', 300)),
-  ('bad_stage', pg_temp.try_lease(pg_temp.syn_hash('box-c1'), 'publish', 300)),
+  ('bad_stage', pg_temp.try_lease(pg_temp.syn_hash('box-c1'), 'validate', 300)),
   ('null_stage', pg_temp.try_lease(pg_temp.syn_hash('box-c1'), null, 300)),
   ('lease_short', pg_temp.try_lease(pg_temp.syn_hash('box-c1'), 'extract', 5)),
   ('lease_long', pg_temp.try_lease(pg_temp.syn_hash('box-c1'), 'extract', 7200));
@@ -441,8 +441,8 @@ select is((select result from t_out where case_name = 'bad_hash'), '22023',
   '43 a malformed credential digest is a safe input error, decided before any row is read');
 select is((select result from t_out where case_name = 'bad_stage')
           || '/' || (select result from t_out where case_name = 'null_stage'), '22023/22023',
-  '44 publish (and null) stages stay refused: index is opened by T-113 for cloud_worker, but publish '
-  || 'remains T-213 / a later outbox slice');
+  '44 validate (and null) stages stay refused: extract/index/publish are the open lease stages '
+  || '(publish is cloud_worker only; T-213 owns review/revoke policy later)');
 select is((select result from t_out where case_name = 'lease_short')
           || '/' || (select result from t_out where case_name = 'lease_long'), '22023/22023',
   '45 lease seconds are bounded, because the reconciler''s stuck threshold is derived from the same '

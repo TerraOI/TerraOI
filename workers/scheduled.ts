@@ -3,6 +3,7 @@ import { chunkExtractedText } from "@/platform/knowledge/chunker";
 import {
   createIndexJobApi,
   createJobApi,
+  createPublishJobApi,
   dispatchOutboxEvents,
   type DispatchOutboxResult,
   type JobDbBinding,
@@ -22,15 +23,23 @@ import {
   type ExtractorPort,
   type IterationOutcome,
 } from "./ocr-pull";
+import {
+  createPublishWorkerDeps,
+  runPublishWorkerPull,
+  type PublishIterationOutcome,
+  type PublishJobApiPort,
+} from "./publish-pull";
 
 /**
  * Cron entry for the extraction deployment (#170): `triggers.crons` → `scheduled()` →
- * outbox dispatch (#99) then extract pull + index pull, each bounded by
+ * outbox dispatch (#99) then extract / index / publish pulls, each bounded by
  * `DEFAULT_MAX_JOBS_PER_INVOCATION`.
  *
  * Outbox dispatch runs whenever `JOB_DB` + `TOI_WORKER_TOKEN` are bound. Extract pull runs with the
  * T-212-backed port from `resolveCloudExtractor()`. Index pull stays idle until `resolveIndexEmbed()`
  * returns a port (OWNER wires real embed; chunker is the in-process T-113 chunker by default).
+ * Publish pull runs whenever JOB_DB + token are bound; `job_api.publish_version_v1` applies T-213's
+ * publication rule, so an unreviewed version is parked in `awaiting_review`, never published (TOI-013).
  */
 
 export type ScheduledEnv = CloudWorkerEnv & {
@@ -42,6 +51,11 @@ export type ScheduledDeps = {
   extractor?: ExtractorPort | null;
   indexChunker?: IndexChunkerPort | null;
   indexEmbed?: IndexEmbedPort | null;
+  /**
+   * Publish Job API override. `null` keeps the pull idle (tests). Omitted → bind from
+   * `JOB_DB` via `createPublishJobApi` (production cron).
+   */
+  publishJobApi?: PublishJobApiPort | null;
   fetchImpl?: typeof fetch;
   log?: (event:
     | { kind: "scheduled_skip"; reason: string }
@@ -55,6 +69,7 @@ export type ScheduledTickResult = {
   outbox: DispatchOutboxResult | { skipped: string };
   pull: IterationOutcome[] | { skipped: string };
   indexPull: IndexIterationOutcome[] | { skipped: string };
+  publishPull: PublishIterationOutcome[] | { skipped: string };
 };
 
 /**
@@ -108,7 +123,8 @@ async function defaultDispatchOutbox(env: ScheduledEnv): Promise<DispatchOutboxR
 }
 
 /**
- * One cron tick: drain extract_succeeded → index enqueue, then (if wired) extract + index pulls.
+ * One cron tick: drain extract_succeeded → index and index_succeeded → publish, then
+ * (if wired) extract + index pulls, and always the publish pull when JOB_DB is bound.
  */
 export async function runScheduledTick(
   env: ScheduledEnv,
@@ -134,7 +150,8 @@ export async function runScheduledTick(
 
   const pull = await runScheduledCloudPull(env, deps);
   const indexPull = await runScheduledIndexPull(env, deps);
-  return { outbox, pull, indexPull };
+  const publishPull = await runScheduledPublishPull(env, deps);
+  return { outbox, pull, indexPull, publishPull };
 }
 
 export async function runScheduledCloudPull(
@@ -196,4 +213,40 @@ export async function runScheduledIndexPull(
     embed,
   });
   return runIndexWorkerPull(indexDeps);
+}
+
+/**
+ * Skeleton auto-publish: lease `publish` and call `publish_version_v1`. Idle when JOB_DB
+ * or the worker token is missing, or when tests pass `publishJobApi: null`.
+ */
+export async function runScheduledPublishPull(
+  env: ScheduledEnv,
+  deps: ScheduledDeps = {},
+): Promise<PublishIterationOutcome[] | { skipped: string }> {
+  if (deps.publishJobApi === null) {
+    deps.log?.({ kind: "scheduled_skip", reason: "publish_unwired" });
+    return { skipped: "publish_unwired" };
+  }
+  if (env.JOB_DB === undefined && deps.publishJobApi === undefined) {
+    deps.log?.({ kind: "scheduled_skip", reason: "job_db_unbound" });
+    return { skipped: "job_db_unbound" };
+  }
+  const jobApi =
+    deps.publishJobApi ??
+    (env.JOB_DB !== undefined ? createPublishJobApi({ binding: env.JOB_DB }) : null);
+  if (jobApi === null) {
+    deps.log?.({ kind: "scheduled_skip", reason: "job_db_unbound" });
+    return { skipped: "job_db_unbound" };
+  }
+  const token = env.TOI_WORKER_TOKEN;
+  if (token === undefined || token.length === 0) {
+    deps.log?.({ kind: "scheduled_skip", reason: "worker_token_missing" });
+    return { skipped: "worker_token_missing" };
+  }
+
+  const publishDeps = createPublishWorkerDeps({
+    env,
+    jobApi,
+  });
+  return runPublishWorkerPull(publishDeps);
 }
