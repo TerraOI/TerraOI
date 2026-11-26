@@ -62,6 +62,8 @@ The supervisor posts **one review per round**, starting with `[Supervisor]`, wit
 
 Builders' agents address Blocking items first, push, then **reply to each item by its number** ("B1: fixed in <sha>" or "B2: disagree because…"). Do not mark conversations resolved; the supervisor resolves them. After a push, request a re-review. Approvals of an earlier commit do not count (`main-guard`).
 
+PRs opened under the supervisor login, including agent-written ones, follow the same rule ([#302](https://github.com/TerraOI/TerraOI/issues/302)). Only a PR that changes nothing but docs (`docs/` or a root-level `*.md`) merges without a second approval. Anything else needs one non-author approval on its final commit, and a builder's approval counts: on a protected path the supervisor's authorship is the supervisor side. Builders, when the supervisor requests your review on such a PR, review it as you would the other builder's.
+
 ## 6. Questions: ask, continue, pick up
 
 The supervisor answers asynchronously, usually within a working day, not within minutes. A question must therefore **never leave you idle**.
