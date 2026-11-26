@@ -100,6 +100,17 @@ jobs:
       - name: Build Workers bundle
         if: steps.gate.outputs.ready == 'true'
         run: pnpm cf:build
+      # #228/#170: the app Worker's env.staging binds OBJECT_URL_MINT to the service
+      # `terraoi-extraction-staging`, and Cloudflare rejects a binding to a Worker that does not
+      # exist (code 10143). Deploy the extraction Worker first. Its JOB_DB binding and secrets
+      # (TOI_STORAGE_SERVICE_ROLE_KEY, TOI_WORKER_TOKEN) stay owner steps (T-004 §20.8); until
+      # they are set, its cron skips and the mint fails closed.
+      - name: Deploy extraction Worker (staging env)
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm exec wrangler deploy --config workers/wrangler.jsonc --env staging
       - name: Deploy to Cloudflare (staging env)
         if: steps.gate.outputs.ready == 'true'
         env:
