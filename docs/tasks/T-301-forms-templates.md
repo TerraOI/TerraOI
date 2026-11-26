@@ -1,6 +1,6 @@
 # T-301 TerraOI forms: two seeded templates, submissions become knowledge
 
-Lane: 1 · Week: 3 · Protected: yes (`supabase/migrations/`) · Depends on: T-111 (merged), T-112 (a and b merged as #32/#54), T-102 (code halves a–d merged as #30/#50/#52/#57; staging evidence owed), T-103 (the brand validation half merged as #119; brand rows #150 and the shell #173 open), T-113 (the chunker and embedding gate merged as #80; publish is not on `main`) · Status: in progress (wyuinline) — claimed 2026-11-17 by branch `t-301-forms-sql` / PR #197 (SQL slice PR-1); Forms UI and `seeded-templates.test.ts` remain PR-2.
+Lane: 1 · Week: 3 · Protected: yes (`supabase/migrations/`) · Depends on: T-111 (merged), T-112 (a and b merged as #32/#54), T-102 (code halves a–d merged as #30/#50/#52/#57; staging evidence owed), T-103 (the brand validation half merged as #119; brand rows #150 and the shell #173 open), T-113 (the chunker and embedding gate merged as #80; publish is not on `main`) · Status: in progress (wyuinline) — PR-1 #197 (SQL slice) merged on main; PR-2 #220 (Forms UI and `seeded-templates.test.ts`) code complete; staging evidence owed (T-004 §20.8).
 Gated by decisions: all three closed with rulings, checked 2026-11-17 — [#51](https://github.com/TerraOI/TerraOI/issues/51) option 1 (extracted `body_text` is written at capture for text-like payloads, which is what this packet already assumes), [#39](https://github.com/TerraOI/TerraOI/issues/39) the merged capture predicate stands and a seeded `contributor` role is wanted (still absent from `supabase/seed.sql`, so a form submitter with `knowledge.write` is built in-transaction in pgTAP), [#64](https://github.com/TerraOI/TerraOI/issues/64) option 2 — the app sends email, transport owned by T-105 (open as #139), so no notification ships in this SQL slice.
 Plan refs: §7.6, §6.1 (Forms group), §6.2, §16 (Forms/OCR row), §15.0 ("2–3 seeded forms"), §20.3; F33 over [T-112](./T-112-uploads-extract.md)/[T-113](./T-113-chunk-embed-publish.md)'s capture and publish path
 
@@ -68,4 +68,5 @@ same template id on the company2 host creates nothing.
 Form-designer UI and tenant-authored template flows (§15.0 defers the designer), conditional logic beyond
 JSON Schema, TOI-07/TOI-10 operational truth (§7.6: a submission is not operational truth until those
 modules define authority), printed forms and exports (§20.5 excludes them from M1), publish notifications
-(F27, and #64 owns the transport).
+(F27, and #64 owns the transport). Draft reopening after reload (PR #220 Round-1 N1) and prefilling
+submitted values on linked corrections (N2) follow in a dedicated UI follow-up.
