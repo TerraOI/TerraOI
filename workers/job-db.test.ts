@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
-import { createJobApi, type JobSql } from "./job-db";
+import { createJobApi, dispatchOutboxEvents, type JobSql } from "./job-db";
 
 const TOKEN = "Qh7X3m1pL0aZ8sW2kD5vN9tY4bC6rE0uI1oP3qS7wX2";
 const DIGEST = createHash("sha256").update(TOKEN, "utf8").digest("hex");
@@ -181,5 +181,22 @@ describe("createJobApi — JOB_DB Hyperdrive adapter (T-211 PR-3a)", () => {
     await expect(
       apiMiss.objectRefForLease({ credential: TOKEN, jobId: JOB, leaseToken: "t", fence: 1 }),
     ).resolves.toEqual({ found: false });
+  });
+
+  it("dispatchOutboxEvents hashes the credential and maps counts (#99)", async () => {
+    const { sql, calls } = recordingSql(async () => [
+      { o_processed: 3, o_enqueued: 2, o_skipped: 1 },
+    ]);
+    await expect(
+      dispatchOutboxEvents({ openSql: () => sql }, { credential: TOKEN, limit: 16 }),
+    ).resolves.toEqual({ processed: 3, enqueued: 2, skipped: 1 });
+    expect(calls[0]?.sql).toContain("job_api.dispatch_outbox_v1");
+    expect(calls[0]?.values[0]).toBe(DIGEST);
+    expect(calls[0]?.values[1]).toBe(16);
+    expect(calls[0]?.values).not.toContain(TOKEN);
+  });
+
+  it("dispatchOutboxEvents returns null when JOB_DB is unbound", async () => {
+    await expect(dispatchOutboxEvents({}, { credential: TOKEN })).resolves.toBeNull();
   });
 });

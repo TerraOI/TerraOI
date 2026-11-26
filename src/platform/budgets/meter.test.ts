@@ -124,4 +124,80 @@ describe("createBoundMeterPortFromBudgetLedger (F19 seam)", () => {
       }),
     ).rejects.toThrow(/per-user burst/i);
   });
+
+  it("an ambiguous timeout keeps the first liability and books the retry as its own attempt", async () => {
+    const ledger = createInMemoryBudgetLedger({ dailyCeiling: 1_000 });
+    const meter = createBoundMeterPortFromBudgetLedger(ledger);
+
+    const first = await meter.reserve({
+      organisationId: ORG,
+      runId: RUN,
+      attemptId: "compose:pass:1",
+      task: "compose",
+      providerKey: "workers_ai",
+      maxInputUnits: 40,
+      maxOutputUnits: 60,
+    });
+    await meter.reconcile({
+      attemptId: "compose:pass:1",
+      reservationId: first.reservationId,
+      outcome: "ambiguous",
+    });
+    expect(ledger.stateOf(ORG, "compose:pass:1")).toBe("ambiguous");
+    expect(ledger.settledUnits()).toBe(100);
+    expect(ledger.reservedUnits()).toBe(0);
+
+    // Duplicate outbox / second reconcile against the ledger must not double-book (§12.3).
+    await ledger.reconcile({
+      organisationId: ORG,
+      attemptId: "compose:pass:1",
+      reservationId: first.reservationId,
+      outcome: "ambiguous",
+      usedUnits: null,
+    });
+    expect(ledger.settledUnits()).toBe(100);
+
+    const retry = await meter.reserve({
+      organisationId: ORG,
+      runId: RUN,
+      attemptId: "compose:pass:2",
+      task: "compose",
+      providerKey: "claude",
+      maxInputUnits: 40,
+      maxOutputUnits: 60,
+    });
+    expect(retry.reservationId).not.toBe(first.reservationId);
+    expect(ledger.reservedUnits()).toBe(100);
+    expect(ledger.settledUnits()).toBe(100);
+  });
+
+  it("ambiguous liability still counts against the daily ceiling", async () => {
+    const ledger = createInMemoryBudgetLedger({ dailyCeiling: 150 });
+    const meter = createBoundMeterPortFromBudgetLedger(ledger);
+    const first = await meter.reserve({
+      organisationId: ORG,
+      runId: RUN,
+      attemptId: "ambig-ceiling",
+      task: "compose",
+      providerKey: "local_box",
+      maxInputUnits: 50,
+      maxOutputUnits: 50,
+    });
+    await meter.reconcile({
+      attemptId: "ambig-ceiling",
+      reservationId: first.reservationId,
+      outcome: "ambiguous",
+    });
+    await expect(
+      meter.reserve({
+        organisationId: ORG,
+        runId: RUN,
+        attemptId: "ambig-ceiling-2",
+        task: "compose",
+        providerKey: "claude",
+        maxInputUnits: 40,
+        maxOutputUnits: 40,
+      }),
+    ).rejects.toThrow(/daily budget ceiling/i);
+  });
 });
