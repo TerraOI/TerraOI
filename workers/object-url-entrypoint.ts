@@ -6,6 +6,7 @@ import {
   type MintObjectUrlEnv,
   type MintObjectUrlResult,
 } from "./mint-object-url";
+import { runScheduledCloudPull, type ScheduledEnv } from "./scheduled";
 
 /**
  * Named RPC entrypoint for the app Worker's service binding (#170 / ADR-0011).
@@ -18,9 +19,18 @@ export class ObjectUrlMint extends WorkerEntrypoint<MintObjectUrlEnv> {
   }
 }
 
-/** Default export answers no public traffic — the deployment has no routes. */
-export default class ExtractionWorker extends WorkerEntrypoint {
+type ExtractionEnv = MintObjectUrlEnv & ScheduledEnv;
+
+/**
+ * Default export: no public HTTP; cron drives `runCloudWorkerPull` (#170 Cut C).
+ * T-212 extractor wiring lands in `resolveCloudExtractor()` — until then the cron is idle.
+ */
+export default class ExtractionWorker extends WorkerEntrypoint<ExtractionEnv> {
   fetch(): Response {
     return new Response("not found", { status: 404 });
+  }
+
+  async scheduled(): Promise<void> {
+    await runScheduledCloudPull(this.env);
   }
 }
