@@ -7,6 +7,17 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { EvalCase } from "@/contracts/eval-case";
 import { PLATFORM_DEFAULT_CLEARANCE, narrowClearance } from "@/contracts/provider-route";
 
+import {
+  answered,
+  fakeAdapter,
+  recordingMeter,
+  registryOf,
+  RUN_ID,
+  syntheticContext,
+  testConfiguration,
+} from "@/platform/gateway/gateway-fixtures";
+import { CircuitBook } from "@/platform/gateway/circuit";
+
 import { loadApprovedEvalCases } from "./load-cases";
 import { orderEvalCases } from "./order-cases";
 import { clearanceForEvalCase, runExpertEval } from "./run";
@@ -98,13 +109,13 @@ describe("loadApprovedEvalCases (F35 ignores drafts)", () => {
 });
 
 describe("runExpertEval (F35 run row binding)", () => {
-  it("names expert version, chain configuration and corpus generation on the run row", () => {
+  it("names expert version, chain configuration and corpus generation on the run row", async () => {
     const cases = [
       approvedCase({ caseId: "UAV-E030" }),
       approvedCase({ caseId: "UAV-E002" }),
     ];
     const chainConfig = { compose: ["local_box", "workers_ai", "claude"] as const };
-    const run = runExpertEval({
+    const run = await runExpertEval({
       expertKey: "uav-expert",
       expertVersion: "1.0.0-test",
       chainConfig,
@@ -120,7 +131,7 @@ describe("runExpertEval (F35 run row binding)", () => {
     expect(run.status).toBe("completed");
   });
 
-  it("produces the same caseOrder for the same inputs", () => {
+  it("produces the same caseOrder for the same inputs", async () => {
     const cases = [
       approvedCase({ caseId: "UAV-E009" }),
       approvedCase({ caseId: "UAV-E001" }),
@@ -133,7 +144,9 @@ describe("runExpertEval (F35 run row binding)", () => {
       corpusGeneration: "gen-a",
       cases,
     };
-    expect(runExpertEval(input).caseOrder).toEqual(runExpertEval({ ...input, cases: [...cases].reverse() }).caseOrder);
+    expect((await runExpertEval(input)).caseOrder).toEqual(
+      (await runExpertEval({ ...input, cases: [...cases].reverse() })).caseOrder,
+    );
   });
 });
 
@@ -159,7 +172,7 @@ describe("clearanceForEvalCase (never widen for a case)", () => {
 });
 
 describe("runExpertEval scoring (F35 per-case results)", () => {
-  it("scores each case and binds results to the run corpus generation", () => {
+  it("scores each case and binds results to the run corpus generation", async () => {
     const cases = [
       approvedCase({ caseId: "UAV-E002", expectedAnswerStatus: "answered" }),
       approvedCase({
@@ -171,7 +184,7 @@ describe("runExpertEval scoring (F35 per-case results)", () => {
         adversarialClass: "cross_tenant_bait",
       }),
     ];
-    const run = runExpertEval({
+    const run = await runExpertEval({
       expertKey: "uav-expert",
       expertVersion: "1.0.0-test",
       chainConfig: { compose: ["local_box"] },
@@ -194,8 +207,8 @@ describe("runExpertEval scoring (F35 per-case results)", () => {
     expect(run.results.every((r) => r.score === 1 && r.failureClass === null)).toBe(true);
   });
 
-  it("records provider_outage without a scored zero", () => {
-    const run = runExpertEval({
+  it("records provider_outage without a scored zero", async () => {
+    const run = await runExpertEval({
       expertKey: "uav-expert",
       expertVersion: "1.0.0-test",
       chainConfig: {},
@@ -207,8 +220,8 @@ describe("runExpertEval scoring (F35 per-case results)", () => {
     expect(run.results[0]?.failureClass).toBe("provider_outage");
   });
 
-  it("discards the run when corpus generation drifts mid-run", () => {
-    const run = runExpertEval({
+  it("discards the run when corpus generation drifts mid-run", async () => {
+    const run = await runExpertEval({
       expertKey: "uav-expert",
       expertVersion: "1.0.0-test",
       chainConfig: {},
@@ -225,13 +238,13 @@ describe("runExpertEval scoring (F35 per-case results)", () => {
     expect(run.results).toEqual([]);
   });
 
-  it("a client_confidential case produces zero DeepSeek/OpenRouter calls in the mock", () => {
+  it("a client_confidential case produces zero DeepSeek/OpenRouter calls in the mock", async () => {
     const used: string[] = [];
     const confidential = approvedCase({
       caseId: "UAV-E050",
       dataClass: "client_confidential",
     });
-    runExpertEval({
+    await runExpertEval({
       expertKey: "uav-expert",
       expertVersion: "1.0.0-test",
       chainConfig: {},
@@ -258,8 +271,8 @@ describe("runExpertEval scoring (F35 per-case results)", () => {
     expect(used).toEqual(["local_box", "claude"]);
   });
 
-  it("refuses a mock that tries to call a provider outside clearance", () => {
-    expect(() =>
+  it("refuses a mock that tries to call a provider outside clearance", async () => {
+    await expect(
       runExpertEval({
         expertKey: "uav-expert",
         expertVersion: "1.0.0-test",
@@ -272,7 +285,37 @@ describe("runExpertEval scoring (F35 per-case results)", () => {
           providerKeysUsed: ["deepseek"],
         }),
       }),
-    ).toThrow(/not cleared for data class/);
+    ).rejects.toThrow(/not cleared for data class/);
+  });
+});
+
+describe("runExpertEval gatewayWire", () => {
+  it("installs the default gateway asker when gatewayWire is set", async () => {
+    const adapter = fakeAdapter("local_box", [answered('{"status":"answered"}', "box")]);
+    const meter = recordingMeter();
+    const book = new CircuitBook({ openAfterFailures: 2, cooldownMs: 30_000 });
+
+    const run = await runExpertEval({
+      expertKey: "uav-expert",
+      expertVersion: "1.0.0-test",
+      chainConfig: { compose: ["local_box"] },
+      corpusGeneration: "gen-wire",
+      cases: [approvedCase({ caseId: "UAV-E003" })],
+      gatewayWire: {
+        context: syntheticContext(),
+        runId: RUN_ID,
+        gatewayDeps: {
+          config: testConfiguration(),
+          adapters: registryOf(adapter),
+          health: book,
+          meter,
+        },
+        composeChain: ["local_box"],
+      },
+    });
+
+    expect(run.results[0]?.score).toBe(1);
+    expect(adapter.calls).toHaveLength(1);
   });
 });
 
